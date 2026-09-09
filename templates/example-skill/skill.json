@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "example-skill",
+  "name": "Example Skill",
+  "version": "1.0.0",
+  "author": "your-username",
+  "description": "Explain the exact situation in which this skill is useful.",
+  "category": "Thinking and writing",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [],
+  "tools": []
+}

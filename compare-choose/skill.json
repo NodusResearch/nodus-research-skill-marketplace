@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "compare-choose",
+  "name": "Compare & Choose",
+  "version": "1.0.0",
+  "author": "Drakonis96",
+  "description": "Compare alternatives against explicit criteria and recommend a choice suited to your needs.",
+  "category": "Thinking and writing",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [],
+  "tools": []
+}

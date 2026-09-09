@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Nodus Marketplace</title><desc id="desc">A violet shopping basket containing the connected Nodus N.</desc>
+  <defs><linearGradient id="basket" x1="24" y1="36" x2="106" y2="118" gradientUnits="userSpaceOnUse"><stop stop-color="#ddd6fe"/><stop offset=".45" stop-color="#a78bfa"/><stop offset="1" stop-color="#7c3aed"/></linearGradient><linearGradient id="mark" x1="48" y1="61" x2="80" y2="94" gradientUnits="userSpaceOnUse"><stop stop-color="#ddd6fe"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>
+  <rect x="4" y="4" width="120" height="120" rx="32" fill="#171125"/>
+  <path d="m37 45 17-24m37 24L74 21" fill="none" stroke="url(#basket)" stroke-width="7" stroke-linecap="round"/>
+  <path d="M22 46h84l-8 52a12 12 0 0 1-12 10H42a12 12 0 0 1-12-10z" fill="#7c3aed" fill-opacity=".14" stroke="url(#basket)" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M20 46h88" stroke="#ddd6fe" stroke-width="7" stroke-linecap="round"/>
+  <path d="M48 91V63l32 28V63" fill="none" stroke="url(#mark)" stroke-width="5" stroke-linejoin="round"/>
+  <circle cx="48" cy="63" r="5" fill="#ddd6fe"/><circle cx="48" cy="91" r="5" fill="#a78bfa"/><circle cx="80" cy="91" r="5" fill="#8b5cf6"/><circle cx="80" cy="63" r="5" fill="#7c3aed"/>
+  <path d="m105 17 2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="#ddd6fe"/>
+</svg>

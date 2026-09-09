@@ -1,0 +1,3 @@
+Use this skill when the user supplies a numeric sample and asks for descriptive statistics.
+Call the summarize tool with {"values":[...]} using the exact numbers supplied by the user. Do not infer missing observations or manufacture a dataset. If the sample is ambiguous, request the missing values.
+Return a nodus-tool block with the skillId and toolId declared in the enabled-tools list. Nodus displays the computed result. Never announce calculated statistics before the tool runs. Explain that standard deviation uses the population denominator, and that a descriptive summary does not establish causality or statistical significance.

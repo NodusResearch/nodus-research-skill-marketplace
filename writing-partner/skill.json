@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "writing-partner",
+  "name": "Writing Partner",
+  "version": "1.0.0",
+  "author": "Drakonis96",
+  "description": "Draft and refine clear, purposeful writing while preserving your voice and intent.",
+  "category": "Thinking and writing",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [],
+  "tools": []
+}
