@@ -1,6 +1,12 @@
 // shared/skillMarketplace.ts
 var DEFAULT_SKILL_SOURCE = "https://github.com/NodusResearch/nodus-research-skill-marketplace";
-var SKILL_CAPABILITIES = ["svg", "chemistry", "image"];
+var SKILL_CAPABILITIES = ["svg", "chemistry", "image", "genomics", "legal"];
+var SUPPORTED_SKILL_CAPABILITIES = ["svg", "chemistry", "image"];
+var unsupportedSkillCapabilities = (capabilities) => capabilities.filter((c) => !SUPPORTED_SKILL_CAPABILITIES.includes(c));
+function assertSkillCapabilitiesSupported(capabilities) {
+  const missing = unsupportedSkillCapabilities(capabilities);
+  if (missing.length) throw new Error(`This Nodus build does not support these native capabilities: ${missing.join(", ")}. A compatible Nodus build is required.`);
+}
 var skillSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 64) || "my-skill";
 var slug = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var plain = (value, max) => typeof value === "string" && value.trim().length > 0 && value.length <= max && !/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value);
@@ -38,8 +44,11 @@ function normalizeSkillSource(input) {
 export {
   DEFAULT_SKILL_SOURCE,
   SKILL_CAPABILITIES,
+  SUPPORTED_SKILL_CAPABILITIES,
+  assertSkillCapabilitiesSupported,
   normalizeSkillSource,
   skillSlug,
+  unsupportedSkillCapabilities,
   validateManifest,
   validateSkillPackage
 };

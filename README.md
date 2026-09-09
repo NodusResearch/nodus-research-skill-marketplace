@@ -1,5 +1,5 @@
 <p align="center"><img src="assets/nodus-marketplace.svg" width="144" height="144" alt="Nodus Marketplace" /></p>
-<h1 align="center">Nodus Marketplace</h1>
+<h1 align="center">Nodus Research - Skill marketplace</h1>
 <p align="center">Research methods. Creative tools. Shared possibilities.</p>
 
 Discover and share skills for the Nodus assistant and Nodi. Each skill is a self-contained directory with the same versioned manifest, instructions and optional tools.
@@ -9,6 +9,8 @@ In Nodus, open **Skills → Marketplace**. This repository is included by defaul
 Catalog updates do not change installed skills. Installing a replacement is explicit, replaces local edits and disables the skill until you enable it again. Repository snapshots are pinned to a commit. Removing a source keeps its installed skills.
 
 [Create a skill](CONTRIBUTING.md) · [Package specification](SPECIFICATION.md) · [Marketplace rules](POLICY.md) · [Security](SECURITY.md)
+
+AlphaGenome and Legalize are packaged from [Nodus PR #700](https://github.com/Drakonis96/nodus/pull/700). They require a build with their native integrations and marketplace capability routing; the PR is currently open. Builds without those capabilities cannot install them. See each package’s compatibility notes.
 
 ## Catalog
 
@@ -20,6 +22,12 @@ Catalog updates do not change installed skills. Installing a replacement is expl
 | --- | --- | --- |
 | [Descriptive Statistics](descriptive-statistics/) | [@Drakonis96](https://github.com/Drakonis96) | Calculate count, mean, median, range and population standard deviation from a supplied numeric sample. |
 
+### Law and legislation
+
+| App / skill | Creator | Description |
+| --- | --- | --- |
+| [Legalize](legalize/) | [@Drakonis96](https://github.com/Drakonis96) | Find legislation in legalize-dev country repositories, preserving official sources, snapshot versions, licences and attribution. Requires the native integration from Nodus PR #700. |
+
 ### Learning
 
 | App / skill | Creator | Description |
@@ -30,6 +38,7 @@ Catalog updates do not change installed skills. Installing a replacement is expl
 
 | App / skill | Creator | Description |
 | --- | --- | --- |
+| [AlphaGenome](alphagenome/) | [@Drakonis96](https://github.com/Drakonis96) | AlphaGenome regulatory variant predictions for non-commercial research, with local plots and attributed exports. Requires a personal API key and the native integration from Nodus PR #700. |
 | [Chemistry Studio](chemistry-studio/) | [@Drakonis96](https://github.com/Drakonis96) | Reference-backed molecular structures, Fischer/Haworth/Newman projections and bounded reaction mechanisms with validated ChemFig export. |
 
 ### Thinking and writing

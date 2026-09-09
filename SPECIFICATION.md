@@ -34,11 +34,16 @@ Use English for names, descriptions, instructions and documentation. IDs use low
 
 ## Native capabilities
 
-`capabilities` is an array containing any combination of `svg`, `chemistry`, `image`, with no duplicates. Empty means no native tools. Unknown capabilities are rejected.
+`capabilities` is an array containing any combination of `svg`, `chemistry`, `image`, `genomics`, `legal`, with no duplicates. Empty means no native tools. Unknown capabilities are rejected.
 
 - `svg`: self-contained fenced SVG output and Nodus's existing visual validation.
 - `chemistry`: Nodus's version-2 chemistry identity-intent resolver, with validated structures and deterministic ChemFig export. Native chemistry scope and refusal of unsupported mechanisms still apply.
 - `image`: Nodus's configured image provider and model; standard provider charges may apply. One image per reply.
+
+- `genomics`: reserved for the AlphaGenome native integration from Nodus PR #700, including key configuration and service terms.
+- `legal`: reserved for the Legalize native retrieval integration from Nodus PR #700, including reviewed source licences and attribution.
+
+Recognizing a manifest capability does not mean a build implements it. The marketplace can display these packages, but installation and local import must reject capabilities unsupported by the running build. Enable native support only after routing, configuration and permission checks are integrated and tested.
 
 Custom skills use the same routing and execution checks as built-in skills. Capabilities become available only when the skill is enabled for the current surface.
 
