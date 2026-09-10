@@ -115,7 +115,7 @@ is the starting point for a new one.
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
 <tbody>
-<tr><td><a href="unit-converter/">Unit Converter</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Convert lengths, masses and temperatures exactly, without the model doing the arithmetic.</td></tr>
+<tr><td><a href="unit-converter/">Unit Converter</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Convert lengths, masses and temperatures exactly and in batches, without the model doing the arithmetic.</td></tr>
 </tbody>
 </table>
 
