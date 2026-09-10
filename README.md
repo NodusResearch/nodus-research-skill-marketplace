@@ -2,7 +2,7 @@
 <h1 align="center">Nodus Research - Skill marketplace</h1>
 <p align="center">Research methods. Creative tools. Shared possibilities.</p>
 
-Discover and share skills for the Nodus assistant and Nodi. Each skill is a self-contained directory with the same versioned manifest, instructions and optional tools.
+Discover and share skills and plugins for the Nodus assistant and Nodi. A skill is a self-contained directory with a versioned manifest, instructions and optional tools. A plugin bundles several skills, or a skill with its own sandboxed capability, under one version.
 
 In Nodus, open **Skills → Marketplace**. This repository is included by default. Select **Update catalog**, review a skill, install it, then enable it independently for Assistant or Nodi in **My skills**. You can add any number of public GitHub repository sources using the same format. Requires a Nodus build containing the marketplace integration; earlier releases support instruction-only imports.
 
@@ -10,7 +10,7 @@ Catalog updates do not change installed skills. Installing a replacement is expl
 
 [Create a skill](CONTRIBUTING.md) · [Package specification](SPECIFICATION.md) · [Marketplace rules](POLICY.md) · [Security](SECURITY.md) · [Agent guidelines](AGENTS.md)
 
-AlphaGenome and Legalize are packaged from [Nodus PR #700](https://github.com/Drakonis96/nodus/pull/700). They require a build with their native integrations and marketplace capability routing; the PR is currently open. Builds without those capabilities cannot install them. See each package’s compatibility notes.
+AlphaGenome and Legalize use Nodus's `nodus:genomics` and `nodus:legal` capabilities. Both are registered capabilities in current builds; older builds without them refuse installation. See each package’s compatibility notes.
 
 ## Skills, tools and native capabilities
 
@@ -20,11 +20,28 @@ Most skills need nothing beyond their instructions. A skill may also ship ordina
 
 Advanced skills declare a native capability instead. The package never bundles or reproduces the external service. It states which capability it needs, and Nodus exposes the corresponding tools at runtime when the running build supports that capability and the user has permitted it. Native capabilities cover work that arbitrary marketplace code should not perform: external-service access, credential handling, authoritative-data retrieval, specialized validated computation and other deeper application integrations.
 
-- [AlphaGenome](alphagenome/) is the skill; Nodus's native genomics capability performs the AlphaGenome integration.
-- [Legalize](legalize/) is the skill; the native legal capability performs the reviewed legislation retrieval.
-- [Chemistry Studio](chemistry-studio/) is the skill; native chemistry tooling performs the specialized validated chemistry operations.
+- [AlphaGenome](alphagenome/) is the skill; Nodus's `nodus:genomics` capability performs the AlphaGenome integration.
+- [Legalize](legalize/) is the skill; `nodus:legal` performs the reviewed legislation retrieval.
+- [Chemistry Studio](chemistry-studio/) is the skill; `nodus:chemistry` performs the specialized validated chemistry operations.
 
 Declaring a capability does not grant it. A package requests, Nodus decides: builds without the capability refuse installation, and the privileged tools never leave the trusted runtime. The layering is deliberate. Marketplace packages describe workflows; sensitive or specialized execution stays inside Nodus.
+
+## Plugins and their own capabilities
+
+A plugin can also ship a capability of its own. Its `runtime.js` runs in an ephemeral Chromium
+sandbox with no Node, filesystem, imports, application bridge, navigation, WebRTC or direct
+network access, and it never executes native code. It reaches the outside only through the
+HTTPS endpoints its manifest declares; a secret you configure in Nodus is injected into the
+request by the application and is never visible to the plugin's code. Results are validated
+and inert.
+
+Updates are atomic and keep the previous version, so a rollback is always available. An update
+that asks for more permissions than you approved is held until you review the new set, and any
+instructions you edited locally survive as an overlay you can reset. Auto-update is on by
+default for this official repository and opt-in per plugin for other sources.
+
+[Unit Converter](unit-converter/) is a complete worked example, and `templates/example-plugin`
+is the starting point for a new one.
 
 ## Catalog
 
@@ -90,6 +107,15 @@ Declaring a capability does not grant it. A package requests, Nodus decides: bui
 <tbody>
 <tr><td><a href="image-atelier/">Image Atelier</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Original illustrations, concept art and visual scenes using your image model.</td></tr>
 <tr><td><a href="svg-studio/">SVG Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Precise diagrams, explanatory drawings, maps, timelines and visual systems.</td></tr>
+</tbody>
+</table>
+
+### Plugins
+
+<table>
+<thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
+<tbody>
+<tr><td><a href="unit-converter/">Unit Converter</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Convert lengths, masses and temperatures exactly, without the model doing the arithmetic.</td></tr>
 </tbody>
 </table>
 

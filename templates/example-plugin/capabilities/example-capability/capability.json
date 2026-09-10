@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "example-capability",
+  "version": "1.0.0",
+  "description": "Explain what this capability computes and what it needs.",
+  "runtime": "javascript-sandbox-v1",
+  "entry": "runtime.js",
+  "tools": [
+    {
+      "id": "convert",
+      "description": "Convert a length. Input: { value: number, from: \"m\"|\"km\", to: \"m\"|\"km\" }.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "value": { "type": "number" },
+          "from": { "type": "string" },
+          "to": { "type": "string" }
+        },
+        "required": ["value", "from", "to"],
+        "additionalProperties": false
+      },
+      "resultKinds": ["json"]
+    }
+  ],
+  "permissions": {}
+}
