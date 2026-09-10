@@ -17,9 +17,12 @@ for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
   validateSkillPackage({ manifest, files: Object.fromEntries(['SKILL.md', ...manifest.tools.map(t => t.entry)].map(file => [file, read(file)])) });
   entries.push(manifest);
 }
-const escape = value => value.replace(/\|/g, '\\|').replace(/[\r\n]/g, ' ').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escape = value => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/[\r\n]/g, ' ');
+// Fixed column widths keep every category table identically proportioned; GitHub sizes markdown tables from their own content.
+const columns = [['App / skill', 190], ['Creator', 125], ['Description', 505]];
+const head = `<thead><tr>${columns.map(([label, width]) => `<th width="${width}">${label}</th>`).join('')}</tr></thead>`;
 const categories = [...new Set(entries.map(e => e.category))].sort();
-const catalog = categories.map(category => `### ${escape(category)}\n\n| App / skill | Creator | Description |\n| --- | --- | --- |\n` + entries.filter(e => e.category === category).sort((a,b) => a.name.localeCompare(b.name)).map(e => `| [${escape(e.name)}](${e.id}/) | [@${e.author}](https://github.com/${e.author}) | ${escape(e.description)} |`).join('\n')).join('\n\n');
+const catalog = categories.map(category => `### ${escape(category)}\n\n<table>\n${head}\n<tbody>\n` + entries.filter(e => e.category === category).sort((a,b) => a.name.localeCompare(b.name)).map(e => `<tr><td><a href="${e.id}/">${escape(e.name)}</a></td><td><a href="https://github.com/${e.author}">@${escape(e.author)}</a></td><td>${escape(e.description)}</td></tr>`).join('\n') + `\n</tbody>\n</table>`).join('\n\n');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 const updated = readme.replace(/<!-- catalog:start -->[\s\S]*?<!-- catalog:end -->/, `<!-- catalog:start -->\n\n${catalog}\n\n<!-- catalog:end -->`);
 if (process.argv.includes('--check')) {
