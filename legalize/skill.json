@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "legalize",
   "name": "Legalize",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Drakonis96",
   "description": "Find legislation in legalize-dev country repositories, preserving official sources, snapshot versions, licences and attribution. Requires a Nodus build providing the nodus:legal capability.",
-  "category": "Law and legislation",
+  "category": "Law and public policy",
   "license": "AGPL-3.0-only",
   "instructions": "SKILL.md",
   "capabilities": [

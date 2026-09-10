@@ -27,7 +27,7 @@ my-skill/
   "version": "1.0.0",
   "author": "your-github-username",
   "description": "One short sentence explaining when to use this skill.",
-  "category": "Data analysis",
+  "category": "Data and statistics",
   "license": "AGPL-3.0-only",
   "instructions": "SKILL.md",
   "capabilities": [],
@@ -35,7 +35,7 @@ my-skill/
 }
 ```
 
-Use English for names, descriptions, instructions and documentation. IDs use lowercase letters, digits and single hyphens, up to 64 characters. Names are at most 80 characters; descriptions 500; categories 60; licenses 80. The creator is a GitHub username, up to 39 characters. Versions use three numeric components, `major.minor.patch`. Increment the version for every published change.
+Use English for names, descriptions, instructions and documentation. IDs use lowercase letters, digits and single hyphens, up to 64 characters. Names are at most 80 characters; descriptions 500; categories 60; licenses 80. The creator is a GitHub username, up to 39 characters. Versions use three numeric components, `major.minor.patch`. Increment the version for every published change. The official catalog uses the [category vocabulary](CONTRIBUTING.md#choose-a-category); independent marketplace repositories may define their own categories.
 
 `SKILL.md` contains the method and when to apply it, expected input/output, limitations and evidence requirements; maximum 16,000 characters. Instructions cannot override the user's intent or the application's permission boundaries.
 

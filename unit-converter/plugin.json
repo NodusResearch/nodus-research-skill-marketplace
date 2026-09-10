@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "unit-converter",
   "name": "Unit Converter",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Drakonis96",
   "description": "Convert lengths, masses and temperatures exactly and in batches, without the model doing the arithmetic.",
   "license": "AGPL-3.0-only",

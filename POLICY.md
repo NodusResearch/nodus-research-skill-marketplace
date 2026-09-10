@@ -32,7 +32,7 @@ A version that expands the permissions of a previous version must say so explici
 
 Use the documented directory structure and English metadata/documentation. Identify the real submitting creator username, declare a license you have authority to grant, credit dependencies and sources, and disclose every capability and tool. Do not include secrets, telemetry, tracking or private examples. Describe limitations accurately. Include reproducible examples and expected results for tools.
 
-For a plugin, every component carries the same SemVer version, and any change increments all of them. Republishing different content under an existing version is refused by the application, not merely by review. Generated artifacts (`scripts/contract.mjs` and the README catalog block) must be committed exactly as generated and never edited by hand.
+For a plugin, every component carries the same SemVer version, and any change increments all of them. Republishing different content under an existing version is refused by the application, not merely by review. Generated artifacts (`scripts/contract.mjs`, the README category index and the README catalog block) must be committed exactly as generated and never edited by hand.
 
 ## Review and enforcement
 
