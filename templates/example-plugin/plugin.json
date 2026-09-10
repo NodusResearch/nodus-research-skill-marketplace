@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "example-plugin",
+  "name": "Example Plugin",
+  "version": "1.0.0",
+  "author": "your-username",
+  "description": "Explain in one sentence what this plugin adds and when it is useful.",
+  "license": "AGPL-3.0-only",
+  "compatibility": {
+    "capabilityApi": 1,
+    "minNodusVersion": "5.3.1"
+  },
+  "skills": ["skills/example-method/skill.json"],
+  "capabilities": ["capabilities/example-capability/capability.json"]
+}

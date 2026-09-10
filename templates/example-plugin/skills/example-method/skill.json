@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "example-method",
+  "name": "Example Method",
+  "version": "1.0.0",
+  "author": "your-username",
+  "description": "Explain the exact situation in which this skill is useful.",
+  "category": "Thinking and writing",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": ["self:example-capability"],
+  "tools": [
+    {
+      "id": "summarize",
+      "description": "Input: { values: number[] }. Returns the count and total of the values.",
+      "entry": "tools/summarize.js",
+      "runtime": "javascript-sandbox"
+    }
+  ]
+}

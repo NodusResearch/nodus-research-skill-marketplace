@@ -1,6 +1,6 @@
 # Agent and contributor guidelines
 
-These instructions govern creating, updating, reviewing, and publishing skills in the [official Nodus Research skill marketplace](https://github.com/NodusResearch/nodus-research-skill-marketplace).
+These instructions govern creating, updating, reviewing, and publishing skills and plugins in the [official Nodus Research skill marketplace](https://github.com/NodusResearch/nodus-research-skill-marketplace).
 
 **Main application:** [Drakonis96/nodus](https://github.com/Drakonis96/nodus).
 
@@ -14,15 +14,23 @@ Follow the actual package contract. Do not invent manifest fields, capability id
 
 These rules apply to instructions, manifests, tool code, examples, dependencies, linked resources, documentation, updates, and advertised uses. Review actual functionality: a harmless description or a “research only” disclaimer cannot make prohibited behavior acceptable.
 
-## 2. Understand skills, tools, and capabilities
+## 2. Understand skills, tools, capabilities, and plugins
 
 - **Skill:** an installable workflow containing instructions, metadata, and declarations of required capabilities or optional sandboxed tools.
 - **Tool:** a concrete operation the assistant requests through a defined interface and the application executes.
-- **Native capability:** specialized or privileged functionality implemented and controlled by Nodus, potentially exposing several tools.
+- **Native capability:** specialized or privileged functionality implemented and controlled by Nodus, potentially exposing several tools. Nodus registers `nodus:svg`, `nodus:image`, `nodus:chemistry`, `nodus:genomics`, and `nodus:legal`; the bare names normalize to those identifiers.
+- **Plugin:** one versioned unit bundling one or more skills, and optionally its own **plugin capability** — a `runtime.js` the application executes in an ephemeral Chromium sandbox on the plugin's behalf.
 
 A skill describes a workflow; it does not itself provide every underlying integration. Declaring a capability MUST NOT be treated as granting arbitrary application privileges.
 
-Use the least-privileged implementation. Instruction-only tasks and supported sandboxed calculations do not require new native capabilities. External-service access, credentials, protected data handling, specialized runtimes, and operations outside the sandbox belong in reviewed application-controlled implementations.
+Use the least-privileged implementation, in this order:
+
+1. Instructions alone.
+2. A sandboxed JavaScript tool, for self-contained calculation, parsing, or transformation.
+3. A plugin capability, for work that needs a declared HTTPS endpoint, a user-configured secret, or namespaced storage. Request the narrowest permission set that works; a capability with no permissions has no host operations at all and SHOULD be preferred whenever the work is self-contained.
+4. A native capability, for functionality that must stay inside Nodus: privileged application data, specialized validated computation, reviewed integrations, and anything the plugin sandbox deliberately withholds.
+
+A plugin capability is NOT a general escape hatch. It has no Node, filesystem, imports, application bridge, preload, navigation, WebRTC, or direct network access, and it never executes native code. Shell commands, npm dependencies, vault access, clipboard, arbitrary file access, and external React or HTML components are outside this runtime and MUST NOT be requested or simulated. A configured secret is injected into the outgoing request by the application and MUST NOT be read, logged, echoed, or returned by the runtime.
 
 Never bypass the sandbox, load hidden executables, embed shared secrets, or substitute fabricated results for unavailable tools. Do not claim package signing, approval gates, or other protections exist unless verified in the application.
 
@@ -32,9 +40,9 @@ Every contribution MUST follow this order:
 
 1. **Define scope.** Identify the research purpose, intended users, non-goals, inputs, outputs, sources, rights, privacy risks, and limitations.
 2. **Identify execution needs.** Determine whether instructions, sandboxed tools, or native capabilities are required.
-3. **Inspect the main application first.** Check [Drakonis96/nodus](https://github.com/Drakonis96/nodus) for existing implementations, capability registration, tool contracts, routing, configuration, permissions, activation, supported surfaces, and tests.
+3. **Inspect the main application first.** Check [Drakonis96/nodus](https://github.com/Drakonis96/nodus) for existing implementations, capability registration, tool contracts, routing, configuration, permissions, activation, supported surfaces, and tests. Built-in capabilities are registered in `skill-capabilities/registry/catalog.ts`; the published contract is generated from `skill-capabilities/marketplaceContract.ts`.
 4. **Reuse existing functionality.** Use a compatible existing capability rather than duplicating its integration. A recognized manifest identifier, old PR, or built-in skill is not proof of marketplace support.
-5. **Implement missing support upstream.** When necessary, implement or extend the capability in the main application and submit a separate PR there first. Include runtime validation, security and privacy controls, tests, and documentation.
+5. **Choose the right home for missing support.** Work that fits the plugin sandbox — a declared HTTPS endpoint, a user-configured secret, namespaced storage, deterministic computation — belongs in a plugin capability in this repository and needs no upstream change. Work that requires privileged application data, a specialized validated runtime, or anything the sandbox withholds MUST be implemented or extended in the main application and submitted as a separate PR there first, with runtime validation, security and privacy controls, tests, and documentation.
 6. **Add the marketplace package afterward.** Submit its PR to this repository, link the application PR, and document required capability and application-version compatibility.
 7. **Gate publication.** A dependent marketplace PR may remain a draft while application work proceeds. It MUST NOT enter the supported catalog or be advertised as usable until the capability is integrated, tested, and available in a documented compatible build.
 8. **Verify before requesting approval.** Test the package against that build and report remaining limitations honestly.
@@ -54,6 +62,8 @@ Every new or materially revised `SKILL.md` MUST organize its instructions in thi
 7. Limitations, uncertainty, errors, cancellation, and refusal conditions.
 
 Specify when a tool is mandatory, its permitted inputs, what constitutes success, and what happens when configuration or capability support is missing. Never instruct the model to invent missing evidence, permissions, results, or successful execution.
+
+For a plugin, also state which capability tool is mandatory for which step, name every declared tool inside `SKILL.md` (the validator rejects a package whose instructions never reach a declared tool), and describe what the skill does when a secret is unconfigured or an endpoint is unreachable.
 
 Respect the specification's schema, file layout, language requirements, and size limits. Mandatory protections MUST be enforced through the relevant runtime, not solely through prompts or optional documentation. Proposed protections must be identified as pending until implemented and tested.
 
@@ -130,12 +140,29 @@ Follow `POLICY.md` and `SECURITY.md` for reporting, evidence, corrections, and a
 
 Removal from the official catalog does not remotely uninstall local copies or revoke rights already granted under an applicable license.
 
-## 11. Validate and report before publication
+## 11. Version plugins honestly and never hand-edit generated artifacts
+
+`plugin.json`, every `skill.json`, and every `capability.json` inside a plugin MUST carry the same SemVer version, and all of them MUST be incremented together for any change to any component. Nodus records the content digest of the version it installed and refuses different content republished under an existing version, so a "silent" fix under the same number is not merely discouraged — it will not install.
+
+Set `compatibility.minNodusVersion` to the oldest release actually tested, and `compatibility.capabilityApi` to the API the plugin targets. Nodus never downgrades a plugin automatically; returning to an earlier version is an explicit user rollback.
+
+Widening a capability's permissions in a new version is permitted but MUST be disclosed in the pull request: Nodus holds such an update until the user approves the new set. Narrowing permissions needs no approval and SHOULD be done whenever a permission stops being necessary.
+
+The following are generated and MUST NOT be edited by hand:
+
+- `scripts/contract.mjs` — regenerated only from the main application with `node scripts/sync-skill-marketplace.mjs /path/to/marketplace-checkout`. It carries a generated-file banner.
+- The catalog block between `<!-- catalog:start -->` and `<!-- catalog:end -->` in `README.md` — regenerated with `node scripts/catalog.mjs`.
+- `assets/nodus-marketplace.svg` — exported from the application's canonical mark.
+
+Fixtures MUST be deterministic and self-contained: no credentials, no paid API calls, no network dependency, and no real personal, patient, or student data. `templates/example-plugin` is the starting point for a new plugin and [Unit Converter](unit-converter/) is the reference worked example.
+
+## 12. Validate and report before publication
 
 Before recommending acceptance, verify:
 
 - Package validity, ordered instructions, versioning, and compatible runtime support.
-- Successful required tool routing and correct behavior for missing configuration, disabled capabilities, invalid input, cancellation, and unavailable services.
+- For a plugin: matching versions across every component, a justified permission set, and an install exercised from a directory (Import, or the profile inbox) with every tool and capability run from a real conversation on more than one surface.
+- Successful required tool routing and correct behavior for missing configuration, disabled capabilities, invalid input, cancellation, unavailable services, and the shared four-call-per-reply budget.
 - Reproducible examples, source provenance, necessary rights, and accurate limitations.
 - Personal-data isolation and compliance with medical, teaching, and academic-integrity boundaries.
 
