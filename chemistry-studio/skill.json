@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "chemistry-studio",
   "name": "Chemistry Studio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Drakonis96",
   "description": "Reference-backed molecular structures, Fischer/Haworth/Newman projections and bounded reaction mechanisms with validated ChemFig export.",
   "category": "Science",
