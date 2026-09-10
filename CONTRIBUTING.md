@@ -1,17 +1,17 @@
 # Create and contribute a skill or plugin
 
 1. In Nodus, open **Skills → My skills → Create skill**. Write an English name, brief description and instructions. Set your GitHub username, category and version.
-2. Select only needed native capabilities (`nodus:svg`, `nodus:image`, `nodus:chemistry`, `nodus:genomics`, `nodus:legal`). For custom tools, add an ID, input/output description and a JavaScript function expression. See [the specification](SPECIFICATION.md) and [Descriptive Statistics](descriptive-statistics/).
+2. Select only needed native capabilities. The editor lists them by short name — svg, image, chemistry, genomics, legal — and the exported manifest may write either the short name or its canonical `nodus:` identifier; Nodus treats them as the same capability. For custom tools, add an ID, input/output description and a JavaScript function expression. See [the specification](SPECIFICATION.md) and [Descriptive Statistics](descriptive-statistics/).
 3. Save the skill, enable it on one surface and try a concrete request. Test it independently in Assistant and Nodi. Check invalid input and disabled-tool behavior.
 4. Select **Export** on the saved skill. Choose a parent folder. Nodus creates a package directory without overwriting existing directories. Alternatively, copy `templates/example-skill` to a new directory at the repository root and update the manifest ID to match.
-5. Copy that directory into a fork of this repository. Keep one directory per skill. Run `node scripts/catalog.mjs` and `node scripts/catalog.mjs --check` with Node.js 22 or later.
+5. Copy that directory into a fork of this repository. Keep one directory per skill. Run `node scripts/catalog.mjs` and then `node scripts/catalog.mjs --check` with Node.js 22 or later, and commit the regenerated catalog block in `README.md` — CI fails on a stale one.
 6. Submit a pull request with the purpose, capabilities, test request and expected result, license/source credits and confirmation that you have read [the marketplace rules](POLICY.md). Do not include private input, credentials or generated research data.
 
 Use an existing category where appropriate: Data analysis, Learning, Science, Thinking and writing, Visual creation. New descriptive categories are accepted. The README is generated and grouped by category, with app/skill name, creator username and brief description.
 
 To publish independently, put the same directories at the root of any public GitHub repository and add its repository URL in **Skills → Marketplace → Add source**, then click **Update catalog**. There is no limit to the number of sources a user can add. If the official marketplace rejects a listing, hosting elsewhere does not imply official endorsement or override the rules of the hosting service or applicable law.
 
-For updates, increment the manifest version and repeat validation and review. Users refresh the catalog, review the update and explicitly replace their installation; their existing installation is not modified automatically.
+For updates to a **skill package**, increment the manifest version and repeat validation and review. Users refresh the catalog, review the update and explicitly replace their installation; their existing installation is not modified automatically. **Plugins update differently** — see the section below.
 
 ## Contributing a plugin
 
@@ -33,8 +33,21 @@ A plugin ships several skills, or a skill together with its own sandboxed capabi
    **Skills → Marketplace → Import**, or drop it into `plugins/inbox/` in your Nodus profile
    and approve it under **Waiting for review**. Exercise the capability from a real
    conversation on at least two surfaces.
-6. Expanding permissions in a later version is allowed, but say so explicitly in the pull
-   request: existing users will be asked to approve the new set before the update applies.
+6. Copy the directory into a fork of this repository, keeping one root directory per plugin,
+   named after its `plugin.json` id. Run `node scripts/catalog.mjs` and then
+   `node scripts/catalog.mjs --check` with Node.js 22 or later, and commit the regenerated
+   catalog block in `README.md`. Never edit `scripts/contract.mjs` by hand.
+7. Submit a pull request following the template: purpose, every tool and capability, the exact
+   permissions each capability requests and why, a reproducible request with its expected
+   result, licence and source credits, and confirmation that you have read
+   [the marketplace rules](POLICY.md).
+
+**Updates work differently from skill packages.** From this official repository a plugin
+auto-updates by default, so a published version reaches existing users without them
+reinstalling it. Increment every component's version together, and say so explicitly in the
+pull request if the new version widens any capability's permissions: Nodus holds such an update
+until each user approves the new set. Instructions a user edited locally survive an update as an
+overlay, and a user can always roll back to the previous version.
 
 [Unit Converter](unit-converter/) is a complete, deterministic worked example: one skill, one
 capability, no permissions.

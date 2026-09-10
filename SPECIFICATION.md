@@ -83,7 +83,7 @@ Each entry is exactly `tools/<tool-id>.js`. The file contains a JavaScript funct
 
 Document and validate inputs in the tool. Return a JSON-serializable value. Source and input/output are bounded at 64,000 characters; a tool runs for at most five seconds. The runtime provides standard browser JavaScript, without Node.js, filesystem access, imports, network, credentials, persisted storage or a Nodus bridge. This supports custom calculations, parsers, transformations and generators. Shell commands, third-party integrations and arbitrary native executables are not supported by v1.
 
-Nodus supplies enabled tool identifiers to the model. It invokes a tool using a fenced `nodus-tool` JSON block with `skillId`, `toolId` and `input`. The skill ID is the installed local ID supplied by Nodus, not the package slug. Up to four calls are processed per reply. Results are displayed as inert JSON; they are not interpreted as instructions or re-executed. This release does not perform a second model turn over results.
+Nodus supplies enabled tool identifiers to the model. It invokes a tool using a fenced `nodus-tool` JSON block with `skillId`, `toolId` and `input`. The skill ID is the installed local ID supplied by Nodus, not the package slug. Up to four calls are processed per reply, and that budget is shared with any plugin capability calls in the same reply. Results are displayed as inert JSON; they are not interpreted as instructions or re-executed. This release does not perform a second model turn over results.
 
 ## Distribution and storage
 

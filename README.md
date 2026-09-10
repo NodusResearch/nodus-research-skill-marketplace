@@ -4,9 +4,9 @@
 
 Discover and share skills and plugins for the Nodus assistant and Nodi. A skill is a self-contained directory with a versioned manifest, instructions and optional tools. A plugin bundles several skills, or a skill with its own sandboxed capability, under one version.
 
-In Nodus, open **Skills → Marketplace**. This repository is included by default. Select **Update catalog**, review a skill, install it, then enable it independently for Assistant or Nodi in **My skills**. You can add any number of public GitHub repository sources using the same format. Requires a Nodus build containing the marketplace integration; earlier releases support instruction-only imports.
+In Nodus, open **Skills → Marketplace**. This repository is included by default. Select **Update catalog**, review a skill or plugin, install it, then enable it independently for Assistant or Nodi in **My skills**. You can add any number of public GitHub repository sources using the same format. Requires a Nodus build containing the marketplace integration; earlier releases support instruction-only imports.
 
-Catalog updates do not change installed skills. Installing a replacement is explicit, replaces local edits and disables the skill until you enable it again. Repository snapshots are pinned to a commit. Removing a source keeps its installed skills.
+Catalog updates do not change installed **skill packages**: installing a replacement is explicit, replaces local edits and disables the skill until you enable it again. **Plugins** behave differently by design — from this official repository they update themselves unless you turn that off, keeping your edited instructions as an overlay and holding any update that widens their permissions until you approve it. Repository snapshots are pinned to a commit. Removing a source keeps whatever it installed.
 
 [Create a skill](CONTRIBUTING.md) · [Package specification](SPECIFICATION.md) · [Marketplace rules](POLICY.md) · [Security](SECURITY.md) · [Agent guidelines](AGENTS.md)
 
@@ -61,7 +61,7 @@ is the starting point for a new one.
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
 <tbody>
-<tr><td><a href="legalize/">Legalize</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Find legislation in legalize-dev country repositories, preserving official sources, snapshot versions, licences and attribution. Requires the native integration from Nodus PR #700.</td></tr>
+<tr><td><a href="legalize/">Legalize</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Find legislation in legalize-dev country repositories, preserving official sources, snapshot versions, licences and attribution. Requires a Nodus build providing the nodus:legal capability.</td></tr>
 </tbody>
 </table>
 
@@ -79,7 +79,7 @@ is the starting point for a new one.
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
 <tbody>
-<tr><td><a href="alphagenome/">AlphaGenome</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>AlphaGenome regulatory variant predictions for non-commercial research, with local plots and attributed exports. Requires a personal API key and the native integration from Nodus PR #700.</td></tr>
+<tr><td><a href="alphagenome/">AlphaGenome</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>AlphaGenome regulatory variant predictions for non-commercial research, with local plots and attributed exports. Requires a personal API key and a Nodus build providing the nodus:genomics capability.</td></tr>
 <tr><td><a href="chemistry-studio/">Chemistry Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Reference-backed molecular structures, Fischer/Haworth/Newman projections and bounded reaction mechanisms with validated ChemFig export.</td></tr>
 </tbody>
 </table>
@@ -123,12 +123,12 @@ is the starting point for a new one.
 
 ## Share your own workflow
 
-Create a skill in Nodus, add its metadata and optional capabilities/tools, save it and select **Export**. Choose a parent directory; Nodus creates a new skill directory ready to copy to a repository root. You can also start from [the template](templates/example-skill/). Never put credentials or private research data in a package.
+Create a skill in Nodus, add its metadata and optional capabilities/tools, save it and select **Export**. Choose a parent directory; Nodus creates a new skill directory ready to copy to a repository root. You can also start from [the skill template](templates/example-skill/), or from [the plugin template](templates/example-plugin/) when you want to ship several skills together or a capability of your own. [Contributing](CONTRIBUTING.md) walks through both. Never put credentials or private research data in a package.
 
 The official catalog is curated. Skills promoting illegal activity, piracy, license circumvention, malware or unauthorized access are prohibited. Automated format checks complement human review; passing validation is not approval. Independent sources are controlled by their maintainers and are not endorsed by Nodus.
 
 ## Maintainers
 
-Run `node scripts/catalog.mjs` after changing a skill; CI checks package validity and catalog freshness with `node scripts/catalog.mjs --check`. The validator is generated from Nodus's shared package contract using `scripts/sync-skill-marketplace.mjs` in the application repository.
+Run `node scripts/catalog.mjs` after changing a package. CI runs `node scripts/catalog.mjs --check` for package validity and catalog freshness, `node scripts/validate-templates.mjs` to hold both templates to the same contract, and a check that `scripts/contract.mjs` is committed exactly as generated. `scripts/contract.mjs` and the catalog block in this file are generated: never edit them by hand. The validator comes from Nodus's shared package contract via `scripts/sync-skill-marketplace.mjs` in the application repository.
 
 The repository uses [AGPL-3.0-only](LICENSE). Each manifest declares its package license. The Nodus name and logo identify the project; inclusion does not grant permission to imply endorsement of a third-party marketplace.
