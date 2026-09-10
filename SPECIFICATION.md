@@ -122,7 +122,7 @@ my-plugin/
   "author": "your-github-username",
   "description": "One short sentence explaining what this plugin adds.",
   "license": "AGPL-3.0-only",
-  "compatibility": { "capabilityApi": 1, "minNodusVersion": "5.4.0" },
+  "compatibility": { "capabilityApi": 1, "minNodusVersion": "5.3.1" },
   "skills": ["skills/my-skill/skill.json"],
   "capabilities": ["capabilities/my-capability/capability.json"]
 }
