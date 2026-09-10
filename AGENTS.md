@@ -151,7 +151,7 @@ Widening a capability's permissions in a new version is permitted but MUST be di
 The following are generated and MUST NOT be edited by hand:
 
 - `scripts/contract.mjs` — regenerated only from the main application with `node scripts/sync-skill-marketplace.mjs /path/to/marketplace-checkout`. It carries a generated-file banner.
-- The catalog block between `<!-- catalog:start -->` and `<!-- catalog:end -->` in `README.md` — regenerated with `node scripts/catalog.mjs`.
+- The category index between `<!-- catalog-index:start -->` and `<!-- catalog-index:end -->` and the catalog block between `<!-- catalog:start -->` and `<!-- catalog:end -->` in `README.md` — regenerated with `node scripts/catalog.mjs`.
 - `assets/nodus-marketplace.svg` — exported from the application's canonical mark.
 
 Fixtures MUST be deterministic and self-contained: no credentials, no paid API calls, no network dependency, and no real personal, patient, or student data. `templates/example-plugin` is the starting point for a new plugin and [Unit Converter](unit-converter/) is the reference worked example.

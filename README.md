@@ -10,6 +10,25 @@ Catalog updates do not change installed **skill packages**: installing a replace
 
 [Create a skill](CONTRIBUTING.md) · [Package specification](SPECIFICATION.md) · [Marketplace rules](POLICY.md) · [Security](SECURITY.md) · [Agent guidelines](AGENTS.md)
 
+<!-- catalog-index:start -->
+
+## Browse the catalog
+
+15 skills across 9 categories, plus 1 plugin.
+
+- [Data and statistics (1)](#data-and-statistics)
+- [Design and visual communication (2)](#design-and-visual-communication)
+- [Law and public policy (1)](#law-and-public-policy)
+- [Learning and teaching (1)](#learning-and-teaching)
+- [Life sciences (1)](#life-sciences)
+- [Physical sciences (1)](#physical-sciences)
+- [Planning and productivity (1)](#planning-and-productivity)
+- [Thinking and decision-making (5)](#thinking-and-decision-making)
+- [Writing and communication (2)](#writing-and-communication)
+- [Plugins (1)](#plugins)
+
+<!-- catalog-index:end -->
+
 AlphaGenome and Legalize use Nodus's `nodus:genomics` and `nodus:legal` capabilities. Both are registered capabilities in current builds; older builds without them refuse installation. See each package’s compatibility notes.
 
 ## Skills, tools and native capabilities
@@ -47,7 +66,7 @@ is the starting point for a new one.
 
 <!-- catalog:start -->
 
-### Data analysis
+### Data and statistics
 
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
@@ -56,7 +75,17 @@ is the starting point for a new one.
 </tbody>
 </table>
 
-### Law and legislation
+### Design and visual communication
+
+<table>
+<thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
+<tbody>
+<tr><td><a href="image-atelier/">Image Atelier</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Original illustrations, concept art and visual scenes using your image model.</td></tr>
+<tr><td><a href="svg-studio/">SVG Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Precise diagrams, explanatory drawings, maps, timelines and visual systems.</td></tr>
+</tbody>
+</table>
+
+### Law and public policy
 
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
@@ -65,7 +94,7 @@ is the starting point for a new one.
 </tbody>
 </table>
 
-### Learning
+### Learning and teaching
 
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
@@ -74,39 +103,53 @@ is the starting point for a new one.
 </tbody>
 </table>
 
-### Science
+### Life sciences
 
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
 <tbody>
 <tr><td><a href="alphagenome/">AlphaGenome</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>AlphaGenome regulatory variant predictions for non-commercial research, with local plots and attributed exports. Requires a personal API key and a Nodus build providing the nodus:genomics capability.</td></tr>
+</tbody>
+</table>
+
+### Physical sciences
+
+<table>
+<thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
+<tbody>
 <tr><td><a href="chemistry-studio/">Chemistry Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Reference-backed molecular structures, Fischer/Haworth/Newman projections and bounded reaction mechanisms with validated ChemFig export.</td></tr>
 </tbody>
 </table>
 
-### Thinking and writing
+### Planning and productivity
 
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
 <tbody>
 <tr><td><a href="action-planner/">Action Planner</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Turn a goal into priorities, concrete steps and an achievable first action.</td></tr>
-<tr><td><a href="brainstorm-studio/">Brainstorm Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Generate distinct ideas, then select and develop the most promising ones.</td></tr>
-<tr><td><a href="compare-choose/">Compare &amp; Choose</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Compare alternatives against explicit criteria and recommend a choice suited to your needs.</td></tr>
-<tr><td><a href="constructive-critic/">Constructive Critic</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Review a text, design or proposal and prioritize specific, practical improvements.</td></tr>
-<tr><td><a href="make-it-simple/">Make It Simple</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Explain complex material clearly with concrete examples and useful analogies.</td></tr>
-<tr><td><a href="perspective-switcher/">Perspective Switcher</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Explore different viewpoints and see which assumptions change the conclusions.</td></tr>
-<tr><td><a href="thought-partner/">Thought Partner</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Develop an unfinished idea, surface assumptions and find a useful way forward.</td></tr>
-<tr><td><a href="writing-partner/">Writing Partner</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Draft and refine clear, purposeful writing while preserving your voice and intent.</td></tr>
 </tbody>
 </table>
 
-### Visual creation
+### Thinking and decision-making
 
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
 <tbody>
-<tr><td><a href="image-atelier/">Image Atelier</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Original illustrations, concept art and visual scenes using your image model.</td></tr>
-<tr><td><a href="svg-studio/">SVG Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Precise diagrams, explanatory drawings, maps, timelines and visual systems.</td></tr>
+<tr><td><a href="brainstorm-studio/">Brainstorm Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Generate distinct ideas, then select and develop the most promising ones.</td></tr>
+<tr><td><a href="compare-choose/">Compare &amp; Choose</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Compare alternatives against explicit criteria and recommend a choice suited to your needs.</td></tr>
+<tr><td><a href="constructive-critic/">Constructive Critic</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Review a text, design or proposal and prioritize specific, practical improvements.</td></tr>
+<tr><td><a href="perspective-switcher/">Perspective Switcher</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Explore different viewpoints and see which assumptions change the conclusions.</td></tr>
+<tr><td><a href="thought-partner/">Thought Partner</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Develop an unfinished idea, surface assumptions and find a useful way forward.</td></tr>
+</tbody>
+</table>
+
+### Writing and communication
+
+<table>
+<thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
+<tbody>
+<tr><td><a href="make-it-simple/">Make It Simple</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Explain complex material clearly with concrete examples and useful analogies.</td></tr>
+<tr><td><a href="writing-partner/">Writing Partner</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Draft and refine clear, purposeful writing while preserving your voice and intent.</td></tr>
 </tbody>
 </table>
 
@@ -129,6 +172,6 @@ The official catalog is curated. Skills promoting illegal activity, piracy, lice
 
 ## Maintainers
 
-Run `node scripts/catalog.mjs` after changing a package. CI runs `node scripts/catalog.mjs --check` for package validity and catalog freshness, `node scripts/validate-templates.mjs` to hold both templates to the same contract, and a check that `scripts/contract.mjs` is committed exactly as generated. `scripts/contract.mjs` and the catalog block in this file are generated: never edit them by hand. The validator comes from Nodus's shared package contract via `scripts/sync-skill-marketplace.mjs` in the application repository.
+Run `node scripts/catalog.mjs` after changing a package. CI runs `node scripts/catalog.mjs --check` for package validity and catalog freshness, `node scripts/validate-templates.mjs` to hold both templates to the same contract, and a check that `scripts/contract.mjs` is committed exactly as generated. `scripts/contract.mjs`, the category index and the catalog block in this file are generated: never edit them by hand. The validator comes from Nodus's shared package contract via `scripts/sync-skill-marketplace.mjs` in the application repository.
 
 The repository uses [AGPL-3.0-only](LICENSE). Each manifest declares its package license. The Nodus name and logo identify the project; inclusion does not grant permission to imply endorsement of a third-party marketplace.

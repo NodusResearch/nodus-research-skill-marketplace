@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateManifest, validatePluginPackage, validateSkillPackage } from './contract.mjs';
+import { isOfficialSkillCategory } from './categories.mjs';
 const mentions = (instructions, id) => new RegExp(`(?<![A-Za-z0-9-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9-])`).test(instructions);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const entries = [];
@@ -58,6 +59,7 @@ for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
     // A published package cannot advertise a tool its instructions never reach. The id must
     // appear as a whole word, so a longer word that merely contains it does not count.
     for (const { package: skill } of validated.skills) {
+      if (!isOfficialSkillCategory(skill.manifest.category)) throw new Error(`${dir.name}: category is not in the official catalog vocabulary.`);
       const instructions = skill.files[skill.manifest.instructions];
       for (const tool of skill.manifest.tools ?? []) {
         if (!mentions(instructions, tool.id)) throw new Error(`${dir.name}: SKILL.md never mentions the tool ${tool.id}.`);
@@ -77,6 +79,7 @@ for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
 
   const manifest = validateManifest(JSON.parse(read('skill.json')));
   if (manifest.id !== dir.name) throw new Error(`Directory must match id: ${dir.name}`);
+  if (!isOfficialSkillCategory(manifest.category)) throw new Error(`${dir.name}: category is not in the official catalog vocabulary.`);
   const files = Object.fromEntries(['SKILL.md', ...manifest.tools.map(t => t.entry)].map(file => [file, read(file)]));
   declaredOnly(directory, ['skill.json', ...Object.keys(files)]);
   validateSkillPackage({ manifest, files });
@@ -96,9 +99,20 @@ const categories = [...new Set(entries.map(e => e.category))].sort();
 const sections = categories.map(category => `### ${escape(category)}\n\n` + table(entries.filter(e => e.category === category).sort((a, b) => a.name.localeCompare(b.name)).map(row)));
 if (plugins.length) sections.push('### Plugins\n\n' + table(plugins.slice().sort((a, b) => a.name.localeCompare(b.name)).map(row)));
 const catalog = sections.join('\n\n');
+const anchor = category => category.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const index = `## Browse the catalog\n\n${entries.length} skills across ${categories.length} categories, plus ${plugins.length} ${plugins.length === 1 ? 'plugin' : 'plugins'}.\n\n`
+  + categories.map(category => {
+    const count = entries.filter(entry => entry.category === category).length;
+    return `- [${escape(category)} (${count})](#${anchor(category)})`;
+  }).join('\n')
+  + (plugins.length ? `\n- [Plugins (${plugins.length})](#plugins)` : '');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-const updated = readme.replace(/<!-- catalog:start -->[\s\S]*?<!-- catalog:end -->/, `<!-- catalog:start -->\n\n${catalog}\n\n<!-- catalog:end -->`);
+if (!/<!-- catalog-index:start -->[\s\S]*?<!-- catalog-index:end -->/.test(readme)) throw new Error('README category index markers are missing.');
+if (!/<!-- catalog:start -->[\s\S]*?<!-- catalog:end -->/.test(readme)) throw new Error('README catalog markers are missing.');
+const updated = readme
+  .replace(/<!-- catalog-index:start -->[\s\S]*?<!-- catalog-index:end -->/, `<!-- catalog-index:start -->\n\n${index}\n\n<!-- catalog-index:end -->`)
+  .replace(/<!-- catalog:start -->[\s\S]*?<!-- catalog:end -->/, `<!-- catalog:start -->\n\n${catalog}\n\n<!-- catalog:end -->`);
 if (process.argv.includes('--check')) {
   if (updated !== readme) throw new Error('README catalog is stale. Run node scripts/catalog.mjs.');
 } else fs.writeFileSync(path.join(root, 'README.md'), updated);
-console.log(`Validated ${entries.length} skill packages in ${categories.length} categories and ${plugins.length} plugins.`);
+console.log(`Validated ${entries.length} skill packages in ${categories.length} categories and ${plugins.length} ${plugins.length === 1 ? 'plugin' : 'plugins'}.`);

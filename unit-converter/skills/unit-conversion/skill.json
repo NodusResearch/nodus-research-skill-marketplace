@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "unit-conversion",
   "name": "Unit Conversion",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Drakonis96",
   "description": "Convert measurements between units in one call and report the exact converted values.",
-  "category": "Data analysis",
+  "category": "Data and statistics",
   "license": "AGPL-3.0-only",
   "instructions": "SKILL.md",
   "capabilities": [
