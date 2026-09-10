@@ -12,6 +12,20 @@ Catalog updates do not change installed skills. Installing a replacement is expl
 
 AlphaGenome and Legalize are packaged from [Nodus PR #700](https://github.com/Drakonis96/nodus/pull/700). They require a build with their native integrations and marketplace capability routing; the PR is currently open. Builds without those capabilities cannot install them. See each package’s compatibility notes.
 
+## Skills, tools and native capabilities
+
+A skill is an installable package: metadata, instructions, expected behavior and a declaration of what the assistant may use. A tool is one concrete operation the assistant can invoke. A native capability is functionality implemented and controlled by Nodus itself, which exposes one or more privileged or specialized tools to compatible skills.
+
+Most skills need nothing beyond their instructions. A skill may also ship ordinary sandboxed JavaScript tools for calculations, parsing, transformations and generators; those run inside the package, with no network, filesystem or credentials.
+
+Advanced skills declare a native capability instead. The package never bundles or reproduces the external service. It states which capability it needs, and Nodus exposes the corresponding tools at runtime when the running build supports that capability and the user has permitted it. Native capabilities cover work that arbitrary marketplace code should not perform: external-service access, credential handling, authoritative-data retrieval, specialized validated computation and other deeper application integrations.
+
+- [AlphaGenome](alphagenome/) is the skill; Nodus's native genomics capability performs the AlphaGenome integration.
+- [Legalize](legalize/) is the skill; the native legal capability performs the reviewed legislation retrieval.
+- [Chemistry Studio](chemistry-studio/) is the skill; native chemistry tooling performs the specialized validated chemistry operations.
+
+Declaring a capability does not grant it. A package requests, Nodus decides: builds without the capability refuse installation, and the privileged tools never leave the trusted runtime. The layering is deliberate. Marketplace packages describe workflows; sensitive or specialized execution stays inside Nodus.
+
 ## Catalog
 
 <!-- catalog:start -->
