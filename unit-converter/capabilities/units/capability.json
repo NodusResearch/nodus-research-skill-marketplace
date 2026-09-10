@@ -1,25 +1,49 @@
 {
   "schemaVersion": 1,
   "id": "units",
-  "version": "1.0.0",
-  "description": "Deterministic scalar unit conversion for length, mass and temperature.",
+  "version": "1.1.0",
+  "description": "Deterministic unit conversion for length, mass and temperature, in batches.",
   "runtime": "javascript-sandbox-v1",
   "entry": "runtime.js",
   "tools": [
     {
       "id": "convert",
-      "description": "Convert one measurement. Input: { value: number, from: string, to: string } using the unit symbols listed in SKILL.md.",
+      "description": "Convert one or more measurements in a single call. Input: { measurements: [{ value: number, from: string, to: string }] } using the unit symbols listed in SKILL.md.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "value": { "type": "number" },
-          "from": { "type": "string" },
-          "to": { "type": "string" }
+          "measurements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "number"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value",
+                "from",
+                "to"
+              ],
+              "additionalProperties": false
+            }
+          }
         },
-        "required": ["value", "from", "to"],
+        "required": [
+          "measurements"
+        ],
         "additionalProperties": false
       },
-      "resultKinds": ["json"]
+      "resultKinds": [
+        "table"
+      ]
     }
   ],
   "permissions": {}

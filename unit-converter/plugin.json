@@ -2,14 +2,18 @@
   "schemaVersion": 1,
   "id": "unit-converter",
   "name": "Unit Converter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Drakonis96",
-  "description": "Convert lengths, masses and temperatures exactly, without the model doing the arithmetic.",
+  "description": "Convert lengths, masses and temperatures exactly and in batches, without the model doing the arithmetic.",
   "license": "AGPL-3.0-only",
   "compatibility": {
     "capabilityApi": 1,
     "minNodusVersion": "5.3.1"
   },
-  "skills": ["skills/unit-conversion/skill.json"],
-  "capabilities": ["capabilities/units/capability.json"]
+  "skills": [
+    "skills/unit-conversion/skill.json"
+  ],
+  "capabilities": [
+    "capabilities/units/capability.json"
+  ]
 }
