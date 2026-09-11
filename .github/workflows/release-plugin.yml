@@ -84,7 +84,10 @@ jobs:
       - name: Validate every package
         run: node scripts/validate-plugins.mjs
 
+      # bash on every runner: PowerShell does not expand a glob for a native command, so
+      # on Windows the test runner would be handed a path with an asterisk in it.
       - name: Test the package
+        shell: bash
         run: node --test plugins/${{ inputs.plugin }}/test/*.test.mjs
 
       # Before the build, not after: the notices are a file the archive contains, so
