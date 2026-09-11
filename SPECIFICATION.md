@@ -315,6 +315,46 @@ implement, and must fit the published size ceiling.
 The viewer that opens it belongs to the application: rotate, zoom, pan, reset and fit, with
 the model parsed from bytes already in memory and a resource path that resolves nowhere.
 
+## Result kinds
+
+A view document is a list of nodes, each of them data. Beyond the text-shaped kinds
+(`paragraph`, `badges`, `table`, `notice`, `details`, `links`, `download`, `status`,
+`code`) and `svg`, a package may return nine more. They are grouped by what each one is
+allowed to reach, and a package should know which group it is in.
+
+**Values the application draws.** `math` (TeX, typeset in strict mode with `trust` off),
+`chart` (line, bar, area or scatter, from series of points), `tree` (a bounded hierarchy),
+`passage` (text with marked spans) and `comparison` (two texts). No permission, no
+attachment, no host service: the package states values and the application renders them.
+Note what `comparison` does **not** have — a field for what changed. The application
+computes the difference, so no package can present a change that is not in the text.
+
+**Files the application opens.** `image` and `audio` need `"media": true` and go through
+`host.media.store({ bytes, mimeType, name })`, which returns an attachment id. Accepted:
+`image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/avif`, `audio/mpeg`,
+`audio/wav`, `audio/ogg`, `audio/flac`, `audio/mp4`. SVG is not among them; a drawing goes
+through `nodus:svg`, which sanitizes it. **The declared type is a claim and the bytes
+decide**: the magic bytes are sniffed and the asset is refused if they disagree, so a
+document that is not what it says it is cannot be stored under a name that might later be
+trusted.
+
+**Data that cannot point anywhere else.** `map` takes GeoJSON — the rare spatial format
+with no URI mechanism, so it is safe by construction rather than by sanitizing. Coordinates
+are checked against the bounds of the Earth and properties are rendered as text. `basemap`
+is opt-in: switching it on means a tile request to a third party every time the result is
+looked at.
+
+**The one kind that reaches the network.** `imageTiles` names a IIIF Image API service. It
+is the only result whose presence in an old conversation can cause a request, so the
+application fetches every tile itself, and only where the package's **own manifest already
+declared** that origin with `GET` and a matching path prefix. A view cannot widen what its
+package was granted, the path must stay under the declared service, the host must resolve
+publicly, and redirects are refused. If the package is uninstalled, the result stops
+fetching. Declare the service origin in `permissions.network` or the tiles will never load.
+
+Every kind that is looked at rather than read requires `alt`, and a package that omits it
+is rejected at review.
+
 ## Artifacts
 
 A tool's result is an artifact: a type, a version, a one-line summary and data. The

@@ -23,6 +23,27 @@ var LIMITS = {
   modelBytes: 64 * 1024 * 1024,
   modelJsonBytes: 16 * 1024 * 1024,
   modelNodes: 2e5,
+  /** Raster images and sound a capability produced. Same rule as a model: the bytes are
+   *  stored as an attachment, checked by the core, and drawn or played by the core. */
+  imageBytes: 32 * 1024 * 1024,
+  imagePixels: 8e7,
+  audioBytes: 128 * 1024 * 1024,
+  /** Result kinds that are pure data. None of these needs a host service, a permission or
+   *  an attachment: a capability returns the values and the core draws them. */
+  mathChars: 4e3,
+  chartSeries: 12,
+  chartPoints: 5e3,
+  treeNodes: 2e3,
+  treeDepth: 12,
+  passageChars: 2e5,
+  passageMarks: 5e3,
+  comparisonChars: 2e5,
+  geoFeatures: 5e3,
+  geoPositions: 2e5,
+  /** Tiled imagery served over the IIIF Image API. The tiles are fetched by the host,
+   *  from an origin the package was already permitted to reach, and never by the page. */
+  tileBytes: 8 * 1024 * 1024,
+  tilePixels: 4096,
   /** Declarative views. */
   viewNodes: 512,
   viewDepth: 8,
@@ -132,7 +153,7 @@ var localize = (text, locale) => text[locale] ?? text[locale.split("-")[0]] ?? t
 
 // packages/capability-api/src/permissions.ts
 var METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
-var KEYS = ["network", "secrets", "storage", "model", "svg", "models", "subworkers", "runtimes"];
+var KEYS = ["network", "secrets", "storage", "model", "svg", "models", "media", "subworkers", "runtimes"];
 function validateTrustedPermissions(input) {
   if (!input || typeof input !== "object" || Array.isArray(input) || !exactKeys(input, KEYS)) throw new Error("Invalid capability permissions.");
   const value = input;
@@ -169,6 +190,7 @@ function validateTrustedPermissions(input) {
   }
   if (value.svg !== void 0 && typeof value.svg !== "boolean") throw new Error("Invalid capability svg permission.");
   if (value.models !== void 0 && typeof value.models !== "boolean") throw new Error("Invalid capability 3D permission.");
+  if (value.media !== void 0 && typeof value.media !== "boolean") throw new Error("Invalid capability media permission.");
   if (value.subworkers !== void 0) {
     if (!value.subworkers || !exactKeys(value.subworkers, ["max"]) || !Number.isInteger(value.subworkers.max) || value.subworkers.max < 1 || value.subworkers.max > 8) throw new Error("Invalid capability subworker permission.");
   }
@@ -194,6 +216,7 @@ function permissionAtoms(permissions) {
   if (permissions.model) atoms.push(`model|${permissions.model.maxCalls}`);
   if (permissions.svg) atoms.push("svg");
   if (permissions.models) atoms.push("models");
+  if (permissions.media) atoms.push("media");
   if (permissions.subworkers) atoms.push(`subworkers|${permissions.subworkers.max}`);
   for (const runtime of permissions.runtimes ?? []) atoms.push(`runtime|${runtime.id}|${runtime.kind}|${runtime.minVersion}`);
   return atoms;
@@ -305,6 +328,78 @@ function validateModelAsset(input, mimeType) {
 }
 var isModelMimeType = (value) => value === MODEL_MIME_TYPES.glb || value === MODEL_MIME_TYPES.gltf;
 
+// packages/capability-api/src/media.ts
+var IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"];
+var AUDIO_MIME_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg", "audio/flac", "audio/mp4"];
+var startsWith = (bytes, signature, offset = 0) => bytes.length >= offset + signature.length && signature.every((byte, index) => bytes[offset + index] === byte);
+var ascii = (bytes, offset, length) => String.fromCharCode(...bytes.subarray(offset, offset + length));
+function sniff(bytes) {
+  if (startsWith(bytes, [137, 80, 78, 71, 13, 10, 26, 10])) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return bytes.length >= 24 && ascii(bytes, 12, 4) === "IHDR" ? { mimeType: "image/png", width: view.getUint32(16, false), height: view.getUint32(20, false) } : { mimeType: "image/png" };
+  }
+  if (startsWith(bytes, [255, 216, 255])) return { mimeType: "image/jpeg", ...jpegSize(bytes) };
+  if (startsWith(bytes, [71, 73, 70, 56])) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return bytes.length >= 10 ? { mimeType: "image/gif", width: view.getUint16(6, true), height: view.getUint16(8, true) } : { mimeType: "image/gif" };
+  }
+  if (startsWith(bytes, [82, 73, 70, 70]) && ascii(bytes, 8, 4) === "WEBP") return { mimeType: "image/webp" };
+  if (startsWith(bytes, [82, 73, 70, 70]) && ascii(bytes, 8, 4) === "WAVE") return { mimeType: "audio/wav" };
+  if (bytes.length >= 12 && ascii(bytes, 4, 4) === "ftyp") {
+    const brand = ascii(bytes, 8, 4);
+    if (brand === "avif" || brand === "avis") return { mimeType: "image/avif" };
+    return { mimeType: "audio/mp4" };
+  }
+  if (startsWith(bytes, [73, 68, 51]) || startsWith(bytes, [255, 251]) || startsWith(bytes, [255, 243]) || startsWith(bytes, [255, 242])) return { mimeType: "audio/mpeg" };
+  if (startsWith(bytes, [79, 103, 103, 83])) return { mimeType: "audio/ogg" };
+  if (startsWith(bytes, [102, 76, 97, 67])) return { mimeType: "audio/flac" };
+  return null;
+}
+function jpegSize(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 2;
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 255) return {};
+    const marker = bytes[offset + 1];
+    const length = view.getUint16(offset + 2, false);
+    if (marker >= 192 && marker <= 207 && ![196, 200, 204].includes(marker)) {
+      return { height: view.getUint16(offset + 5, false), width: view.getUint16(offset + 7, false) };
+    }
+    if (length < 2) return {};
+    offset += 2 + length;
+  }
+  return {};
+}
+function validateMediaAsset(input, mimeType, expected) {
+  const bytes = input instanceof Uint8Array ? input : null;
+  if (!bytes) throw new Error("Media must be handed over as bytes.");
+  if (!bytes.byteLength) throw new Error("The file is empty.");
+  const isImage = IMAGE_MIME_TYPES.includes(mimeType);
+  const isAudio = AUDIO_MIME_TYPES.includes(mimeType);
+  if (!isImage && !isAudio) throw new Error(`${mimeType || "That type"} is not a format the viewer can open.`);
+  const kind = isImage ? "image" : "audio";
+  if (expected && expected !== kind) throw new Error(`Expected ${expected}, got ${kind}.`);
+  const ceiling = kind === "image" ? LIMITS.imageBytes : LIMITS.audioBytes;
+  if (bytes.byteLength > ceiling) throw new Error(`A ${kind} may not exceed ${Math.round(ceiling / (1024 * 1024))} MB.`);
+  const sniffed = sniff(bytes);
+  if (!sniffed) throw new Error("The file is not in a format the viewer can open.");
+  const interchangeable = sniffed.mimeType === "audio/mp4" && mimeType === "audio/mp4";
+  if (sniffed.mimeType !== mimeType && !interchangeable) {
+    throw new Error(`The file says it is ${mimeType} but its contents are ${sniffed.mimeType}.`);
+  }
+  if (kind === "image" && sniffed.width && sniffed.height) {
+    if (sniffed.width * sniffed.height > LIMITS.imagePixels) throw new Error("The image has more pixels than the viewer will open.");
+  }
+  return {
+    kind,
+    mimeType,
+    bytes: bytes.byteLength,
+    ...kind === "image" && sniffed.width ? { width: sniffed.width, height: sniffed.height } : {}
+  };
+}
+var isImageMimeType = (value) => IMAGE_MIME_TYPES.includes(String(value));
+var isAudioMimeType = (value) => AUDIO_MIME_TYPES.includes(String(value));
+
 // packages/capability-api/src/views.ts
 var TONES = ["neutral", "info", "success", "warning", "danger"];
 function validateSpans(input, budget) {
@@ -318,6 +413,71 @@ function validateSpans(input, budget) {
     budget.nodes += 1;
     return structuredClone(span);
   });
+}
+var ATTACHMENT = /^[a-z0-9][a-z0-9-]{7,63}$/;
+var safeFileName = (value) => plainText(value, 200) && !String(value).includes("/") && !String(value).includes("\\") && !String(value).includes("..");
+function validateGeoJson(input, budget) {
+  const counted = { features: 0, positions: 0 };
+  const position = (value2) => {
+    if (!Array.isArray(value2) || value2.length < 2 || value2.length > 3) throw new Error("Invalid map position.");
+    const [longitude, latitude, altitude] = value2;
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) throw new Error("Invalid map position.");
+    if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) throw new Error("A map position is off the Earth.");
+    if (altitude !== void 0 && !Number.isFinite(altitude)) throw new Error("Invalid map position.");
+    if (++counted.positions > LIMITS.geoPositions) throw new Error("The map has more points than the viewer will draw.");
+  };
+  const coordinates = (value2, depth) => {
+    if (depth === 0) return position(value2);
+    if (!Array.isArray(value2)) throw new Error("Invalid map coordinates.");
+    for (const entry of value2) coordinates(entry, depth - 1);
+  };
+  const geometry = (value2) => {
+    if (!value2 || typeof value2 !== "object" || Array.isArray(value2)) throw new Error("Invalid map geometry.");
+    const shape = value2;
+    const depths = {
+      Point: 0,
+      MultiPoint: 1,
+      LineString: 1,
+      MultiLineString: 2,
+      Polygon: 2,
+      MultiPolygon: 3
+    };
+    if (shape.type === "GeometryCollection") {
+      if (!Array.isArray(shape.geometries) || shape.geometries.length > LIMITS.geoFeatures) throw new Error("Invalid map geometry collection.");
+      for (const child of shape.geometries) geometry(child);
+      return;
+    }
+    const depth = depths[String(shape.type)];
+    if (depth === void 0) throw new Error(`Unsupported map geometry: ${String(shape.type)}.`);
+    coordinates(shape.coordinates, depth);
+  };
+  const feature = (value2) => {
+    if (!value2 || typeof value2 !== "object" || Array.isArray(value2)) throw new Error("Invalid map feature.");
+    const entry = value2;
+    if (entry.type !== "Feature") throw new Error("Invalid map feature.");
+    if (++counted.features > LIMITS.geoFeatures) throw new Error("The map has more features than the viewer will draw.");
+    if (entry.geometry !== null) geometry(entry.geometry);
+    if (entry.properties !== void 0 && entry.properties !== null) {
+      if (typeof entry.properties !== "object" || Array.isArray(entry.properties)) throw new Error("Invalid map feature properties.");
+      for (const [key, property] of Object.entries(entry.properties)) {
+        if (!plainText(key, 120)) throw new Error("Invalid map feature property.");
+        if (property === null || typeof property === "number" || typeof property === "boolean") continue;
+        if (!plainText(property, 2e3)) throw new Error("Invalid map feature property.");
+      }
+    }
+  };
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid map data.");
+  const value = input;
+  if (value.type === "FeatureCollection") {
+    if (!Array.isArray(value.features) || !value.features.length) throw new Error("Invalid map data.");
+    for (const entry of value.features) feature(entry);
+  } else if (value.type === "Feature") {
+    feature(value);
+  } else {
+    geometry(value);
+  }
+  budget.nodes += counted.features;
+  return structuredClone(input);
 }
 function assertHttps(href) {
   let url;
@@ -387,10 +547,96 @@ function validateNode(input, budget, depth) {
       if (!exactKeys(node, ["kind", "summary", "children"]) || !plainText(node.summary, 300) || !Array.isArray(node.children) || !node.children.length) throw new Error("Invalid view details block.");
       return { kind: "details", summary: node.summary, children: node.children.map((child) => validateNode(child, budget, depth + 1)) };
     case "download":
-      if (!exactKeys(node, ["kind", "attachmentId", "label", "name", "mimeType", "bytes"]) || !/^[a-z0-9][a-z0-9-]{7,63}$/.test(String(node.attachmentId)) || !plainText(node.label, 200) || !plainText(node.name, 200) || node.name.includes("/") || node.name.includes("\\") || !/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/i.test(String(node.mimeType)) || !Number.isInteger(node.bytes) || node.bytes < 0) throw new Error("Invalid view download.");
+      if (!exactKeys(node, ["kind", "attachmentId", "label", "name", "mimeType", "bytes"]) || !ATTACHMENT.test(String(node.attachmentId)) || !plainText(node.label, 200) || !safeFileName(node.name) || !/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/i.test(String(node.mimeType)) || !Number.isInteger(node.bytes) || node.bytes < 0) throw new Error("Invalid view download.");
       return structuredClone(node);
     case "model":
-      if (!exactKeys(node, ["kind", "attachmentId", "title", "alt", "name", "mimeType", "bytes"]) || !/^[a-z0-9][a-z0-9-]{7,63}$/.test(String(node.attachmentId)) || !plainText(node.title, 200) || !plainText(node.alt, 1e3) || !plainText(node.name, 200) || node.name.includes("/") || node.name.includes("\\") || !isModelMimeType(node.mimeType) || !Number.isInteger(node.bytes) || node.bytes < 1 || node.bytes > LIMITS.modelBytes) throw new Error("Invalid view model.");
+      if (!exactKeys(node, ["kind", "attachmentId", "title", "alt", "name", "mimeType", "bytes"]) || !ATTACHMENT.test(String(node.attachmentId)) || !plainText(node.title, 200) || !plainText(node.alt, 1e3) || !safeFileName(node.name) || !isModelMimeType(node.mimeType) || !Number.isInteger(node.bytes) || node.bytes < 1 || node.bytes > LIMITS.modelBytes) throw new Error("Invalid view model.");
+      return structuredClone(node);
+    case "image":
+      if (!exactKeys(node, ["kind", "attachmentId", "title", "alt", "name", "mimeType", "bytes", "width", "height"]) && !exactKeys(node, ["kind", "attachmentId", "title", "alt", "name", "mimeType", "bytes"])) throw new Error("Invalid view image.");
+      if (!ATTACHMENT.test(String(node.attachmentId)) || !plainText(node.title, 200) || !plainText(node.alt, 1e3) || !safeFileName(node.name) || !isImageMimeType(node.mimeType) || !Number.isInteger(node.bytes) || node.bytes < 1 || node.bytes > LIMITS.imageBytes || node.width !== void 0 && (!Number.isInteger(node.width) || node.width < 1 || node.width > 1e5) || node.height !== void 0 && (!Number.isInteger(node.height) || node.height < 1 || node.height > 1e5)) throw new Error("Invalid view image.");
+      return structuredClone(node);
+    case "audio":
+      if (!exactKeys(node, ["kind", "attachmentId", "title", "alt", "name", "mimeType", "bytes"]) || !ATTACHMENT.test(String(node.attachmentId)) || !plainText(node.title, 200) || !plainText(node.alt, 1e3) || !safeFileName(node.name) || !isAudioMimeType(node.mimeType) || !Number.isInteger(node.bytes) || node.bytes < 1 || node.bytes > LIMITS.audioBytes) throw new Error("Invalid view audio.");
+      return structuredClone(node);
+    case "math":
+      if (!exactKeys(node, ["kind", "tex", "display", "alt"]) && !exactKeys(node, ["kind", "tex", "alt"])) throw new Error("Invalid view formula.");
+      if (typeof node.tex !== "string" || !node.tex.trim() || node.tex.length > LIMITS.mathChars || !plainText(node.alt, 1e3) || node.display !== void 0 && typeof node.display !== "boolean") throw new Error("Invalid view formula.");
+      return structuredClone(node);
+    case "chart": {
+      if (!exactKeys(node, ["kind", "chartType", "title", "alt", "xLabel", "yLabel", "series"]) && !exactKeys(node, ["kind", "chartType", "title", "alt", "series"])) throw new Error("Invalid view chart.");
+      if (!["line", "bar", "area", "scatter"].includes(node.chartType) || !plainText(node.title, 200) || !plainText(node.alt, 1e3) || node.xLabel !== void 0 && !plainText(node.xLabel, 120) || node.yLabel !== void 0 && !plainText(node.yLabel, 120) || !Array.isArray(node.series) || !node.series.length || node.series.length > LIMITS.chartSeries) throw new Error("Invalid view chart.");
+      let points = 0;
+      for (const series of node.series) {
+        if (!series || !exactKeys(series, ["label", "points", "tone"]) && !exactKeys(series, ["label", "points"]) || !plainText(series.label, 120) || series.tone !== void 0 && !TONES.includes(series.tone) || !Array.isArray(series.points) || !series.points.length) throw new Error("Invalid chart series.");
+        points += series.points.length;
+        if (points > LIMITS.chartPoints) throw new Error("The chart has more points than the viewer will draw.");
+        const categorical = typeof series.points[0][0] === "string";
+        for (const point of series.points) {
+          if (!Array.isArray(point) || point.length !== 2) throw new Error("Invalid chart point.");
+          const [x, y] = point;
+          if (categorical ? !plainText(x, 120) : !Number.isFinite(x)) throw new Error("Invalid chart point.");
+          if (!Number.isFinite(y)) throw new Error("Invalid chart point.");
+        }
+      }
+      budget.nodes += points;
+      return structuredClone(node);
+    }
+    case "tree": {
+      if (!exactKeys(node, ["kind", "title", "alt", "roots"]) && !exactKeys(node, ["kind", "alt", "roots"])) throw new Error("Invalid view tree.");
+      if (node.title !== void 0 && !plainText(node.title, 200) || !plainText(node.alt, 1e3) || !Array.isArray(node.roots) || !node.roots.length) throw new Error("Invalid view tree.");
+      const counted = { items: 0 };
+      const walkTree = (items, level) => {
+        if (!Array.isArray(items) || items.length > LIMITS.treeNodes) throw new Error("Invalid view tree.");
+        if (level > LIMITS.treeDepth) throw new Error("The tree is deeper than the viewer will draw.");
+        return items.map((raw) => {
+          if (++counted.items > LIMITS.treeNodes) throw new Error("The tree has more entries than the viewer will draw.");
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid tree entry.");
+          const item = raw;
+          if (!exactKeys(item, ["label", "detail", "tone", "children"]) && !exactKeys(item, ["label", "detail", "children"]) && !exactKeys(item, ["label", "tone", "children"]) && !exactKeys(item, ["label", "children"]) && !exactKeys(item, ["label", "detail", "tone"]) && !exactKeys(item, ["label", "detail"]) && !exactKeys(item, ["label", "tone"]) && !exactKeys(item, ["label"])) throw new Error("Invalid tree entry.");
+          if (!plainText(item.label, 300) || item.detail !== void 0 && !plainText(item.detail, 500) || item.tone !== void 0 && !TONES.includes(item.tone)) throw new Error("Invalid tree entry.");
+          return {
+            label: item.label,
+            ...item.detail !== void 0 ? { detail: item.detail } : {},
+            ...item.tone !== void 0 ? { tone: item.tone } : {},
+            ...item.children !== void 0 ? { children: walkTree(item.children, level + 1) } : {}
+          };
+        });
+      };
+      const roots = walkTree(node.roots, 1);
+      budget.nodes += counted.items;
+      return { kind: "tree", ...node.title !== void 0 ? { title: node.title } : {}, alt: node.alt, roots };
+    }
+    case "passage": {
+      if (!exactKeys(node, ["kind", "title", "text", "marks"]) && !exactKeys(node, ["kind", "text", "marks"])) throw new Error("Invalid view passage.");
+      if (node.title !== void 0 && !plainText(node.title, 200) || typeof node.text !== "string" || !node.text.length || node.text.length > LIMITS.passageChars || !Array.isArray(node.marks) || node.marks.length > LIMITS.passageMarks) throw new Error("Invalid view passage.");
+      const marks = node.marks.map((raw) => {
+        if (!raw || !exactKeys(raw, ["start", "end", "label", "tone"]) && !exactKeys(raw, ["start", "end", "label"])) throw new Error("Invalid passage mark.");
+        const mark = raw;
+        if (!Number.isInteger(mark.start) || !Number.isInteger(mark.end) || mark.start < 0 || mark.end <= mark.start || mark.end > node.text.length || !plainText(mark.label, 120) || mark.tone !== void 0 && !TONES.includes(mark.tone)) throw new Error("Invalid passage mark.");
+        return structuredClone(mark);
+      });
+      budget.nodes += marks.length;
+      return { kind: "passage", ...node.title !== void 0 ? { title: node.title } : {}, text: node.text, marks };
+    }
+    case "comparison": {
+      if (!exactKeys(node, ["kind", "title", "before", "after", "granularity"]) && !exactKeys(node, ["kind", "before", "after", "granularity"]) && !exactKeys(node, ["kind", "title", "before", "after"]) && !exactKeys(node, ["kind", "before", "after"])) throw new Error("Invalid view comparison.");
+      if (node.title !== void 0 && !plainText(node.title, 200)) throw new Error("Invalid view comparison.");
+      if (node.granularity !== void 0 && !["line", "word"].includes(node.granularity)) throw new Error("Invalid view comparison.");
+      for (const side of [node.before, node.after]) {
+        if (!side || !exactKeys(side, ["label", "text"]) || !plainText(side.label, 120) || typeof side.text !== "string" || side.text.length > LIMITS.comparisonChars) throw new Error("Invalid comparison side.");
+      }
+      return structuredClone(node);
+    }
+    case "map":
+      if (!exactKeys(node, ["kind", "title", "alt", "geojson", "basemap"]) && !exactKeys(node, ["kind", "title", "alt", "geojson"])) throw new Error("Invalid view map.");
+      if (!plainText(node.title, 200) || !plainText(node.alt, 1e3) || node.basemap !== void 0 && typeof node.basemap !== "boolean") throw new Error("Invalid view map.");
+      return { ...structuredClone(node), geojson: validateGeoJson(node.geojson, budget) };
+    case "imageTiles":
+      if (!exactKeys(node, ["kind", "service", "title", "alt", "width", "height", "tileSize"]) && !exactKeys(node, ["kind", "service", "title", "alt", "width", "height"])) throw new Error("Invalid view tiled image.");
+      assertHttps(node.service);
+      if (!plainText(node.title, 200) || !plainText(node.alt, 1e3) || !Number.isInteger(node.width) || node.width < 1 || node.width > 2e6 || !Number.isInteger(node.height) || node.height < 1 || node.height > 2e6 || node.tileSize !== void 0 && (!Number.isInteger(node.tileSize) || node.tileSize < 64 || node.tileSize > LIMITS.tilePixels)) throw new Error("Invalid view tiled image.");
+      if (/[?#]/.test(String(node.service))) throw new Error("A tiled image service takes no query or fragment.");
       return structuredClone(node);
     case "status":
       if (!exactKeys(node, ["kind", "state", "label", "description"]) && !exactKeys(node, ["kind", "state", "label"])) throw new Error("Invalid view status.");
@@ -412,6 +658,10 @@ function validateViewDocument(input) {
     nodes: value.nodes.map((node) => validateNode(node, budget, 0))
   };
 }
+var treeToText = (items, level) => items.flatMap((item) => [
+  `${"  ".repeat(level)}- ${[item.label, item.detail].filter(Boolean).join(" \u2014 ")}`,
+  ...treeToText(item.children ?? [], level + 1)
+]);
 function viewToText(document) {
   const spans = (items) => items.map((span) => span.text).join("");
   const walk = (nodes) => nodes.flatMap((node) => {
@@ -439,6 +689,30 @@ function viewToText(document) {
       case "download":
         return [`${node.label} (${node.name}, ${node.bytes} bytes)`];
       case "model":
+        return [`[${node.title}] ${node.alt}`];
+      case "image":
+        return [`[${node.title}] ${node.alt}`];
+      case "audio":
+        return [`[${node.title}] ${node.alt}`];
+      case "math":
+        return [node.alt];
+      case "chart":
+        return [`[${node.title}] ${node.alt}`, ...node.series.map((series) => `${series.label}: ${series.points.map(([x, y]) => `${x}=${y}`).join(", ")}`)];
+      case "tree":
+        return [...node.title ? [node.title] : [], ...treeToText(node.roots, 0)];
+      // The marks are what the passage is for, so they are named alongside what they
+      // cover rather than dropped in favour of the raw text.
+      case "passage":
+        return [
+          ...node.title ? [node.title] : [],
+          node.text,
+          ...node.marks.map((mark) => `${mark.label}: ${node.text.slice(mark.start, mark.end)}`)
+        ];
+      case "comparison":
+        return [...node.title ? [node.title] : [], `${node.before.label}:`, node.before.text, `${node.after.label}:`, node.after.text];
+      case "map":
+        return [`[${node.title}] ${node.alt}`];
+      case "imageTiles":
         return [`[${node.title}] ${node.alt}`];
       case "status":
         return [[node.label, node.description].filter(Boolean).join(" \u2014 ")];
@@ -833,7 +1107,7 @@ var WORKER_METHODS = [
   "renderLegacyResult",
   "shutdown"
 ];
-var HOST_CHANNELS = ["network", "storage", "secrets", "model", "svg", "models", "subworker", "python", "attachments"];
+var HOST_CHANNELS = ["network", "storage", "secrets", "model", "svg", "models", "media", "subworker", "python", "attachments"];
 var CALL_ID = /^[a-z0-9]{1,64}$/;
 var LEVELS = ["debug", "info", "warn", "error"];
 function validateWorkerToHost(input) {
@@ -1083,9 +1357,11 @@ function validateCapabilityCatalog(input) {
 }
 var catalogReplacedSkills = (catalog) => new Set(catalog.plugins.flatMap((entry) => entry.replaces));
 export {
+  AUDIO_MIME_TYPES,
   CAPABILITY_API_V2,
   CORE_CAPABILITY_IDS,
   HOST_CHANNELS,
+  IMAGE_MIME_TYPES,
   LIMITS,
   MODEL_MIME_TYPES,
   NODUS_CAPABILITY_IDS,
@@ -1112,8 +1388,10 @@ export {
   defineCapability,
   defineCapabilityManifest,
   exactKeys,
+  isAudioMimeType,
   isCapabilityReference,
   isCoreCapabilityId,
+  isImageMimeType,
   isModelMimeType,
   isNodusCapabilityId,
   isPlainFenceTag,
@@ -1145,6 +1423,7 @@ export {
   validateHostToWorker,
   validateJsonSchema,
   validateLocalizedText,
+  validateMediaAsset,
   validateModelAsset,
   validatePluginManifestV2,
   validatePrepareMutations,
