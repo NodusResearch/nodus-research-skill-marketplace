@@ -19,7 +19,10 @@
   const OUTLINE_FILL = '#f2f4f7';
   const OUTLINE_STROKE = '#bcc4ce';
   const HIGHLIGHT_STROKE = '#1f2937';
-  const HIGHLIGHTS = { red: '#d1495b', teal: '#2a9d8f', blue: '#3a6ea5', amber: '#e09f3e', violet: '#7b5ea7' };
+  // One distinguishable colour per requested structure, cycled if a caller ever asks for
+  // more structures than there are colours. Colour is never the only identifier: every
+  // structure also gets a numbered callout with a leader line and a legend entry.
+  const PALETTE = ['#d1495b', '#2a9d8f', '#3a6ea5', '#e09f3e', '#7b5ea7', '#4c956c', '#c1440e', '#5f6caf', '#b56576', '#2f6690', '#8a5a44', '#6a994e'];
   const CATEGORY_LABELS = {
     muscle: 'muscle', 'muscle-group': 'muscle group', organ: 'organ', vessel: 'vessel',
     tissue: 'tissue', 'brain-region': 'brain region', 'body-region': 'body region',
@@ -28,7 +31,7 @@
   const MUTED_COLOR = '#6b7280';
 
   const PAD = 28;
-  const GAP = 26;
+  const GAP = 50;
   const TITLE_FS = 24;
   const PANEL_TITLE_FS = 15;
   const ATTRIB_FS = 11;
@@ -38,7 +41,9 @@
   const NOTE_LH = 18;
   const PANEL_MAX_W = 300;
   const PANEL_MAX_H = 380;
-  const MARKER_R = 9;
+  const CALL_OUT_GAP = 14;
+  const CALL_OUT_R = 9;
+  const CALL_OUT_LH = 19;
 
   const escapeText = (value) => String(value)
     .replace(/&/g, '&amp;')
@@ -244,9 +249,8 @@
     return lines;
   };
 
-  const renderMusclePanel = (resource, entries, color, labels, title) => {
-    const requested = new Set(entries.map((match) => match.structure.providerId));
-    const bySlug = new Map(entries.map((match) => [match.structure.providerId, match]));
+  const renderMusclePanel = (resource, entries, labels, title) => {
+    const requested = new Map(entries.map((match) => [match.structure.providerId, match]));
     const widths = String(resource.viewBox).split(' ').map(Number);
     const strokeWidth = round1(Math.max(0.4, widths[2] / 420));
     const parts = [];
@@ -254,12 +258,13 @@
     const draw = (slug, highlighted) => {
       const item = resource.slugs[slug];
       if (!item) return;
+      const match = requested.get(slug);
       parts.push(tag('g', {
-        fill: highlighted ? color : BASE_FILL,
+        fill: highlighted ? match.color : BASE_FILL,
         stroke: highlighted ? HIGHLIGHT_STROKE : BASE_STROKE,
         'stroke-width': highlighted ? round1(strokeWidth * 1.4) : strokeWidth,
       }, item.markup));
-      if (highlighted && labels) for (const anchor of item.anchors) markers.push({ position: anchor, number: bySlug.get(slug).number });
+      if (highlighted && labels) for (const anchor of item.anchors) markers.push({ position: anchor, number: match.number, color: match.color });
     };
     // Base drawing first, then the requested structures above it, so a highlight can never
     // be hidden by a later source shape that shares the same area.
@@ -272,9 +277,8 @@
     };
   };
 
-  const renderOrganPanel = (resource, entries, color, labels, title) => {
-    const requested = new Set(entries.map((match) => match.structure.providerId));
-    const byId = new Map(entries.map((match) => [match.structure.providerId, match]));
+  const renderOrganPanel = (resource, entries, labels, title) => {
+    const requested = new Map(entries.map((match) => [match.structure.providerId, match]));
     const widths = String(resource.viewBox).split(' ').map(Number);
     const strokeWidth = round1(Math.max(0.15, widths[2] / 300));
     const parts = [];
@@ -283,12 +287,13 @@
     const draw = (id, highlighted) => {
       const item = resource.structures[id];
       if (!item) return;
+      const match = requested.get(id);
       parts.push(tag('g', {
-        fill: highlighted ? color : BASE_FILL,
+        fill: highlighted ? match.color : BASE_FILL,
         stroke: highlighted ? HIGHLIGHT_STROKE : BASE_STROKE,
         'stroke-width': highlighted ? round1(strokeWidth * 1.4) : strokeWidth,
       }, item.markup));
-      if (highlighted && labels) for (const anchor of item.anchors) markers.push({ position: anchor, number: byId.get(id).number });
+      if (highlighted && labels) for (const anchor of item.anchors) markers.push({ position: anchor, number: match.number, color: match.color });
     };
     for (const id of resource.order) if (!requested.has(id)) draw(id, false);
     for (const id of resource.order) if (requested.has(id)) draw(id, true);
@@ -317,24 +322,59 @@
     return x - GAP;
   };
 
-  const renderMarkers = (panel) => {
-    const placed = [];
-    const parts = [];
+  // Numbered callouts sit in the side margins and connect to the structure with a thin
+  // leader line, so the highlighted anatomy is never covered by a badge. Bilateral
+  // structures keep one numbered callout and get a small dot on each side.
+  const renderCallouts = (panel) => {
+    if (!panel.markers.length) return '';
+    const center = panel.x + panel.width / 2;
+    const groups = new Map();
     for (const marker of panel.markers) {
-      let [x, y] = marker.position;
-      x = panel.x + (x - panel.box[0]) * panel.scale;
-      y = panel.y + (y - panel.box[1]) * panel.scale;
-      let attempts = 0;
-      while (placed.some((other) => Math.abs(other[0] - x) < MARKER_R * 2.1 && Math.abs(other[1] - y) < MARKER_R * 2.1) && attempts < 12) {
-        y += ((attempts % 2 === 0 ? 1 : -1) * (MARKER_R * 2.3));
-        attempts += 1;
+      const x = panel.x + (marker.position[0] - panel.box[0]) * panel.scale;
+      const y = panel.y + (marker.position[1] - panel.box[1]) * panel.scale;
+      if (!groups.has(marker.number)) groups.set(marker.number, { number: marker.number, color: marker.color, anchors: [] });
+      groups.get(marker.number).anchors.push([x, y]);
+    }
+    const sides = { left: [], right: [] };
+    for (const group of groups.values()) {
+      let sum = 0;
+      for (const anchor of group.anchors) sum += anchor[0];
+      const groupCenter = sum / group.anchors.length;
+      const side = groupCenter < center ? 'left' : 'right';
+      const ordered = group.anchors.slice().sort((a, b) => (side === 'left' ? a[0] - b[0] : b[0] - a[0]));
+      group.labelAnchor = ordered[0];
+      sides[side].push(group);
+    }
+    const parts = [];
+    for (const sideName of ['left', 'right']) {
+      const items = sides[sideName].slice().sort((a, b) => a.labelAnchor[1] - b.labelAnchor[1]);
+      let cursor = panel.y + 6;
+      for (const item of items) {
+        cursor = Math.max(cursor, item.labelAnchor[1]);
+        item.labelY = cursor;
+        cursor += CALL_OUT_LH;
       }
-      placed.push([x, y]);
-      parts.push(tag('circle', { cx: formatNumber(x), cy: formatNumber(y), r: MARKER_R, fill: '#ffffff', stroke: HIGHLIGHT_STROKE, 'stroke-width': 1.4 }));
-      parts.push(textElement({
-        x: formatNumber(x), y: formatNumber(y + 4.2), 'font-size': 12, 'text-anchor': 'middle',
-        'font-weight': 'bold', fill: '#111827',
-      }, String(marker.number)));
+      const overflow = cursor - CALL_OUT_LH - (panel.y + panel.height);
+      if (overflow > 0) for (const item of items) item.labelY = Math.max(panel.y + 6, item.labelY - overflow);
+      const labelX = sideName === 'left' ? panel.x - CALL_OUT_GAP : panel.x + panel.width + CALL_OUT_GAP;
+      for (const item of items) {
+        const edgeX = sideName === 'left' ? labelX + CALL_OUT_R : labelX - CALL_OUT_R;
+        parts.push(tag('line', {
+          x1: formatNumber(item.labelAnchor[0]), y1: formatNumber(item.labelAnchor[1]),
+          x2: formatNumber(edgeX), y2: formatNumber(item.labelY),
+          stroke: item.color, 'stroke-width': 1.1,
+        }));
+        for (const anchor of item.anchors) parts.push(tag('circle', {
+          cx: formatNumber(anchor[0]), cy: formatNumber(anchor[1]), r: 2.4, fill: item.color, stroke: '#ffffff', 'stroke-width': 0.7,
+        }));
+        parts.push(tag('circle', {
+          cx: formatNumber(labelX), cy: formatNumber(item.labelY), r: CALL_OUT_R, fill: '#ffffff', stroke: item.color, 'stroke-width': 1.6,
+        }));
+        parts.push(textElement({
+          x: formatNumber(labelX), y: formatNumber(item.labelY + 4), 'font-size': 11.5,
+          'text-anchor': 'middle', 'font-weight': 'bold', fill: item.color,
+        }, String(item.number)));
+      }
     }
     return parts.join('');
   };
@@ -396,9 +436,6 @@
     const labels = input.labels !== false;
     const legend = input.legend !== false;
     if (legend && !labels) throw new Error('A legend needs numbered labels. Set labels to true or legend to false.');
-    const highlightName = input.highlight === undefined ? 'red' : input.highlight;
-    if (!Object.prototype.hasOwnProperty.call(HIGHLIGHTS, highlightName)) throw new Error('highlight must be one of: ' + Object.keys(HIGHLIGHTS).join(', ') + '.');
-    const color = HIGHLIGHTS[highlightName];
     const title = input.title === undefined ? 'Anatomy visualization' : String(input.title).trim();
     if (!title || title.length > 80) throw new Error('title must be between 1 and 80 characters.');
     if (/[<>]/.test(title)) throw new Error('title must not contain markup characters.');
@@ -407,7 +444,10 @@
     const sex = chooseSex(resolved, sexInput);
     const muscleViews = pickViews(groups.muscle, view);
 
-    for (const match of resolved) match.number = resolved.indexOf(match) + 1;
+    for (const match of resolved) {
+      match.number = resolved.indexOf(match) + 1;
+      match.color = PALETTE[(match.number - 1) % PALETTE.length];
+    }
 
     const panels = [];
     for (const name of muscleViews) {
@@ -415,23 +455,24 @@
       if (!resource) continue;
       const entries = groups.muscle.filter((match) => match.structure.views.includes(name));
       if (!entries.length) continue;
-      panels.push(renderMusclePanel(resource, entries, color, labels, 'Muscles - ' + name + ' view (' + sex + ')'));
+      panels.push(renderMusclePanel(resource, entries, labels, 'Muscles - ' + name + ' view (' + sex + ')'));
     }
     if (groups.body.length) {
       const resource = DATA.resources.anatomogram.body[sex];
-      panels.push(renderOrganPanel(resource, groups.body, color, labels, 'Organs - front view (' + sex + ')'));
+      panels.push(renderOrganPanel(resource, groups.body, labels, 'Organs - front view (' + sex + ')'));
     }
     if (groups.brain.length) {
-      panels.push(renderOrganPanel(DATA.resources.anatomogram.brain, groups.brain, color, labels, 'Brain regions - schematic view'));
+      panels.push(renderOrganPanel(DATA.resources.anatomogram.brain, groups.brain, labels, 'Brain regions - schematic view'));
     }
 
     const panelsWidth = layoutPanels(panels);
     const legendEntries = resolved.map((match) => ({
       number: match.number,
+      color: match.color,
       label: match.number + '. ' + match.structure.canonicalName + ' - ' + (CATEGORY_LABELS[match.structure.category] || match.structure.category),
     }));
     const legendChars = legendEntries.reduce((maximum, entry) => Math.max(maximum, entry.label.length), 0);
-    const legendHeadingChars = 'Numbered markers identify the highlighted structures.'.length;
+    const legendHeadingChars = 'Numbers and leader lines identify the highlighted structures.'.length;
     const legendWidth = legend ? Math.max(190, legendChars * LEGEND_FS * 0.56 + 30, legendHeadingChars * 11.5 * 0.56 + 18) : 0;
 
     const notices = [];
@@ -484,15 +525,15 @@
         }, line));
       });
     });
-    panels.forEach((panel) => body.push(renderMarkers(panel)));
+    panels.forEach((panel) => body.push(renderCallouts(panel)));
 
     if (legend) {
       const legendX = PAD + panelsWidth + GAP + 4;
       body.push(textElement({ x: round1(legendX), y: round1(panels.length ? panels[0].y - 10 : PAD + TITLE_FS + 18), 'font-size': PANEL_TITLE_FS, 'font-weight': 'bold', fill: TEXT_COLOR }, 'Legend'));
-      body.push(textElement({ x: round1(legendX), y: round1((panels.length ? panels[0].y - 10 : PAD + TITLE_FS + 18) + 20), 'font-size': 11.5, fill: MUTED_COLOR }, 'Numbered markers identify the highlighted structures.'));
+      body.push(textElement({ x: round1(legendX), y: round1((panels.length ? panels[0].y - 10 : PAD + TITLE_FS + 18) + 20), 'font-size': 11.5, fill: MUTED_COLOR }, 'Numbers and leader lines identify the highlighted structures.'));
       legendEntries.forEach((entry, index) => {
         const baseY = (panels.length ? panels[0].y - 10 : PAD + TITLE_FS + 18) + 46 + index * LEGEND_LH;
-        body.push(tag('circle', { cx: round1(legendX + 6), cy: round1(baseY - 4), r: 6, fill: color, stroke: HIGHLIGHT_STROKE, 'stroke-width': 1 }));
+        body.push(tag('circle', { cx: round1(legendX + 6), cy: round1(baseY - 4), r: 6, fill: entry.color, stroke: HIGHLIGHT_STROKE, 'stroke-width': 1 }));
         body.push(textElement({ x: round1(legendX + 18), y: round1(baseY), 'font-size': LEGEND_FS, fill: TEXT_COLOR }, entry.label));
       });
     }
