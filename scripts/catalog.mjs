@@ -32,8 +32,15 @@ function declaredOnly(directory, declared) {
   if (extra.length) throw new Error(`Undeclared files in ${path.basename(directory)}: ${extra.join(', ')}`);
 }
 
+// Every other top-level directory is a published v1 package and is validated as one, so a
+// directory that is not a package has to be named here. `plugins/` holds capability API v2
+// packages, whose plugin.json has a different shape and which scripts/validate-plugins.mjs
+// and scripts/build-catalog-v2.mjs validate and publish instead; `build/` and
+// `node_modules/` are untracked local output.
+const NOT_A_PACKAGE = ['assets', 'scripts', 'templates', 'plugins', 'build', 'node_modules'];
+
 for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
-  if (!dir.isDirectory() || dir.name.startsWith('.') || ['assets', 'scripts', 'templates'].includes(dir.name)) continue;
+  if (!dir.isDirectory() || dir.name.startsWith('.') || NOT_A_PACKAGE.includes(dir.name)) continue;
   const directory = path.join(root, dir.name);
   const read = reader(directory);
 
