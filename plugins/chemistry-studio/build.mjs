@@ -7,8 +7,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildPlugin } from '../../scripts/build-plugin.mjs';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('.', import.meta.url).pathname;
+// `fileURLToPath`, not `.pathname`: on Windows a file URL's pathname is `/C:/…`,
+// whose leading slash makes every path built from it point at a directory that is not
+// there — and the failure reads as a missing file rather than as a bad path.
+const root = fileURLToPath(new URL('.', import.meta.url));
 const target = process.env.NODUS_PLUGIN_TARGET ?? `${process.platform}-${process.arch}`;
 
 // The repair prompts have to quote the rules the model was actually given, so the skill's
