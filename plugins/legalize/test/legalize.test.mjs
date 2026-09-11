@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
+import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { runConformanceSuite, conformanceFailures } from '../../../scripts/contract-v2.mjs';
 import createWorker from '../src/worker.js';
@@ -231,4 +232,91 @@ test('the worker satisfies the capability contract it declares', async () => {
     }],
   });
   assert.deepEqual(conformanceFailures(findings), []);
+});
+
+// ------------------------------------------------ what 5.3.1 left behind
+
+const migrate = createRequire(import.meta.url)('../migrations/001-adopt-index-cache.cjs');
+
+const legacyIndex = (revision = REVISION) => ({
+  revision,
+  entries: [{ identifier: 'BOE-A-1978-31229', title: 'Constitución Española', path: 'es/BOE-A-1978-31229.md' }],
+});
+
+test('the migration adopts a cached country index instead of downloading it again', async () => {
+  const host = stubHost();
+  const result = await migrate({
+    host,
+    legacy: { legalizeIndexes: [{ country: 'es', index: legacyIndex() }] },
+    fromDataVersion: 0, toDataVersion: 1,
+  });
+
+  assert.equal(result.dataVersion, 1);
+  assert.deepEqual((await host.storage.cache.get('index-es')).entries, legacyIndex().entries);
+  assert.match(result.notes, /Adopted cached indexes: es/);
+});
+
+test('an index that cannot be trusted to be what it says is left behind', async () => {
+  const host = stubHost();
+  const result = await migrate({
+    host,
+    legacy: {
+      legalizeIndexes: [
+        { country: 'es', index: { revision: 'not-a-revision', entries: [{}] } },
+        { country: 'zz9', index: legacyIndex() },
+        { country: 'fr', index: { ...legacyIndex(), skipped: 3 } },
+        { country: 'it', index: { revision: REVISION, entries: [] } },
+      ],
+    },
+    fromDataVersion: 0, toDataVersion: 1,
+  });
+
+  assert.deepEqual(await host.storage.cache.keys(), [], 'a partial or unidentifiable index is rebuilt, not trusted');
+  assert.match(result.notes, /No reusable cached index/);
+});
+
+test('one country failing does not cost the others theirs', async () => {
+  const host = stubHost();
+  const realSet = host.storage.cache.set;
+  host.storage.cache.set = async (key, value) => {
+    if (key === 'index-fr') throw new Error('disk full');
+    return realSet(key, value);
+  };
+  const result = await migrate({
+    host,
+    legacy: { legalizeIndexes: [{ country: 'fr', index: legacyIndex() }, { country: 'es', index: legacyIndex() }] },
+    fromDataVersion: 0, toDataVersion: 1,
+  });
+
+  assert.equal(result.dataVersion, 1, 'a rebuildable cache never fails the migration');
+  assert.match(result.notes, /Adopted cached indexes: es/);
+  assert.match(result.notes, /Left behind and will be rebuilt: fr/);
+});
+
+test('running the migration twice does not overwrite an index the package refreshed since', async () => {
+  const host = stubHost();
+  await migrate({ host, legacy: { legalizeIndexes: [{ country: 'es', index: legacyIndex() }] }, fromDataVersion: 0, toDataVersion: 1 });
+  const newer = 'b'.repeat(40);
+  await host.storage.cache.set('index-es', { revision: newer, entries: [], skipped: 0 });
+  await migrate({ host, legacy: { legalizeIndexes: [{ country: 'es', index: legacyIndex() }] }, fromDataVersion: 0, toDataVersion: 1 });
+
+  assert.equal((await host.storage.cache.get('index-es')).revision, newer);
+});
+
+test('a retrieval saved by the built-in still renders, with its attribution', async () => {
+  const host = stubHost({ fetch: snapshot({ files: { [`/legalize-dev/legalize-es/${REVISION}/es/BOE-A-1978-31229.md`]: LAW } }) });
+  const worker = createWorker(host);
+  const fresh = await worker.invoke({
+    invocationId: 'i1', toolId: 'retrieve', locale: 'en',
+    input: { version: 1, country: 'es', query: 'BOE-A-1978-31229' },
+  });
+  const saved = fresh.artifacts[0].data;
+
+  const view = await worker.renderLegacyResult({ fence: 'legal-result', payload: JSON.stringify(saved), locale: 'en' });
+  assert.equal(view.schemaVersion, 1);
+  assert.deepEqual(view, await worker.renderArtifact({ artifactType: 'legal-result', data: saved, locale: 'en' }),
+    'an old block and a new artifact of the same retrieval draw the same thing');
+
+  await assert.rejects(worker.renderLegacyResult({ fence: 'legal-result', payload: '<not json>', locale: 'en' }), /UNREADABLE/);
+  await assert.rejects(worker.renderLegacyResult({ fence: 'genomics-result', payload: '{}', locale: 'en' }), /Unknown legacy fence/);
 });

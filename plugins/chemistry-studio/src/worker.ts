@@ -8,6 +8,13 @@ import { documentView, noticeView, summarize, unverifiedSvgView, type ChemistryA
 import { text } from './messages';
 import type { ChemistryDocument } from './engine/chemistryDocument';
 
+/** The notice codes the built-in could write. A code outside this list is shown as the
+ *  generic "older format" warning rather than looked up blindly. */
+const NOTICE_CODES = [
+  'conflicting-intents', 'unverified-svg', 'legacy-format', 'partial-validation',
+  'not-drawn', 'one-plan-per-reply', 'assumed-identity',
+];
+
 /** Chemistry Studio as a trusted capability worker.
  *
  *  The whole cascade lives here now: adopt a drawing intent, resolve identities against
@@ -113,6 +120,25 @@ export default function createWorker(capabilityHost: CapabilityHost) {
 
     async renderArtifact({ artifactType, data, locale }: { artifactType: string; data: unknown; locale: string }) {
       if (artifactType !== 'chemistry-document') throw new Error(`Unknown artifact type: ${artifactType}`);
+      return documentView(data as ChemistryDocument, locale);
+    },
+
+    /** A drawing or a notice saved by the built-in.
+     *
+     *  5.3.1 wrote the whole document into the block, so an old conversation needs nothing
+     *  fetched and nothing converted: it is parsed and drawn with today's view. The notice
+     *  codes it used are the same keys this package still carries, so a warning from then
+     *  reads as a warning now rather than as raw JSON. */
+    async renderLegacyResult({ fence, payload, locale }: { fence: string; payload: string; locale: string }) {
+      let data: unknown;
+      try { data = JSON.parse(payload); }
+      catch { throw new Error('CHEMISTRY_LEGACY_UNREADABLE'); }
+      if (fence === 'chemistry-notice') {
+        const notice = data as { code?: string; detail?: string };
+        const code = typeof notice?.code === 'string' && NOTICE_CODES.includes(notice.code) ? notice.code : 'legacy-format';
+        return noticeView(code, locale, typeof notice?.detail === 'string' ? notice.detail : undefined);
+      }
+      if (fence !== 'chemistry-document') throw new Error(`Unknown legacy fence: ${fence}`);
       return documentView(data as ChemistryDocument, locale);
     },
 

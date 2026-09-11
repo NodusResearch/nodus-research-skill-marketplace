@@ -71,6 +71,17 @@ export default function createWorker(host) {
       return resultView(data, locale);
     },
 
+    /** A retrieval saved by the built-in. 5.3.1 wrote the whole record into the block, so
+     *  there is nothing to fetch: it is parsed and drawn with today's view, attribution
+     *  and licence notices included. */
+    async renderLegacyResult({ fence, payload, locale }) {
+      if (fence !== 'legal-result') throw new Error(`Unknown legacy fence: ${fence}`);
+      let data;
+      try { data = JSON.parse(payload); }
+      catch { throw new Error('LEGAL_LEGACY_UNREADABLE'); }
+      return resultView(data, locale);
+    },
+
     /** What the model may see later: the same export a user would download, so a follow-up
      *  question is answered from the retrieved text and its attribution, not from memory. */
     async projectArtifactForModel({ data }) {

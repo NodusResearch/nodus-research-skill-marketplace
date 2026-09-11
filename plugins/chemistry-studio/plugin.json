@@ -15,5 +15,5 @@
   "replacesSkills": ["builtin-chemistry"],
   "skills": ["skills/chemistry-studio/skill.json"],
   "capabilities": ["capabilities/chemistry/capability.json"],
-  "migrations": ["migrations/001-adopt-outcome-log.js"]
+  "migrations": ["migrations/001-adopt-outcome-log.cjs"]
 }

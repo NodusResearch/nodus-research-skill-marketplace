@@ -7,7 +7,8 @@ import test from 'node:test';
 import fs from 'node:fs';
 import { runConformanceSuite, conformanceFailures } from '../../../scripts/contract-v2.mjs';
 import createWorker from '../src/worker.js';
-import { groundPlan, validatePlanShape, validateResult, CITATION, NOTICE, REVISION } from '../src/plan.js';
+import { createRequire } from 'node:module';
+import { groundPlan, validatePlanShape, validateResult, CITATION, NOTICE, REVISION, TERMS_VERSION } from '../src/plan.js';
 import { trackSvg } from '../src/chart.js';
 
 const manifest = JSON.parse(fs.readFileSync(new URL('../capabilities/genomics/capability.json', import.meta.url), 'utf8'));
@@ -195,4 +196,69 @@ test('the worker satisfies the capability contract it declares', async () => {
     }],
   });
   assert.deepEqual(conformanceFailures(findings), []);
+});
+
+// ------------------------------------------------ what 5.3.1 left behind
+
+const migrate = createRequire(import.meta.url)('../migrations/001-adopt-credentials.cjs');
+const BUILTIN_TERMS = '2026-09-08';
+
+test('the migration adopts the key and the consent the built-in recorded', async () => {
+  const host = stubHost();
+  const result = await migrate({ host, legacy: { genomics: { apiKey: 'A'.repeat(32), termsVersion: BUILTIN_TERMS } }, fromDataVersion: 0, toDataVersion: 1 });
+
+  assert.equal(result.dataVersion, 1);
+  assert.equal(await host.secrets.has('api-key'), true, 'the key moved into the package credential store');
+  assert.equal(await host.storage.state.get('terms'), TERMS_VERSION, 'consent to the same terms carries over');
+  assert.match(result.notes, /Adopted the stored API key/);
+});
+
+test('consent to older terms is not consent to these', async () => {
+  const host = stubHost();
+  const result = await migrate({ host, legacy: { genomics: { apiKey: 'A'.repeat(32), termsVersion: '2025-01-01' } }, fromDataVersion: 0, toDataVersion: 1 });
+
+  assert.equal(await host.secrets.has('api-key'), true);
+  assert.equal(await host.storage.state.get('terms'), null, 'the terms have to be accepted again');
+  assert.match(result.notes, /older version/);
+});
+
+test('the migration leaves a key that is not one, and never overwrites a configured one', async () => {
+  const nonsense = stubHost();
+  await migrate({ host: nonsense, legacy: { genomics: { apiKey: 'nope' } }, fromDataVersion: 0, toDataVersion: 1 });
+  assert.equal(await nonsense.secrets.has('api-key'), false);
+
+  const configuredHost = stubHost({ secrets: ['api-key'] });
+  const result = await migrate({ host: configuredHost, legacy: { genomics: { apiKey: 'B'.repeat(32) } }, fromDataVersion: 0, toDataVersion: 1 });
+  assert.match(result.notes, /already configured/);
+});
+
+test('running the migration twice leaves the profile exactly as running it once did', async () => {
+  const host = stubHost();
+  const legacy = { genomics: { apiKey: 'C'.repeat(32), termsVersion: BUILTIN_TERMS } };
+  await migrate({ host, legacy, fromDataVersion: 0, toDataVersion: 1 });
+  const after = [[...host.state.entries()], await host.secrets.has('api-key')];
+  await migrate({ host, legacy, fromDataVersion: 0, toDataVersion: 1 });
+  assert.deepEqual([[...host.state.entries()], await host.secrets.has('api-key')], after);
+});
+
+test('a prediction saved by the built-in still renders from the file beside the chat', async () => {
+  const worker = createWorker(configured());
+  // Exactly what 5.3.1 wrote into `<id>.genomics`: the whole record, plus the terms
+  // version the built-in stamped on it and this package no longer carries.
+  const saved = {
+    ...prediction(), version: 1, provider: 'Google DeepMind AlphaGenome', plan: PLAN,
+    createdAt: '2026-09-11T10:00:00.000Z', sdkRevision: REVISION, model: 'ALL_FOLDS',
+    notice: NOTICE, citation: CITATION, termsVersion: BUILTIN_TERMS,
+  };
+  const view = await worker.renderLegacyResult({
+    fence: 'genomics-result',
+    payload: 'nodus-genomics://chat/' + 'a'.repeat(64) + '/3f8a1c0e-9b2d-4e77-8a10-5c6d7e8f9a0b',
+    asset: JSON.stringify(saved),
+    locale: 'en',
+  });
+  assert.equal(view.schemaVersion, 1);
+  assert.ok(view.nodes.length, 'the old record is drawn with the view this package ships');
+
+  await assert.rejects(worker.renderLegacyResult({ fence: 'genomics-result', payload: 'not json', locale: 'en' }), /UNREADABLE/);
+  await assert.rejects(worker.renderLegacyResult({ fence: 'chemistry-document', payload: '{}', locale: 'en' }), /Unknown legacy fence/);
 });

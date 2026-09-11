@@ -165,7 +165,19 @@ export default function createWorker(host) {
       return settingsState();
     },
 
-    async migrate({ toDataVersion }) { return { dataVersion: toDataVersion }; },
+    /** A prediction saved by the built-in, rendered from the file it left beside the chat.
+     *
+     *  5.3.1 wrote the block as nothing but a `nodus-genomics://` reference; the host
+     *  resolves it and hands over the bytes, because the artifact type declares it decodes
+     *  that format. The record itself is the same one this package produces. */
+    async renderLegacyResult({ fence, payload, asset, locale }) {
+      if (fence !== 'genomics-result') throw new Error(`Unknown legacy fence: ${fence}`);
+      const raw = asset ?? payload;
+      let data;
+      try { data = JSON.parse(raw); }
+      catch { throw new Error('GENOMICS_LEGACY_UNREADABLE'); }
+      return resultView(validateResult(decodeLegacyGenomics(data)), locale);
+    },
 
     async shutdown() {},
   };

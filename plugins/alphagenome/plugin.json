@@ -15,5 +15,5 @@
   "replacesSkills": ["builtin-genomics"],
   "skills": ["skills/alphagenome/skill.json"],
   "capabilities": ["capabilities/genomics/capability.json"],
-  "migrations": ["migrations/001-adopt-credentials.js"]
+  "migrations": ["migrations/001-adopt-credentials.cjs"]
 }

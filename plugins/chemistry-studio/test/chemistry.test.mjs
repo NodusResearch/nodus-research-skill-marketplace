@@ -240,3 +240,57 @@ test('the worker satisfies the capability contract it declares', async () => {
   });
   assert.deepEqual(conformanceFailures(findings), []);
 });
+
+// ---------------------------------------------------------------- what 5.3.1 left behind
+
+const migrate = createRequire(import.meta.url)('../migrations/001-adopt-outcome-log.cjs');
+
+test('the migration adopts the outcome log the built-in kept', async () => {
+  const host = stubHost();
+  const outcomes = [{ at: '2026-09-01T00:00:00.000Z', reason: 'not-drawn', question: 'Draw ferrocene.' }];
+  const result = await migrate({ host, legacy: { chemistryOutcomes: outcomes }, fromDataVersion: 0, toDataVersion: 1 });
+
+  assert.equal(result.dataVersion, 1);
+  assert.deepEqual(await host.storage.state.get('outcomes'), outcomes);
+  assert.match(result.notes, /Adopted 1 outcome record/);
+});
+
+test('a log the package has already written is not replaced by an older one', async () => {
+  const host = stubHost();
+  await host.storage.state.set('outcomes', [{ at: '2026-09-10T00:00:00.000Z', reason: 'not-drawn' }]);
+  const result = await migrate({ host, legacy: { chemistryOutcomes: [{ at: '2026-01-01T00:00:00.000Z' }] }, fromDataVersion: 0, toDataVersion: 1 });
+
+  assert.equal((await host.storage.state.get('outcomes'))[0].at, '2026-09-10T00:00:00.000Z');
+  assert.match(result.notes, /already present/);
+});
+
+test('a diagnostic log that cannot be written never fails the migration', async () => {
+  const host = stubHost();
+  host.storage.state.set = async () => { throw new Error('quota exceeded'); };
+  const result = await migrate({ host, legacy: { chemistryOutcomes: [{ at: '2026-01-01T00:00:00.000Z' }] }, fromDataVersion: 0, toDataVersion: 1 });
+
+  assert.equal(result.dataVersion, 1, 'the package still reaches version 1');
+  assert.match(result.notes, /diagnostic only/);
+});
+
+test('a drawing and a warning saved by the built-in still render', async () => {
+  const host = ethanolHost();
+  const worker = lib.createWorker(host);
+  const produced = await worker.invoke({ invocationId: 'i1', toolId: 'compile', locale: 'en', input: { plan: plan(), question: 'Draw ethanol.' } });
+  const document = produced.artifacts[0].data;
+
+  const drawn = await worker.renderLegacyResult({ fence: 'chemistry-document', payload: JSON.stringify(document), locale: 'en' });
+  assert.deepEqual(drawn, await worker.renderArtifact({ artifactType: 'chemistry-document', data: document, locale: 'en' }),
+    'an old block draws exactly what a stored artifact of the same document draws');
+
+  // The built-in also wrote bare notices. They were codes, and the same codes are still
+  // the ones this package has words for.
+  const notice = await worker.renderLegacyResult({ fence: 'chemistry-notice', payload: JSON.stringify({ code: 'unverified-svg', detail: 'hand drawn' }), locale: 'en' });
+  assert.match(JSON.stringify(notice), /verified chemistry lane/);
+  assert.match(JSON.stringify(notice), /hand drawn/);
+
+  const unknown = await worker.renderLegacyResult({ fence: 'chemistry-notice', payload: JSON.stringify({ code: 'invented-by-someone' }), locale: 'en' });
+  assert.match(JSON.stringify(unknown), /older version/, 'a code this package never had is shown as an older format, not looked up blindly');
+
+  await assert.rejects(worker.renderLegacyResult({ fence: 'chemistry-document', payload: 'nope', locale: 'en' }), /UNREADABLE/);
+});

@@ -15,5 +15,5 @@
   "replacesSkills": ["builtin-legal"],
   "skills": ["skills/legalize/skill.json"],
   "capabilities": ["capabilities/legal/capability.json"],
-  "migrations": ["migrations/001-adopt-index-cache.js"]
+  "migrations": ["migrations/001-adopt-index-cache.cjs"]
 }
