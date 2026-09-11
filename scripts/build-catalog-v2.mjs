@@ -5,18 +5,26 @@
 // verifies, so a stale or wrong entry fails verification rather than installing something.
 import fs from 'node:fs';
 import path from 'node:path';
-import { validateCapabilityCatalog, validatePluginManifestV2 } from './contract-v2.mjs';
+import { LIMITS, validateCapabilityCatalog, validatePluginManifestV2 } from './contract-v2.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const check = process.argv.includes('--check');
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
-// Sizes come from the build rather than from a hand-kept number: the catalog's size is
-// only a download bound, but a figure nobody maintains drifts and then misleads.
-const buildIndex = fs.existsSync(path.join(root, 'build/index.json'))
-  ? read(path.join(root, 'build/index.json'))
-  : [];
-const builtBytes = new Map(buildIndex.map((entry) => [`${entry.manifest.id}:${entry.target}`, entry.bytes]));
+// A catalog size is a download bound and nothing more: the signed release manifest carries
+// the exact byte count and digest, and that is what an install is checked against. So the
+// number here is either one recorded from a real published asset, in catalog.json, or the
+// contract's own ceiling for a package — never whatever this machine happened to build.
+// Reading the local build would make the file differ between a macOS checkout and a Linux
+// one, which is exactly the kind of drift `--check` exists to catch.
+const recordedBytes = (description, target) => {
+  const bytes = description.assetBytes?.[target];
+  if (bytes === undefined) return LIMITS.packageCompressedBytes;
+  if (!Number.isInteger(bytes) || bytes < 1 || bytes > LIMITS.packageCompressedBytes) {
+    throw new Error(`Invalid recorded asset size for ${target}: ${String(bytes)}`);
+  }
+  return bytes;
+};
 
 const plugins = [];
 for (const id of fs.readdirSync(path.join(root, 'plugins')).sort()) {
@@ -39,7 +47,7 @@ for (const id of fs.readdirSync(path.join(root, 'plugins')).sort()) {
       assets: manifest.compatibility.targets.map((target) => ({
         target,
         asset: `${manifest.id}-${manifest.version}-${target}.nodus-plugin`,
-        bytes: builtBytes.get(`${manifest.id}:${target}`) ?? description.assetBytes?.[target] ?? 1,
+        bytes: recordedBytes(description, target),
       })),
     },
   });
