@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "anatomy-visualization",
+  "name": "Anatomy Visualization",
+  "version": "1.0.0",
+  "author": "Drakonis96",
+  "description": "Highlight verified muscles, organs and brain regions in deterministic anatomy figures for research and teaching.",
+  "category": "Health and medicine",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [
+    "self:anatomy"
+  ],
+  "tools": []
+}
