@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "legalize",
+  "name": "Legalize",
+  "version": "2.0.0",
+  "author": "NodusResearch",
+  "description": "Find legislation in legalize-dev country repositories, preserving official sources, snapshot versions, licences and attribution.",
+  "category": "Law and public policy",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [
+    "nodus:legal"
+  ],
+  "tools": []
+}

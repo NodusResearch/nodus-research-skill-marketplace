@@ -1,0 +1,68 @@
+name: Release capability package
+
+# Signing is the security boundary for capability API v2, so it happens in exactly one
+# place: this job, in a protected environment, on a rebuild from the tagged commit.
+# Nothing that a pull request produced is ever signed or published.
+on:
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: Package id to release (must match plugins/<id>)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # A protected environment with required reviewers: publishing a signed package is a
+    # deliberate act by a person, never a side effect of a merge.
+    environment: capability-signing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+
+      - name: Validate the package
+        run: node scripts/validate-plugins.mjs
+
+      - name: Test the package
+        run: node --test plugins/${{ inputs.plugin }}/test/*.test.mjs
+
+      # Rebuilt here rather than carried over from CI: what is signed has to be the bytes
+      # this job produced from this commit.
+      - name: Build the package
+        run: node scripts/build-plugins.mjs ${{ inputs.plugin }}
+
+      - name: Generate third-party notices
+        run: node scripts/build-notices.mjs ${{ inputs.plugin }}
+
+      - name: Sign the release manifest
+        env:
+          CAPABILITY_SIGNING_KEY: ${{ secrets.CAPABILITY_SIGNING_KEY }}
+        run: node scripts/sign-release.mjs ${{ inputs.plugin }}
+
+      - name: Verify the signature the way Nodus will
+        run: node scripts/verify-release.mjs ${{ inputs.plugin }}
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./plugins/${{ inputs.plugin }}/plugin.json').version")
+          TAG="${{ inputs.plugin }}-v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. A published version is never rewritten; bump the version instead." >&2
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --title "${{ inputs.plugin }} ${VERSION}" \
+            --notes-file "plugins/${{ inputs.plugin }}/RELEASE_NOTES.md" \
+            build/${{ inputs.plugin }}-*.nodus-plugin \
+            build/release-manifest.json \
+            build/release-manifest.sig

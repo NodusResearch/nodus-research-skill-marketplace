@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 2,
+  "id": "legal",
+  "provides": "nodus:legal",
+  "version": "2.0.0",
+  "description": "Retrieve legislation from a pinned legalize-dev country snapshot, with its official source and attribution.",
+  "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
+  "requires": [],
+  "tools": [
+    {
+      "id": "retrieve",
+      "description": "Retrieve one law or article from a country snapshot.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "version": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "country": { "type": "string", "minLength": 2, "maxLength": 2 },
+          "query": { "type": "string", "minLength": 2, "maxLength": 180 },
+          "article": { "type": "string", "maxLength": 40 }
+        },
+        "required": ["version", "country", "query"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["legal-result"],
+      "timeoutMs": 240000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-answer",
+      "metered": true
+    }
+  ],
+  "chat": {
+    "priority": 100,
+    "requestProtocols": [
+      { "fence": "legal-plan", "toolId": "retrieve", "maxPerReply": 1, "answerMode": "replace-answer" }
+    ],
+    "legacyResults": [
+      { "fence": "legal-result", "artifactType": "legal-result", "artifactVersion": 1 }
+    ],
+    "hooks": { "prepare": true },
+    "pendingLabel": { "en": "Consulting legislation…", "es": "Consultando legislación…", "fr": "Consultation de la législation…", "de": "Gesetzgebung wird abgefragt…", "pt": "A consultar legislação…", "pt-BR": "Consultando legislação…", "it": "Consultazione della legislazione…", "tr": "Mevzuat sorgulanıyor…" }
+  },
+  "artifacts": [
+    {
+      "type": "legal-result",
+      "version": 1,
+      "label": { "en": "Legislation", "es": "Legislación", "fr": "Législation", "de": "Gesetzgebung", "pt": "Legislação", "pt-BR": "Legislação", "it": "Legislazione", "tr": "Mevzuat" },
+      "modelVisibility": "projection"
+    }
+  ],
+  "permissions": {
+    "network": [
+      { "id": "api", "origin": "https://api.github.com", "pathPrefixes": ["/repos/legalize-dev/"], "methods": ["GET"], "maxResponseBytes": 1048576, "timeoutMs": 60000 },
+      { "id": "raw", "origin": "https://raw.githubusercontent.com", "pathPrefixes": ["/legalize-dev/"], "methods": ["GET"], "maxResponseBytes": 10485760, "timeoutMs": 120000 },
+      { "id": "codeload", "origin": "https://codeload.github.com", "pathPrefixes": ["/legalize-dev/"], "methods": ["GET"], "maxResponseBytes": 268435456, "timeoutMs": 240000 }
+    ],
+    "storage": { "stateBytes": 65536, "cacheBytes": 104857600, "tempBytes": 268435456 }
+  }
+}

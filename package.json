@@ -1,0 +1,20 @@
+{
+  "name": "nodus-research-skill-marketplace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Official Nodus skills and capability packages.",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "validate": "node scripts/catalog.mjs --check && node scripts/validate-templates.mjs && node scripts/validate-plugins.mjs",
+    "build:plugins": "node scripts/build-plugins.mjs",
+    "test:plugins": "node --test plugins/*/test/*.test.mjs",
+    "catalog:v2": "node scripts/build-catalog-v2.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0"
+  },
+  "dependencies": {
+    "adm-zip": "0.5.16"
+  }
+}

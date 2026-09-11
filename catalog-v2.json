@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "updatedAt": "2026-09-11T14:18:57.761Z",
+  "plugins": [
+    {
+      "id": "legalize",
+      "name": "Legalize",
+      "description": {
+        "en": "Find legislation in legalize-dev country repositories, with its official source, snapshot version, licence and attribution.",
+        "es": "Encuentra legislación en los repositorios por país de legalize-dev, con su fuente oficial, versión, licencia y atribución.",
+        "fr": "Trouvez la législation dans les dépôts par pays de legalize-dev, avec sa source officielle, sa version, sa licence et son attribution.",
+        "de": "Findet Gesetzgebung in den Länder-Repositorien von legalize-dev, mit offizieller Quelle, Version, Lizenz und Attribution.",
+        "pt": "Encontra legislação nos repositórios por país da legalize-dev, com a sua fonte oficial, versão, licença e atribuição.",
+        "pt-BR": "Encontre legislação nos repositórios por país da legalize-dev, com sua fonte oficial, versão, licença e atribuição.",
+        "it": "Trova la legislazione nei repository per paese di legalize-dev, con la fonte ufficiale, la versione, la licenza e l'attribuzione.",
+        "tr": "legalize-dev ülke depolarındaki mevzuatı resmi kaynağı, sürümü, lisansı ve atfıyla birlikte bulun."
+      },
+      "version": "2.0.0",
+      "path": "plugins/legalize",
+      "replaces": [
+        "builtin-legal"
+      ],
+      "targets": [
+        "any"
+      ],
+      "release": {
+        "tag": "legalize-v2.0.0",
+        "manifest": "release-manifest.json",
+        "signature": "release-manifest.sig",
+        "assets": [
+          {
+            "target": "any",
+            "asset": "legalize-2.0.0-any.nodus-plugin",
+            "bytes": 56862
+          }
+        ]
+      }
+    }
+  ]
+}
