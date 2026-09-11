@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "anatomy",
+  "version": "1.0.0",
+  "description": "Deterministic anatomy resolver and SVG renderer over pinned, attributed muscle, organ and brain-region drawings. No network, secrets or storage.",
+  "runtime": "javascript-sandbox-v1",
+  "entry": "runtime.js",
+  "tools": [
+    {
+      "id": "render-anatomy",
+      "description": "Resolve and render up to 12 English anatomical structures into one attributed SVG figure. Input: { structures: string[], view?: 'auto'|'front'|'back'|'both', sex?: 'auto'|'male'|'female', labels?: boolean, legend?: boolean, highlight?: 'red'|'teal'|'blue'|'amber'|'violet', title?: string }. Unsupported, ambiguous or laterality-specific requests fail with an explicit message; anatomy is never invented.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "structures": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "view": {
+            "type": "string",
+            "enum": ["auto", "front", "back", "both"]
+          },
+          "sex": {
+            "type": "string",
+            "enum": ["auto", "male", "female"]
+          },
+          "labels": {
+            "type": "boolean"
+          },
+          "legend": {
+            "type": "boolean"
+          },
+          "highlight": {
+            "type": "string",
+            "enum": ["red", "teal", "blue", "amber", "violet"]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": ["structures"],
+        "additionalProperties": false
+      },
+      "resultKinds": ["svg"]
+    },
+    {
+      "id": "list-supported-structures",
+      "description": "List the anatomical structures this capability can render, with canonical English names, reviewed aliases (marking generalised ones), category, provider, available views, laterality, ontology identifiers and licence. Input: { category?: 'muscle'|'muscle-group'|'organ'|'vessel'|'tissue'|'brain-region'|'body-region', search?: string }.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["muscle", "muscle-group", "organ", "vessel", "tissue", "brain-region", "body-region"]
+          },
+          "search": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": false
+      },
+      "resultKinds": ["json"]
+    }
+  ],
+  "permissions": {}
+}

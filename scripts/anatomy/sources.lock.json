@@ -1,0 +1,530 @@
+{
+  "generatedBy": "scripts/anatomy/build.mjs",
+  "description": "Pinned, checksummed inputs for the Anatomy Visualization reproducible build. Rebuild with `node scripts/anatomy/build.mjs`; refresh FMA cross-references with `--fetch-fma`.",
+  "retrieved": "2026-09-11",
+  "anatomeViewBoxes": {
+    "male-front": [
+      0,
+      0,
+      724,
+      1448
+    ],
+    "male-back": [
+      724,
+      0,
+      724,
+      1448
+    ],
+    "female-front": [
+      -50,
+      -40,
+      734,
+      1538
+    ],
+    "female-back": [
+      756,
+      0,
+      774,
+      1448
+    ]
+  },
+  "anatomeViewBoxesSource": "Framing constants from react-native-body-highlighter SvgMaleWrapper.tsx and SvgFemaleWrapper.tsx at revision 15df9e2dbc621450001960bed5a30e6a75357faa, verified against the Anatome path coordinate bounds.",
+  "sources": [
+    {
+      "id": "anatome-body-paths",
+      "project": "Anatome",
+      "role": "Anatomical SVG path data (muscles and body regions)",
+      "url": "https://github.com/Rippy1911/anatome",
+      "revision": "ea36eedbc0a65d4576d1ef10abd42af3c407f11e",
+      "file": "api/data/bodyPaths.json",
+      "rawUrl": "https://raw.githubusercontent.com/Rippy1911/anatome/ea36eedbc0a65d4576d1ef10abd42af3c407f11e/api/data/bodyPaths.json",
+      "sha256": "5d069a2d75c5322966d5147b59f85c88bb3c330dcc3f499abbe770342f862e64",
+      "license": "Path data: MIT (react-native-body-highlighter). Repository code: Apache-2.0 (Anatome).",
+      "attribution": "Anatomical SVG path data from react-native-body-highlighter (MIT, Copyright (c) 2022 ELABBASSI Hicham), packaged by Anatome (NextSolutions).",
+      "fetch": true
+    },
+    {
+      "id": "anatome-notice",
+      "project": "Anatome",
+      "role": "Upstream NOTICE confirming the MIT origin of the path data",
+      "url": "https://github.com/Rippy1911/anatome",
+      "revision": "ea36eedbc0a65d4576d1ef10abd42af3c407f11e",
+      "file": "NOTICE",
+      "rawUrl": "https://raw.githubusercontent.com/Rippy1911/anatome/ea36eedbc0a65d4576d1ef10abd42af3c407f11e/NOTICE",
+      "sha256": "4c2658dae805a24ddacb9a17865b910d8784f103ef2d5649642194d1afe259cb",
+      "license": "Apache-2.0 repository notice",
+      "attribution": "Anatome by NextSolutions, https://anatome.dev",
+      "fetch": false
+    },
+    {
+      "id": "anatome-license",
+      "project": "Anatome",
+      "role": "Upstream Apache-2.0 licence text",
+      "url": "https://github.com/Rippy1911/anatome",
+      "revision": "ea36eedbc0a65d4576d1ef10abd42af3c407f11e",
+      "file": "LICENSE",
+      "rawUrl": "https://raw.githubusercontent.com/Rippy1911/anatome/ea36eedbc0a65d4576d1ef10abd42af3c407f11e/LICENSE",
+      "sha256": "0bdb6624fb59b8017de80885ece41602885f8b317b8560757d1a0b2a367ffb9e",
+      "license": "Apache-2.0",
+      "attribution": "Copyright NextSolutions",
+      "fetch": false
+    },
+    {
+      "id": "anatomogram-male",
+      "project": "EMBL-EBI Expression Atlas anatomogram",
+      "role": "Human male body and organ drawing",
+      "url": "https://github.com/ebi-gene-expression-group/anatomogram",
+      "revision": "9fcc37022cce1e2862692a5f5fbfb78572b87e67",
+      "file": "src/svg/homo_sapiens.male.svg",
+      "rawUrl": "https://raw.githubusercontent.com/ebi-gene-expression-group/anatomogram/9fcc37022cce1e2862692a5f5fbfb78572b87e67/src/svg/homo_sapiens.male.svg",
+      "sha256": "c19874f0ec6c6450525277d97679bfe57cb0fd280a920210d0961442d43162ab",
+      "license": "CC BY 4.0 (Expression Atlas graphical material). Source code Apache-2.0.",
+      "attribution": "EMBL-EBI Expression Atlas, https://www.ebi.ac.uk/gxa/licence.html. Outline derived from Wikimedia Commons CC0 material.",
+      "fetch": true
+    },
+    {
+      "id": "anatomogram-female",
+      "project": "EMBL-EBI Expression Atlas anatomogram",
+      "role": "Human female body and organ drawing",
+      "url": "https://github.com/ebi-gene-expression-group/anatomogram",
+      "revision": "9fcc37022cce1e2862692a5f5fbfb78572b87e67",
+      "file": "src/svg/homo_sapiens.female.svg",
+      "rawUrl": "https://raw.githubusercontent.com/ebi-gene-expression-group/anatomogram/9fcc37022cce1e2862692a5f5fbfb78572b87e67/src/svg/homo_sapiens.female.svg",
+      "sha256": "895ecda0934595950746a13c16abb8bd49ae4a4f947d575878f2f95b33b18e28",
+      "license": "CC BY 4.0 (Expression Atlas graphical material). Source code Apache-2.0.",
+      "attribution": "EMBL-EBI Expression Atlas, https://www.ebi.ac.uk/gxa/licence.html",
+      "fetch": true
+    },
+    {
+      "id": "anatomogram-brain",
+      "project": "EMBL-EBI Expression Atlas anatomogram",
+      "role": "Human brain region drawing",
+      "url": "https://github.com/ebi-gene-expression-group/anatomogram",
+      "revision": "9fcc37022cce1e2862692a5f5fbfb78572b87e67",
+      "file": "src/svg/homo_sapiens.brain.svg",
+      "rawUrl": "https://raw.githubusercontent.com/ebi-gene-expression-group/anatomogram/9fcc37022cce1e2862692a5f5fbfb78572b87e67/src/svg/homo_sapiens.brain.svg",
+      "sha256": "f885b63ef331d2d1163e09566a25144830c13b4ab73690e667669603afce6b55",
+      "license": "CC BY 4.0 (Expression Atlas graphical material). Source code Apache-2.0.",
+      "attribution": "EMBL-EBI Expression Atlas, https://www.ebi.ac.uk/gxa/licence.html",
+      "fetch": true
+    },
+    {
+      "id": "rnbh-license",
+      "project": "react-native-body-highlighter",
+      "role": "MIT licence of the muscle path data",
+      "url": "https://github.com/HichamELBSI/react-native-body-highlighter",
+      "revision": "15df9e2dbc621450001960bed5a30e6a75357faa",
+      "file": "LICENSE",
+      "rawUrl": "https://raw.githubusercontent.com/HichamELBSI/react-native-body-highlighter/15df9e2dbc621450001960bed5a30e6a75357faa/LICENSE",
+      "sha256": "05cb51f6d01db1300e69a728200cc1bb40cddb71bdcf26deccb3e6873661d71f",
+      "license": "MIT",
+      "attribution": "Copyright (c) 2022 ELABBASSI Hicham",
+      "fetch": false
+    },
+    {
+      "id": "fma-license",
+      "project": "Foundational Model of Anatomy",
+      "role": "FMA semantic cross-reference licence",
+      "url": "https://github.com/uw-sig/FMA",
+      "revision": "c6f70808ba2859b88cb0b8362c34fa9017c6f96a",
+      "file": "LICENSE",
+      "rawUrl": "https://raw.githubusercontent.com/uw-sig/FMA/c6f70808ba2859b88cb0b8362c34fa9017c6f96a/LICENSE",
+      "sha256": "7e7170e3cebf88a9f60c7b8421418323c09304da1af4d5e90f4da1dc1c8a2661",
+      "license": "CC BY 4.0",
+      "attribution": "Foundational Model of Anatomy, Structural Informatics Group, University of Washington",
+      "fetch": false
+    },
+    {
+      "id": "fma-version",
+      "project": "Foundational Model of Anatomy",
+      "role": "FMA release used for semantic cross-references",
+      "url": "https://github.com/uw-sig/FMA",
+      "revision": "c6f70808ba2859b88cb0b8362c34fa9017c6f96a",
+      "file": "Version.txt",
+      "rawUrl": "https://raw.githubusercontent.com/uw-sig/FMA/c6f70808ba2859b88cb0b8362c34fa9017c6f96a/Version.txt",
+      "sha256": "c0eacacd7e27bbf341d21e7e0e2997a363840a210d8e358d4babaebd765b5bfd",
+      "license": "CC BY 4.0",
+      "attribution": "FMA version 5.1.0",
+      "fetch": false
+    }
+  ],
+  "fma": {
+    "service": "https://www.ebi.ac.uk/ols4",
+    "ontology": "fma",
+    "fetchedAt": "2026-09-11T09:46:56.049Z",
+    "matches": {
+      "adrenal gland": {
+        "id": "FMA:9604",
+        "iri": "http://purl.org/sig/ont/fma/fma9604",
+        "label": "Adrenal gland",
+        "matched": "label"
+      },
+      "amygdala": {
+        "id": "FMA:61841",
+        "iri": "http://purl.org/sig/ont/fma/fma61841",
+        "label": "Amygdala",
+        "matched": "label"
+      },
+      "aorta": {
+        "id": "FMA:3734",
+        "iri": "http://purl.org/sig/ont/fma/fma3734",
+        "label": "Aorta",
+        "matched": "label"
+      },
+      "appendix": {
+        "id": "FMA:14542",
+        "iri": "http://purl.org/sig/ont/fma/fma14542",
+        "label": "Appendix",
+        "matched": "label"
+      },
+      "biceps brachii": {
+        "id": "FMA:37670",
+        "iri": "http://purl.org/sig/ont/fma/fma37670",
+        "label": "Biceps brachii",
+        "matched": "label"
+      },
+      "brain": {
+        "id": "FMA:50801",
+        "iri": "http://purl.org/sig/ont/fma/fma50801",
+        "label": "Brain",
+        "matched": "label"
+      },
+      "breast": {
+        "id": "FMA:9601",
+        "iri": "http://purl.org/sig/ont/fma/fma9601",
+        "label": "Breast",
+        "matched": "label"
+      },
+      "caudate nucleus": {
+        "id": "FMA:61833",
+        "iri": "http://purl.org/sig/ont/fma/fma61833",
+        "label": "Caudate nucleus",
+        "matched": "label"
+      },
+      "cerebellum": {
+        "id": "FMA:67944",
+        "iri": "http://purl.org/sig/ont/fma/fma67944",
+        "label": "Cerebellum",
+        "matched": "label"
+      },
+      "cerebral cortex": {
+        "id": "FMA:61830",
+        "iri": "http://purl.org/sig/ont/fma/fma61830",
+        "label": "Cerebral cortex",
+        "matched": "label"
+      },
+      "colon": {
+        "id": "FMA:14543",
+        "iri": "http://purl.org/sig/ont/fma/fma14543",
+        "label": "Colon",
+        "matched": "label"
+      },
+      "deltoid": {
+        "id": "FMA:32521",
+        "iri": "http://purl.org/sig/ont/fma/fma32521",
+        "label": "Deltoid",
+        "matched": "label"
+      },
+      "diaphragm": {
+        "id": "FMA:13295",
+        "iri": "http://purl.org/sig/ont/fma/fma13295",
+        "label": "Diaphragm",
+        "matched": "label"
+      },
+      "diencephalon": {
+        "id": "FMA:62001",
+        "iri": "http://purl.org/sig/ont/fma/fma62001",
+        "label": "Diencephalon",
+        "matched": "label"
+      },
+      "endometrium": {
+        "id": "FMA:17742",
+        "iri": "http://purl.org/sig/ont/fma/fma17742",
+        "label": "Endometrium",
+        "matched": "label"
+      },
+      "epididymis": {
+        "id": "FMA:18255",
+        "iri": "http://purl.org/sig/ont/fma/fma18255",
+        "label": "Epididymis",
+        "matched": "label"
+      },
+      "esophagus": {
+        "id": "FMA:7131",
+        "iri": "http://purl.org/sig/ont/fma/fma7131",
+        "label": "Esophagus",
+        "matched": "label"
+      },
+      "eye": {
+        "id": "FMA:54448",
+        "iri": "http://purl.org/sig/ont/fma/fma54448",
+        "label": "Eye",
+        "matched": "label"
+      },
+      "gallbladder": {
+        "id": "FMA:7202",
+        "iri": "http://purl.org/sig/ont/fma/fma7202",
+        "label": "Gallbladder",
+        "matched": "label"
+      },
+      "globus pallidus": {
+        "id": "FMA:61835",
+        "iri": "http://purl.org/sig/ont/fma/fma61835",
+        "label": "Globus pallidus",
+        "matched": "label"
+      },
+      "heart": {
+        "id": "FMA:7088",
+        "iri": "http://purl.org/sig/ont/fma/fma7088",
+        "label": "Heart",
+        "matched": "label"
+      },
+      "hippocampus": {
+        "id": "FMA:275020",
+        "iri": "http://purl.org/sig/ont/fma/fma275020",
+        "label": "Hippocampus",
+        "matched": "label"
+      },
+      "hypothalamus": {
+        "id": "FMA:62008",
+        "iri": "http://purl.org/sig/ont/fma/fma62008",
+        "label": "Hypothalamus",
+        "matched": "label"
+      },
+      "kidney": {
+        "id": "FMA:7203",
+        "iri": "http://purl.org/sig/ont/fma/fma7203",
+        "label": "Kidney",
+        "matched": "label"
+      },
+      "liver": {
+        "id": "FMA:7197",
+        "iri": "http://purl.org/sig/ont/fma/fma7197",
+        "label": "Liver",
+        "matched": "label"
+      },
+      "locus ceruleus": {
+        "id": "FMA:72478",
+        "iri": "http://purl.org/sig/ont/fma/fma72478",
+        "label": "Locus ceruleus",
+        "matched": "label"
+      },
+      "lung": {
+        "id": "FMA:7195",
+        "iri": "http://purl.org/sig/ont/fma/fma7195",
+        "label": "Lung",
+        "matched": "label"
+      },
+      "medulla oblongata": {
+        "id": "FMA:62004",
+        "iri": "http://purl.org/sig/ont/fma/fma62004",
+        "label": "Medulla oblongata",
+        "matched": "label"
+      },
+      "middle frontal gyrus": {
+        "id": "FMA:61859",
+        "iri": "http://purl.org/sig/ont/fma/fma61859",
+        "label": "Middle frontal gyrus",
+        "matched": "label"
+      },
+      "middle temporal gyrus": {
+        "id": "FMA:61906",
+        "iri": "http://purl.org/sig/ont/fma/fma61906",
+        "label": "Middle temporal gyrus",
+        "matched": "label"
+      },
+      "nose": {
+        "id": "FMA:46472",
+        "iri": "http://purl.org/sig/ont/fma/fma46472",
+        "label": "Nose",
+        "matched": "label"
+      },
+      "nucleus accumbens": {
+        "id": "FMA:61889",
+        "iri": "http://purl.org/sig/ont/fma/fma61889",
+        "label": "Nucleus accumbens",
+        "matched": "label"
+      },
+      "occipital lobe": {
+        "id": "FMA:67325",
+        "iri": "http://purl.org/sig/ont/fma/fma67325",
+        "label": "Occipital lobe",
+        "matched": "label"
+      },
+      "ovary": {
+        "id": "FMA:7209",
+        "iri": "http://purl.org/sig/ont/fma/fma7209",
+        "label": "Ovary",
+        "matched": "label"
+      },
+      "pancreas": {
+        "id": "FMA:7198",
+        "iri": "http://purl.org/sig/ont/fma/fma7198",
+        "label": "Pancreas",
+        "matched": "label"
+      },
+      "parietal lobe": {
+        "id": "FMA:61826",
+        "iri": "http://purl.org/sig/ont/fma/fma61826",
+        "label": "Parietal lobe",
+        "matched": "label"
+      },
+      "pineal body": {
+        "id": "FMA:62033",
+        "iri": "http://purl.org/sig/ont/fma/fma62033",
+        "label": "Pineal body",
+        "matched": "label"
+      },
+      "pituitary gland": {
+        "id": "FMA:13889",
+        "iri": "http://purl.org/sig/ont/fma/fma13889",
+        "label": "Pituitary gland",
+        "matched": "label"
+      },
+      "placenta": {
+        "id": "FMA:0329329",
+        "iri": "http://purl.org/sig/ont/fma/fma0329329",
+        "label": "Placenta",
+        "matched": "label"
+      },
+      "prefrontal cortex": {
+        "id": "FMA:224850",
+        "iri": "http://purl.org/sig/ont/fma/fma224850",
+        "label": "Prefrontal cortex",
+        "matched": "label"
+      },
+      "prostate": {
+        "id": "FMA:9600",
+        "iri": "http://purl.org/sig/ont/fma/fma9600",
+        "label": "Prostate",
+        "matched": "label"
+      },
+      "putamen": {
+        "id": "FMA:61834",
+        "iri": "http://purl.org/sig/ont/fma/fma61834",
+        "label": "Putamen",
+        "matched": "label"
+      },
+      "quadriceps femoris": {
+        "id": "FMA:22428",
+        "iri": "http://purl.org/sig/ont/fma/fma22428",
+        "label": "Quadriceps femoris",
+        "matched": "label"
+      },
+      "rectum": {
+        "id": "FMA:14544",
+        "iri": "http://purl.org/sig/ont/fma/fma14544",
+        "label": "Rectum",
+        "matched": "label"
+      },
+      "rectus abdominis": {
+        "id": "FMA:9628",
+        "iri": "http://purl.org/sig/ont/fma/fma9628",
+        "label": "Rectus abdominis",
+        "matched": "label"
+      },
+      "small intestine": {
+        "id": "FMA:7200",
+        "iri": "http://purl.org/sig/ont/fma/fma7200",
+        "label": "Small intestine",
+        "matched": "label"
+      },
+      "spinal cord": {
+        "id": "FMA:7647",
+        "iri": "http://purl.org/sig/ont/fma/fma7647",
+        "label": "Spinal cord",
+        "matched": "label"
+      },
+      "spleen": {
+        "id": "FMA:7196",
+        "iri": "http://purl.org/sig/ont/fma/fma7196",
+        "label": "Spleen",
+        "matched": "label"
+      },
+      "stomach": {
+        "id": "FMA:7148",
+        "iri": "http://purl.org/sig/ont/fma/fma7148",
+        "label": "Stomach",
+        "matched": "label"
+      },
+      "substantia nigra": {
+        "id": "FMA:67947",
+        "iri": "http://purl.org/sig/ont/fma/fma67947",
+        "label": "Substantia nigra",
+        "matched": "label"
+      },
+      "temporal lobe": {
+        "id": "FMA:61825",
+        "iri": "http://purl.org/sig/ont/fma/fma61825",
+        "label": "Temporal lobe",
+        "matched": "label"
+      },
+      "testis": {
+        "id": "FMA:7210",
+        "iri": "http://purl.org/sig/ont/fma/fma7210",
+        "label": "Testis",
+        "matched": "label"
+      },
+      "thalamus": {
+        "id": "FMA:62007",
+        "iri": "http://purl.org/sig/ont/fma/fma62007",
+        "label": "Thalamus",
+        "matched": "label"
+      },
+      "thyroid gland": {
+        "id": "FMA:9603",
+        "iri": "http://purl.org/sig/ont/fma/fma9603",
+        "label": "Thyroid gland",
+        "matched": "label"
+      },
+      "tibialis anterior": {
+        "id": "FMA:22532",
+        "iri": "http://purl.org/sig/ont/fma/fma22532",
+        "label": "Tibialis anterior",
+        "matched": "label"
+      },
+      "tongue": {
+        "id": "FMA:54640",
+        "iri": "http://purl.org/sig/ont/fma/fma54640",
+        "label": "Tongue",
+        "matched": "label"
+      },
+      "trapezius": {
+        "id": "FMA:9626",
+        "iri": "http://purl.org/sig/ont/fma/fma9626",
+        "label": "Trapezius",
+        "matched": "label"
+      },
+      "triceps brachii": {
+        "id": "FMA:37688",
+        "iri": "http://purl.org/sig/ont/fma/fma37688",
+        "label": "Triceps brachii",
+        "matched": "label"
+      },
+      "urinary bladder": {
+        "id": "FMA:15900",
+        "iri": "http://purl.org/sig/ont/fma/fma15900",
+        "label": "Urinary bladder",
+        "matched": "label"
+      },
+      "uterine tube": {
+        "id": "FMA:18245",
+        "iri": "http://purl.org/sig/ont/fma/fma18245",
+        "label": "Uterine tube",
+        "matched": "label"
+      },
+      "uterus": {
+        "id": "FMA:17558",
+        "iri": "http://purl.org/sig/ont/fma/fma17558",
+        "label": "Uterus",
+        "matched": "label"
+      },
+      "vagina": {
+        "id": "FMA:19949",
+        "iri": "http://purl.org/sig/ont/fma/fma19949",
+        "label": "Vagina",
+        "matched": "label"
+      }
+    }
+  }
+}

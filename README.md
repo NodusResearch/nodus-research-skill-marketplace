@@ -14,7 +14,7 @@ Catalog updates do not change installed **skill packages**: installing a replace
 
 ## Browse the catalog
 
-15 skills across 9 categories, plus 1 plugin.
+15 skills across 9 categories, plus 2 plugins.
 
 - [Data and statistics (1)](#data-and-statistics)
 - [Design and visual communication (2)](#design-and-visual-communication)
@@ -25,7 +25,7 @@ Catalog updates do not change installed **skill packages**: installing a replace
 - [Planning and productivity (1)](#planning-and-productivity)
 - [Thinking and decision-making (5)](#thinking-and-decision-making)
 - [Writing and communication (2)](#writing-and-communication)
-- [Plugins (1)](#plugins)
+- [Plugins (2)](#plugins)
 
 <!-- catalog-index:end -->
 
@@ -158,6 +158,7 @@ is the starting point for a new one.
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
 <tbody>
+<tr><td><a href="anatomy-visualization/">Anatomy Visualization</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Render deterministic, attributed anatomy figures that highlight verified muscles, organs and brain regions without the model drawing paths.</td></tr>
 <tr><td><a href="unit-converter/">Unit Converter</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Convert lengths, masses and temperatures exactly and in batches, without the model doing the arithmetic.</td></tr>
 </tbody>
 </table>

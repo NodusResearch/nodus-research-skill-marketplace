@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "anatomy-visualization",
+  "name": "Anatomy Visualization",
+  "version": "1.0.0",
+  "author": "Drakonis96",
+  "description": "Render deterministic, attributed anatomy figures that highlight verified muscles, organs and brain regions without the model drawing paths.",
+  "license": "AGPL-3.0-only",
+  "compatibility": {
+    "capabilityApi": 1,
+    "minNodusVersion": "5.3.1"
+  },
+  "skills": [
+    "skills/anatomy-visualization/skill.json"
+  ],
+  "capabilities": [
+    "capabilities/anatomy/capability.json"
+  ]
+}
