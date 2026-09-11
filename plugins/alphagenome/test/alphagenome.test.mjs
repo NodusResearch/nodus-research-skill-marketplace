@@ -325,3 +325,13 @@ test('the declared network permission is the only place a lock points at', () =>
   }
   assert.deepEqual([...hosts], permitted, 'a lock that names a host the manifest does not declare cannot be installed at all');
 });
+
+test('a device with no credential store loses the key, not the migration', async () => {
+  const host = stubHost();
+  host.secrets.store = async () => { throw new Error('The secure credential store is unavailable.'); };
+  const result = await migrate({ host, legacy: { genomics: { apiKey: 'D'.repeat(32), termsVersion: BUILTIN_TERMS } }, fromDataVersion: 0, toDataVersion: 1 });
+
+  assert.equal(result.dataVersion, 1, 'the migration still completes');
+  assert.match(result.notes, /has to be entered again/);
+  assert.equal(await host.storage.state.get('terms'), TERMS_VERSION, 'and everything else is still carried over');
+});

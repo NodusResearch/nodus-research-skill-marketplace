@@ -28,8 +28,16 @@ module.exports = async function migrate({ host, legacy }) {
     } else if (await host.secrets.has('api-key')) {
       notes.push('A key is already configured; the old one was not copied over.');
     } else {
-      await host.secrets.store('api-key', apiKey);
-      notes.push('Adopted the stored API key.');
+      try {
+        await host.secrets.store('api-key', apiKey);
+        notes.push('Adopted the stored API key.');
+      } catch (error) {
+        // A machine with no working credential store cannot keep a key safely, and the
+        // key is not worth writing anywhere else. Losing one setting the user can type
+        // again is a far smaller loss than failing the migration and leaving them without
+        // the capability at all, so this is reported and the move continues.
+        notes.push('The stored key could not be moved into this device credential store, so it has to be entered again.');
+      }
     }
   }
 
