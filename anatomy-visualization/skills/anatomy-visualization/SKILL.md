@@ -28,7 +28,7 @@ multilingual aliases, localisation tables or automatic translation.
 ## 2. Required inputs and permitted data
 
 - The user's requested structures, expressed as common English anatomical terms.
-- Optional view, body sex, highlight colour and a short figure title.
+- Optional view, body sex, label/legend flags and a short figure title.
 - Permitted data is limited to generic anatomical terminology. Never include names, record
   numbers, dates of birth, biological material identifiers, or any potentially
   re-identifiable information in a structure name or title.
@@ -65,8 +65,8 @@ Before calling a tool:
    schematic anatomy from its own pinned resources.
 
 The capability independently re-validates every input (structure count, string length,
-supported view, supported sex, highlight colour, label/legend flags, unknown fields) and
-refuses anything invalid. Never bypass those checks by editing or truncating input.
+supported view, supported sex, label/legend flags, unknown fields) and refuses anything
+invalid. Never bypass those checks by editing or truncating input.
 
 ## 5. Numbered execution steps and tool-selection rules
 
@@ -77,8 +77,8 @@ refuses anything invalid. Never bypass those checks by editing or truncating inp
 3. Infer `view` only from explicit wording: front, back, both, or leave it as `auto`.
    Infer `sex` only when the user explicitly asks for a male or female body; otherwise use
    `auto`. Do not guess.
-4. Call `render-anatomy` once with all structures, plus `view`, `sex`, `labels`, `legend`,
-   `highlight` and `title` when the request calls for them. Do not call it once per
+4. Call `render-anatomy` once with all structures, plus `view`, `sex`, `labels`, `legend`
+   and `title` when the request calls for them. Do not call it once per
    structure: the call budget is limited and the figure must combine the structures.
 5. If the capability returns an error, read it literally:
    - unsupported term: report that the structure is outside the verified catalog, and offer
@@ -106,8 +106,9 @@ Tool-selection summary: use `render-anatomy` for any figure; use
 
 - a title and an accessible description;
 - one panel per drawing (muscle front/back, organ body, brain regions), each labelled;
-- highlighted structures with numbered markers plus a legend (numbers do not rely on colour
-  alone);
+- highlighted structures, each in its own colour, with a numbered callout in the side margin
+  connected to the structure by a leader line and a legend mapping numbers and colours to
+  names (identification never relies on colour alone);
 - provider and licence attribution beneath the relevant panel;
 - explicit notices for generalised matches, bilateral drawing and mixed coordinate systems;
 - a footer stating that the figure is schematic, research/teaching material, not to scale and

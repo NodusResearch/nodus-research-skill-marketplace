@@ -18,9 +18,10 @@ runtime needs is inside `runtime.js`.
 ## What it does
 
 `render-anatomy` accepts up to 12 English anatomical structures plus optional view, body
-sex, label/legend flags, a highlight colour and a title, then returns one sanitized SVG
-with labelled panels, numbered markers, a legend, provider attribution and explicit
-notices. `list-supported-structures` returns the catalog as JSON.
+sex, label/legend flags and a title, then returns one sanitized SVG with labelled panels,
+a distinct colour per structure, numbered callouts in the side margins connected by leader
+lines, a legend, provider attribution and explicit notices. Identification never relies on
+colour alone. `list-supported-structures` returns the catalog as JSON.
 
 The runtime embeds a gzip-compressed snapshot of the curated geometry, so it works fully
 offline and deterministically: the same request always produces the same figure.

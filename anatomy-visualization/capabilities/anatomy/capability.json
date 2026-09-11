@@ -8,7 +8,7 @@
   "tools": [
     {
       "id": "render-anatomy",
-      "description": "Resolve and render up to 12 English anatomical structures into one attributed SVG figure. Input: { structures: string[], view?: 'auto'|'front'|'back'|'both', sex?: 'auto'|'male'|'female', labels?: boolean, legend?: boolean, highlight?: 'red'|'teal'|'blue'|'amber'|'violet', title?: string }. Unsupported, ambiguous or laterality-specific requests fail with an explicit message; anatomy is never invented.",
+      "description": "Resolve and render up to 12 English anatomical structures into one attributed SVG figure. Input: { structures: string[], view?: 'auto'|'front'|'back'|'both', sex?: 'auto'|'male'|'female', labels?: boolean, legend?: boolean, title?: string }. Each structure receives its own colour and a numbered callout with a leader line. Unsupported, ambiguous or laterality-specific requests fail with an explicit message; anatomy is never invented.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -33,10 +33,6 @@
           },
           "legend": {
             "type": "boolean"
-          },
-          "highlight": {
-            "type": "string",
-            "enum": ["red", "teal", "blue", "amber", "violet"]
           },
           "title": {
             "type": "string",
