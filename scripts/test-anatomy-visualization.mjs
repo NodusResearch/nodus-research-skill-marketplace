@@ -149,10 +149,13 @@ test('rendering: labels and legend can be disabled independently', async () => {
   await assert.rejects(render({ structures: ['liver'], labels: false, legend: true }), /legend needs numbered labels/);
 });
 
-test('rendering: highlight colours are validated', async () => {
-  const teal = await render({ structures: ['heart'], highlight: 'teal' });
-  assert.match(teal.svg, /#2a9d8f/);
-  await assert.rejects(render({ structures: ['heart'], highlight: 'chartreuse' }), /highlight must be one of/);
+test('rendering: every structure gets its own colour and a numbered callout with a leader line', async () => {
+  const result = await render({ structures: ['heart', 'liver', 'kidneys'] });
+  for (const color of ['#d1495b', '#2a9d8f', '#3a6ea5']) assert.match(result.svg, new RegExp(color));
+  assert.match(result.svg, /<line\b/, 'callout leader lines are drawn');
+  assert.match(result.svg, /Numbers and leader lines identify/);
+  const schema = capabilityManifest.tools[0].inputSchema;
+  assert.equal(jsonSchemaMatches(schema, { structures: ['heart'], highlight: 'teal' }), false);
 });
 
 test('rendering: mixed providers are shown as separate panels with a coordinate notice', async () => {
