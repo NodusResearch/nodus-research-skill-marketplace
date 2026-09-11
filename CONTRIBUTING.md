@@ -82,3 +82,28 @@ overlay, and a user can always roll back to the previous version.
 
 [Unit Converter](unit-converter/) is a complete, deterministic worked example: one skill, one
 capability, no permissions.
+
+## Contributing a Capability API v2 package
+
+Capability API v2 packages live under `plugins/<id>` and may contain trusted Node or Python
+runtime code. Contributors never sign packages and never need access to a publishing key.
+They submit a pull request containing the source, manifests, migrations, dependency locks,
+licence notices and tests. Maintainers review that code and its permissions before merging it.
+
+An accepted package becomes official only when a maintainer starts the **Release capability
+package** workflow from `main` and approves its protected `capability-signing` environment.
+The workflow rebuilds the package, writes a release manifest containing the exact asset names,
+sizes and SHA-256 digests, signs those manifest bytes with the environment's Ed25519 private
+key, verifies the signature against `trusted-keys.json`, and then publishes the immutable
+GitHub release. Pull-request workflows have no access to the signing key and never publish.
+
+The private key is stored only as the `CAPABILITY_SIGNING_KEY` secret of the protected
+`capability-signing` GitHub Environment. Its public half and `keyId` are committed to this
+repository's `trusted-keys.json` and to Nodus's
+`electron/capabilities/trustedKeys.json`. Package manifests must name that same `keyId`.
+Adding a package to this repository does not grant it a signature automatically: review,
+merge and an explicitly approved release are separate steps.
+
+After publishing, maintainers update `catalog-v2.json` and Nodus's capability bootstrap with
+the release URLs and the exact signed asset metadata. Never rewrite an existing release or
+reuse a version for different bytes; increment the package version instead.
