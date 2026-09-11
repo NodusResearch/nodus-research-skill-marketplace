@@ -35,6 +35,12 @@ const bytes = Buffer.from(`${JSON.stringify(release, null, 2)}\n`);
 const key = createPrivateKey(pem);
 if (key.asymmetricKeyType !== 'ed25519') throw new Error('The signing key is not Ed25519.');
 
+const signature = signBytes(null, bytes, key);
 fs.writeFileSync(path.join(root, 'build/release-manifest.json'), bytes);
-fs.writeFileSync(path.join(root, 'build/release-manifest.sig'), signBytes(null, bytes, key));
+fs.writeFileSync(path.join(root, 'build/release-manifest.sig'), signature);
+// Also under the package's own name: a release publishes the unsuffixed pair, but a build
+// directory can hold several packages at once, and a bootstrap that picked "the manifest"
+// out of it would hand one package another's signature.
+fs.writeFileSync(path.join(root, `build/release-manifest-${id}.json`), bytes);
+fs.writeFileSync(path.join(root, `build/release-manifest-${id}.sig`), signature);
 console.log(`Signed ${release.plugin} ${release.version} for ${release.targets.map((target) => target.target).join(', ')} with key ${release.publisher.keyId}.`);
