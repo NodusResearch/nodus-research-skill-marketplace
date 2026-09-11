@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "python": "3.10",
+  "platform": "darwin-x64",
+  "packages": [
+    {
+      "name": "absl_py-2.5.0-py3-none-any.whl",
+      "requirement": "absl-py==2.5.0",
+      "url": "https://files.pythonhosted.org/packages/58/0a/a10b45aab35b175aded078a462dc8d0c698f5b13946e7cb0869097b78bb6/absl_py-2.5.0-py3-none-any.whl",
+      "bytes": 137410,
+      "sha256": "0f17b89f2a4eaaedc4f28c622998aa690564b3012a396a4ffad0821007fe03ba"
+    },
+    {
+      "name": "alphagenome-0.9.0-py3-none-any.whl",
+      "requirement": "alphagenome==0.9.0",
+      "url": "https://files.pythonhosted.org/packages/a8/5f/aebd69dd4e6a28cc1ac44e31d06e8e76772e850f39e3e191ce2913ad354d/alphagenome-0.9.0-py3-none-any.whl",
+      "bytes": 213876,
+      "sha256": "a4f35884341ae85b5d2cf088dfe0304961de7ae4a590d4538653069673de32f4"
+    },
+    {
+      "name": "anndata-0.11.4-py3-none-any.whl",
+      "requirement": "anndata==0.11.4",
+      "url": "https://files.pythonhosted.org/packages/0a/4b/ab615fea52e34579d5c6c7dba86b4f9d7f3cdb6a170b348ec49f34cf4355/anndata-0.11.4-py3-none-any.whl",
+      "bytes": 144472,
+      "sha256": "fefebb1480316dfa5a23924aa9f74781d447484421bb0c788b0b2ca5e3b339d2"
+    },
+    {
+      "name": "array_api_compat-1.15.0-py3-none-any.whl",
+      "requirement": "array-api-compat==1.15.0",
+      "url": "https://files.pythonhosted.org/packages/86/16/1a8fd2b19544b84575cf84ef7aa3ad4c173b756d5f087c91f85d1b295777/array_api_compat-1.15.0-py3-none-any.whl",
+      "bytes": 79113,
+      "sha256": "7b1b9c53269061403fd5f45a8de349f16e7887653328bfa0c5f2d45299ff0a8e"
+    },
+    {
+      "name": "contourpy-1.3.2-cp310-cp310-macosx_10_9_x86_64.whl",
+      "requirement": "contourpy==1.3.2",
+      "url": "https://files.pythonhosted.org/packages/12/a3/da4153ec8fe25d263aa48c1a4cbde7f49b59af86f0b6f7862788c60da737/contourpy-1.3.2-cp310-cp310-macosx_10_9_x86_64.whl",
+      "bytes": 268551,
+      "sha256": "ba38e3f9f330af820c4b27ceb4b9c7feee5fe0493ea53a8720f4792667465934"
+    },
+    {
+      "name": "cycler-0.12.1-py3-none-any.whl",
+      "requirement": "cycler==0.12.1",
+      "url": "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl",
+      "bytes": 8321,
+      "sha256": "85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30"
+    },
+    {
+      "name": "fonttools-4.65.0-cp310-cp310-macosx_10_9_x86_64.whl",
+      "requirement": "fonttools==4.65.0",
+      "url": "https://files.pythonhosted.org/packages/20/d6/988cd9b33ae2d92b15a51d73eb77c991f7a0fe90a7bc74526e9669247789/fonttools-4.65.0-cp310-cp310-macosx_10_9_x86_64.whl",
+      "bytes": 2587697,
+      "sha256": "c130be2232e3caf8d2b476854ea78421ec1642917ff5ab695284bac31bbb072b"
+    },
+    {
+      "name": "fsspec-2026.7.0-py3-none-any.whl",
+      "requirement": "fsspec==2026.7.0",
+      "url": "https://files.pythonhosted.org/packages/fd/3c/6a2bf344106328fd04963664a60b9bb6496fc25df8e962fcdc1367285fb9/fsspec-2026.7.0-py3-none-any.whl",
+      "bytes": 206583,
+      "sha256": "b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279"
+    },
+    {
+      "name": "grpcio-1.83.1-cp310-cp310-macosx_11_0_universal2.whl",
+      "requirement": "grpcio==1.83.1",
+      "url": "https://files.pythonhosted.org/packages/74/cd/9dd4c80dba1454c32c876d0b5f138b0b3f61323bea620984c47f3c62d0e6/grpcio-1.83.1-cp310-cp310-macosx_11_0_universal2.whl",
+      "bytes": 12171063,
+      "sha256": "b7ace1f740b36fcd451a1bb96f71ee7650e60b308822baeb66a023965bc27f4b"
+    },
+    {
+      "name": "h5py-3.16.0-cp310-cp310-macosx_10_9_x86_64.whl",
+      "requirement": "h5py==3.16.0",
+      "url": "https://files.pythonhosted.org/packages/3a/6b/231413e58a787a89b316bb0d1777da3c62257e4797e09afd8d17ad3549dc/h5py-3.16.0-cp310-cp310-macosx_10_9_x86_64.whl",
+      "bytes": 3724137,
+      "sha256": "e06f864bedb2c8e7c1358e6c73af48519e317457c444d6f3d332bb4e8fa6d7d9"
+    },
+    {
+      "name": "immutabledict-4.3.1-py3-none-any.whl",
+      "requirement": "immutabledict==4.3.1",
+      "url": "https://files.pythonhosted.org/packages/a3/ce/f9018bf69ae91b273b6391a095e7c93fa5e1617f25b6ba81ad4b20c9df10/immutabledict-4.3.1-py3-none-any.whl",
+      "bytes": 5000,
+      "sha256": "c9facdc0ff30fdb8e35bd16532026cac472a549e182c94fa201b51b25e4bf7bf"
+    },
+    {
+      "name": "jaxtyping-0.3.7-py3-none-any.whl",
+      "requirement": "jaxtyping==0.3.7",
+      "url": "https://files.pythonhosted.org/packages/78/42/caf65e9a0576a3abadc537e2f831701ba9081f21317fb3be87d64451587a/jaxtyping-0.3.7-py3-none-any.whl",
+      "bytes": 56101,
+      "sha256": "303ab8599edf412eeb40bf06c863e3168fa186cf0e7334703fa741ddd7046e66"
+    },
+    {
+      "name": "kiwisolver-1.5.1-cp310-cp310-macosx_10_9_x86_64.whl",
+      "requirement": "kiwisolver==1.5.1",
+      "url": "https://files.pythonhosted.org/packages/57/19/92c30f540dcfff86ff625389427c39b53a9aaea16420ddcc09b2ab8d1073/kiwisolver-1.5.1-cp310-cp310-macosx_10_9_x86_64.whl",
+      "bytes": 66551,
+      "sha256": "bad20d4c69c851c982a1e3606f4c293edfd5a87885786c50082412240c4b1ffd"
+    },
+    {
+      "name": "matplotlib-3.10.9-cp310-cp310-macosx_10_12_x86_64.whl",
+      "requirement": "matplotlib==3.10.9",
+      "url": "https://files.pythonhosted.org/packages/18/6f/340b04986e67aac6f66c5145ce68bf72c64bed30f92c8913499a6e6b8f99/matplotlib-3.10.9-cp310-cp310-macosx_10_12_x86_64.whl",
+      "bytes": 8296625,
+      "sha256": "77210dce9cb8153dffc967efaae990543392563d5a376d4dd8539bebcb0ed217"
+    },
+    {
+      "name": "ml_dtypes-0.6.0-cp310-cp310-macosx_10_9_universal2.whl",
+      "requirement": "ml_dtypes==0.6.0",
+      "url": "https://files.pythonhosted.org/packages/14/15/01285c64133ea38abf3b990a704d7d30e50daea2806d150bcc4163495d35/ml_dtypes-0.6.0-cp310-cp310-macosx_10_9_universal2.whl",
+      "bytes": 566808,
+      "sha256": "bad8d1dd5bed060a29332b99d63d0e5c2969081e1c6ea54adfbccfdfa783be44"
+    },
+    {
+      "name": "natsort-8.4.0-py3-none-any.whl",
+      "requirement": "natsort==8.4.0",
+      "url": "https://files.pythonhosted.org/packages/ef/82/7a9d0550484a62c6da82858ee9419f3dd1ccc9aa1c26a1e43da3ecd20b0d/natsort-8.4.0-py3-none-any.whl",
+      "bytes": 38268,
+      "sha256": "4732914fb471f56b5cce04d7bae6f164a592c7712e1c85f9ef585e197299521c"
+    },
+    {
+      "name": "numpy-2.2.6-cp310-cp310-macosx_10_9_x86_64.whl",
+      "requirement": "numpy==2.2.6",
+      "url": "https://files.pythonhosted.org/packages/9a/3e/ed6db5be21ce87955c0cbd3009f2803f59fa08df21b5df06862e2d8e2bdd/numpy-2.2.6-cp310-cp310-macosx_10_9_x86_64.whl",
+      "bytes": 21165245,
+      "sha256": "b412caa66f72040e6d268491a59f2c43bf03eb6c96dd8f0307829feb7fa2b6fb"
+    },
+    {
+      "name": "packaging-26.3-py3-none-any.whl",
+      "requirement": "packaging==26.3",
+      "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+      "bytes": 129956,
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c"
+    },
+    {
+      "name": "pandas-2.3.3-cp310-cp310-macosx_10_9_x86_64.whl",
+      "requirement": "pandas==2.3.3",
+      "url": "https://files.pythonhosted.org/packages/3d/f7/f425a00df4fcc22b292c6895c6831c0c8ae1d9fac1e024d16f98a9ce8749/pandas-2.3.3-cp310-cp310-macosx_10_9_x86_64.whl",
+      "bytes": 11555763,
+      "sha256": "376c6446ae31770764215a6c937f72d917f214b43560603cd60da6408f183b6c"
+    },
+    {
+      "name": "pillow-12.3.0-cp310-cp310-macosx_10_10_x86_64.whl",
+      "requirement": "pillow==12.3.0",
+      "url": "https://files.pythonhosted.org/packages/25/c2/669d88644cddb1485bd9534e63e8cf476c8e51cb3c3a1297677023505c0e/pillow-12.3.0-cp310-cp310-macosx_10_10_x86_64.whl",
+      "bytes": 5392418,
+      "sha256": "6c0016e7b354317c4e9e525b937ac8596c38d2d232b419529b9cd7a1cd46e39a"
+    },
+    {
+      "name": "protobuf-7.36.1-cp310-abi3-macosx_10_9_universal2.whl",
+      "requirement": "protobuf==7.36.1",
+      "url": "https://files.pythonhosted.org/packages/f7/6c/3a54a58f2948b0f485df9ecdd06590f15d0a7abf46a89d50c3de709ff4ff/protobuf-7.36.1-cp310-abi3-macosx_10_9_universal2.whl",
+      "bytes": 456046,
+      "sha256": "3cf2ee25d006cee57294a1196ea43b37feb78e0dcd1e8af5c1aeddb777655aca"
+    },
+    {
+      "name": "pyarrow-25.0.1-cp310-cp310-macosx_12_0_x86_64.whl",
+      "requirement": "pyarrow==25.0.1",
+      "url": "https://files.pythonhosted.org/packages/64/be/17599e086df264ea7dc221d1101e3131e181e00da428a2f9bd0358f0d06b/pyarrow-25.0.1-cp310-cp310-macosx_12_0_x86_64.whl",
+      "bytes": 37647543,
+      "sha256": "a4dd8bf99a8fac133efc0ed6a92f5fddbe2adba0d0f6dd720e39ba9855cea85c"
+    },
+    {
+      "name": "pyfaidx-0.9.0.4-py3-none-any.whl",
+      "requirement": "pyfaidx==0.9.0.4",
+      "url": "https://files.pythonhosted.org/packages/b5/2c/44d47df76193b31fa4a7c662531076e6ec9a0f2f3017171f47c466211537/pyfaidx-0.9.0.4-py3-none-any.whl",
+      "bytes": 29469,
+      "sha256": "18b223b7ba8c66b988a8ce00011500961cb2aeb7fa97d05a293cf472acdd0009"
+    },
+    {
+      "name": "pyparsing-3.3.2-py3-none-any.whl",
+      "requirement": "pyparsing==3.3.2",
+      "url": "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl",
+      "bytes": 122781,
+      "sha256": "850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d"
+    },
+    {
+      "name": "python_dateutil-2.9.0.post0-py2.py3-none-any.whl",
+      "requirement": "python-dateutil==2.9.0.post0",
+      "url": "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl",
+      "bytes": 229892,
+      "sha256": "a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427"
+    },
+    {
+      "name": "pytz-2026.3.post1-py2.py3-none-any.whl",
+      "requirement": "pytz==2026.3.post1",
+      "url": "https://files.pythonhosted.org/packages/0f/7b/39c34ca613b0b198cb866466651b26b045e2009864c5183c979a3b83f383/pytz-2026.3.post1-py2.py3-none-any.whl",
+      "bytes": 508283,
+      "sha256": "dd95840dd199baea12d9cc096a1d452caa6596a1c1e4b5f3dbd1541855d5e815"
+    },
+    {
+      "name": "scipy-1.15.3-cp310-cp310-macosx_10_13_x86_64.whl",
+      "requirement": "scipy==1.15.3",
+      "url": "https://files.pythonhosted.org/packages/78/2f/4966032c5f8cc7e6a60f1b2e0ad686293b9474b65246b0c642e3ef3badd0/scipy-1.15.3-cp310-cp310-macosx_10_13_x86_64.whl",
+      "bytes": 38702770,
+      "sha256": "a345928c86d535060c9c2b25e71e87c39ab2f22fc96e9636bd74d1dbf9de448c"
+    },
+    {
+      "name": "seaborn-0.13.2-py3-none-any.whl",
+      "requirement": "seaborn==0.13.2",
+      "url": "https://files.pythonhosted.org/packages/83/11/00d3c3dfc25ad54e731d91449895a79e4bf2384dc3ac01809010ba88f6d5/seaborn-0.13.2-py3-none-any.whl",
+      "bytes": 294914,
+      "sha256": "636f8336facf092165e27924f223d3c62ca560b1f2bb5dff7ab7fad265361987"
+    },
+    {
+      "name": "six-1.17.0-py2.py3-none-any.whl",
+      "requirement": "six==1.17.0",
+      "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl",
+      "bytes": 11050,
+      "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"
+    },
+    {
+      "name": "tqdm-4.70.1-py3-none-any.whl",
+      "requirement": "tqdm==4.70.1",
+      "url": "https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl",
+      "bytes": 80199,
+      "sha256": "c293e525e6fef9c20e8728fd4612df02a0aa31bb5fe91ecd93e123b1b7bffa73"
+    },
+    {
+      "name": "typeguard-4.6.0-py3-none-any.whl",
+      "requirement": "typeguard==4.6.0",
+      "url": "https://files.pythonhosted.org/packages/8f/eb/461d5f167b6f5c7d97696f397c82f82e3480e003fce3f0a1cd1dd26e2eb2/typeguard-4.6.0-py3-none-any.whl",
+      "bytes": 36884,
+      "sha256": "79878165bb86f2cf5d41d159a0ff1792a796cf496882d2fe1b1c6c7049b9cdd7"
+    },
+    {
+      "name": "typing_extensions-4.16.0-py3-none-any.whl",
+      "requirement": "typing_extensions==4.16.0",
+      "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+      "bytes": 45571,
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+    },
+    {
+      "name": "tzdata-2026.3-py2.py3-none-any.whl",
+      "requirement": "tzdata==2026.3",
+      "url": "https://files.pythonhosted.org/packages/e5/6d/b53b99a9f2766d095985947a5782f1702cabb129a34f7a802d7197af832f/tzdata-2026.3-py2.py3-none-any.whl",
+      "bytes": 348168,
+      "sha256": "dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931"
+    },
+    {
+      "name": "wadler_lindig-0.1.7-py3-none-any.whl",
+      "requirement": "wadler_lindig==0.1.7",
+      "url": "https://files.pythonhosted.org/packages/8d/96/04e7b441807b26b794da5b11e59ed7f83b2cf8af202bd7eba8ad2fa6046e/wadler_lindig-0.1.7-py3-none-any.whl",
+      "bytes": 20516,
+      "sha256": "e3ec83835570fd0a9509f969162aeb9c65618f998b1f42918cfc8d45122fe953"
+    },
+    {
+      "name": "zstandard-0.25.0-cp310-cp310-macosx_10_9_x86_64.whl",
+      "requirement": "zstandard==0.25.0",
+      "url": "https://files.pythonhosted.org/packages/56/7a/28efd1d371f1acd037ac64ed1c5e2b41514a6cc937dd6ab6a13ab9f0702f/zstandard-0.25.0-cp310-cp310-macosx_10_9_x86_64.whl",
+      "bytes": 795256,
+      "sha256": "e59fdc271772f6686e01e1b3b74537259800f57e24280be3f29c8a0deb1904dd"
+    }
+  ]
+}

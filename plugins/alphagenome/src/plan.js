@@ -1,4 +1,9 @@
-export const REVISION = 'aa6fc8f6faadcb8c910fa2b85b57386fbd5c7b5d';
+/** The AlphaGenome SDK this package pins, as it is published: a release on PyPI, which is
+ *  where the pinned wheels come from and the one host the runtime may reach. The built-in
+ *  pinned a git revision of the same project instead, and results it wrote carry that
+ *  string — so it stays recognised, for reading old answers and for nothing else. */
+export const REVISION = '0.9.0';
+export const BUILTIN_REVISION = 'aa6fc8f6faadcb8c910fa2b85b57386fbd5c7b5d';
 export const TERMS_VERSION = 2;
 export const TERMS = 'https://deepmind.google.com/science/alphagenome/terms';
 export const OUTPUT_TERMS = 'https://deepmind.google.com/science/alphagenome/output-terms';
@@ -41,7 +46,7 @@ export function parsePlan(source, question) {
 export function validateResult(value) {
   const result = value;
   if (!result || result.version !== 1 || result.provider !== 'Google DeepMind AlphaGenome'
-    || result.sdkRevision !== REVISION || result.model !== 'ALL_FOLDS'
+    || ![REVISION, BUILTIN_REVISION].includes(result.sdkRevision) || result.model !== 'ALL_FOLDS'
     || result.notice !== NOTICE || result.citation !== CITATION
     || typeof result.createdAt !== 'string' || !Number.isFinite(Date.parse(result.createdAt))
     || typeof result.modifications !== 'string' || result.modifications.length > 1000

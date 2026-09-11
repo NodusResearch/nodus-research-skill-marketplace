@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { runConformanceSuite, conformanceFailures } from '../../../scripts/contract-v2.mjs';
 import createWorker from '../src/worker.js';
 import { createRequire } from 'node:module';
-import { groundPlan, validatePlanShape, validateResult, CITATION, NOTICE, REVISION, TERMS_VERSION } from '../src/plan.js';
+import { groundPlan, validatePlanShape, validateResult, BUILTIN_REVISION, CITATION, NOTICE, REVISION, TERMS_VERSION } from '../src/plan.js';
 import { trackSvg } from '../src/chart.js';
 
 const manifest = JSON.parse(fs.readFileSync(new URL('../capabilities/genomics/capability.json', import.meta.url), 'utf8'));
@@ -261,4 +261,67 @@ test('a prediction saved by the built-in still renders from the file beside the 
 
   await assert.rejects(worker.renderLegacyResult({ fence: 'genomics-result', payload: 'not json', locale: 'en' }), /UNREADABLE/);
   await assert.rejects(worker.renderLegacyResult({ fence: 'chemistry-document', payload: '{}', locale: 'en' }), /Unknown legacy fence/);
+});
+
+// ------------------------------------------------ the pinned runtime
+
+const requirements = JSON.parse(fs.readFileSync(new URL('../runtimes/alphagenome.requirements.json', import.meta.url), 'utf8'));
+
+test('a prediction written against the built-in SDK revision is still readable', () => {
+  const saved = {
+    ...prediction(), version: 1, provider: 'Google DeepMind AlphaGenome', plan: PLAN,
+    createdAt: '2026-09-11T10:00:00.000Z', sdkRevision: BUILTIN_REVISION, model: 'ALL_FOLDS',
+    notice: NOTICE, citation: CITATION,
+  };
+  assert.equal(validateResult(saved).sdkRevision, BUILTIN_REVISION);
+
+  // Recognising the revision the built-in stamped is not the same as accepting anything:
+  // a record from an SDK this package never pinned is still refused.
+  assert.throws(() => validateResult({ ...saved, sdkRevision: 'something-else-entirely' }), /GENOMICS_INVALID_RESULT/);
+});
+
+test('every target this package publishes has a lock for every interpreter it declares', () => {
+  const targets = JSON.parse(fs.readFileSync(new URL('../plugin.json', import.meta.url), 'utf8')).compatibility.targets;
+  assert.ok(targets.length >= 4);
+
+  for (const target of targets) {
+    for (const version of requirements.pythonVersions) {
+      const file = new URL(`../runtimes/${target}/lock-${version}.json`, import.meta.url);
+      assert.ok(fs.existsSync(file), `${target} has no lock for Python ${version}`);
+      const lock = JSON.parse(fs.readFileSync(file, 'utf8'));
+
+      assert.equal(lock.schemaVersion, 1);
+      assert.equal(lock.platform, target);
+      assert.equal(lock.python, version);
+      assert.ok(lock.packages.length > 10, 'a resolution this small did not resolve the dependency tree');
+      assert.ok(lock.packages.some(entry => entry.requirement === requirements.requirements[0]), 'the package itself is in its own lock');
+
+      const seen = new Set();
+      for (const entry of lock.packages) {
+        // Every byte installed comes from the one host the capability may reach, is a
+        // wheel — a source distribution would have to be built on the user's machine,
+        // which is neither pinned nor reproducible — and is pinned by size and digest.
+        assert.equal(new URL(entry.url).host, 'files.pythonhosted.org', `${entry.name} is fetched from somewhere this capability cannot reach`);
+        assert.match(entry.name, /\.whl$/);
+        assert.match(entry.requirement, /^[A-Za-z0-9._-]+==[A-Za-z0-9._+!-]+$/);
+        assert.match(entry.sha256, /^[a-f0-9]{64}$/);
+        assert.ok(Number.isInteger(entry.bytes) && entry.bytes > 0);
+        assert.ok(!seen.has(entry.requirement), `${entry.requirement} appears twice`);
+        seen.add(entry.requirement);
+      }
+    }
+  }
+});
+
+test('the declared network permission is the only place a lock points at', () => {
+  const permitted = manifest.permissions.network.map(entry => new URL(entry.origin).host);
+  const hosts = new Set();
+  for (const target of ['darwin-arm64', 'darwin-x64', 'win32-x64', 'linux-x64']) {
+    for (const version of requirements.pythonVersions) {
+      for (const entry of JSON.parse(fs.readFileSync(new URL(`../runtimes/${target}/lock-${version}.json`, import.meta.url), 'utf8')).packages) {
+        hosts.add(new URL(entry.url).host);
+      }
+    }
+  }
+  assert.deepEqual([...hosts], permitted, 'a lock that names a host the manifest does not declare cannot be installed at all');
 });
