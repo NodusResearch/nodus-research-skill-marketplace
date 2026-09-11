@@ -12,9 +12,36 @@ import { validateCapabilityManifestV2, validatePluginManifestV2, assertMayProvid
 
 const EPOCH = new Date('2020-01-01T00:00:00Z');
 
+/** Every package a vendored dependency needs, transitively, read from the flat install.
+ *  Optional dependencies that are not present are skipped rather than failing the build:
+ *  a package that resolved without them here will resolve without them there. */
+function closure(names, modules) {
+  const seen = new Set();
+  const pending = [...names];
+  while (pending.length) {
+    const name = pending.shift();
+    if (seen.has(name)) continue;
+    const manifest = path.join(modules, name, 'package.json');
+    if (!fs.existsSync(manifest)) continue;
+    seen.add(name);
+    const meta = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+    pending.push(...Object.keys(meta.dependencies ?? {}));
+  }
+  return [...seen].sort();
+}
+
+/** Files only, sorted, so a vendored tree contributes the same bytes on every machine. */
+function* walk(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) yield* walk(full);
+    else if (entry.isFile()) yield full;
+  }
+}
+
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
-export async function buildPlugin({ root, entries, extraFiles = {}, target = 'any' }) {
+export async function buildPlugin({ root, entries, extraFiles = {}, extraDirs = {}, vendorPackages = [], external = [], define = {}, target = 'any' }) {
   const manifest = validatePluginManifestV2(read(path.join(root, 'plugin.json')));
   if (!manifest.compatibility.targets.includes(target)) throw new Error(`${manifest.id} does not declare the target ${target}.`);
 
@@ -46,12 +73,16 @@ export async function buildPlugin({ root, entries, extraFiles = {}, target = 'an
     const result = await build({
       entryPoints: [path.join(root, source)],
       bundle: true, platform: 'node', format: 'cjs', target: 'node20',
+      // Dependencies that carry WebAssembly or their own asset trees cannot be flattened
+      // into a bundle; they travel in the archive and are required from there.
+      external,
+      ...(Object.keys(define).length ? {} : {}),
       write: false, minify: false, legalComments: 'inline',
       // A package is authored as ESM so its own tests can import it, and published as CJS
       // because that is what the host bootstrap loads. Left alone, esbuild turns
       // `import.meta.url` into an empty object in the CJS output, so a worker that used
       // the ESM idiom to find a file it ships would fail at load with no useful message.
-      define: { 'import.meta.url': '__nodusModuleUrl' },
+      define: { 'import.meta.url': '__nodusModuleUrl', ...define },
       banner: { js: 'const __nodusModuleUrl = require("node:url").pathToFileURL(__filename).href;' },
       // The worker is loaded by the host bootstrap, which looks for a factory export.
       footer: { js: 'module.exports = module.exports?.default ?? module.exports;' },
@@ -61,7 +92,26 @@ export async function buildPlugin({ root, entries, extraFiles = {}, target = 'an
   }
 
   for (const [published, source] of Object.entries(extraFiles)) {
-    files.set(published, fs.readFileSync(path.join(root, source)));
+    files.set(published, fs.readFileSync(path.isAbsolute(source) ? source : path.join(root, source)));
+  }
+
+  // A vendored dependency needs its own dependencies too, or it resolves nothing on a
+  // machine with no node_modules — which is every machine a package is installed on.
+  for (const name of closure(vendorPackages, path.resolve(root, '..', '..', 'node_modules'))) {
+    const base = path.join(path.resolve(root, '..', '..', 'node_modules'), name);
+    for (const entry of walk(base)) {
+      files.set(path.posix.join('vendor/node_modules', name, path.relative(base, entry).split(path.sep).join('/')), fs.readFileSync(entry));
+    }
+  }
+
+  // A vendored dependency is copied whole, because its own loader resolves siblings at
+  // runtime: RDKit finds its .wasm beside its .js, and node-tikzjax its TeX assets.
+  for (const [published, source] of Object.entries(extraDirs)) {
+    const base = path.isAbsolute(source) ? source : path.join(root, source);
+    if (!fs.existsSync(base)) throw new Error(`Missing vendored directory: ${source}`);
+    for (const entry of walk(base)) {
+      files.set(path.posix.join(published, path.relative(base, entry).split(path.sep).join('/')), fs.readFileSync(entry));
+    }
   }
 
   for (const licence of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) {

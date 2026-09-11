@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-11T14:23:34.010Z",
+  "updatedAt": "2026-09-11T14:30:13.700Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -34,7 +34,7 @@
           {
             "target": "darwin-arm64",
             "asset": "alphagenome-2.0.0-darwin-arm64.nodus-plugin",
-            "bytes": 1
+            "bytes": 25987
           },
           {
             "target": "darwin-x64",
@@ -49,6 +49,58 @@
           {
             "target": "linux-x64",
             "asset": "alphagenome-2.0.0-linux-x64.nodus-plugin",
+            "bytes": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "chemistry-studio",
+      "name": "Chemistry Studio",
+      "description": {
+        "en": "Draw chemical structures, projections, mechanisms and balanced reactions from verified identities, with the sources they were checked against.",
+        "es": "Dibuja estructuras, proyecciones, mecanismos y reacciones balanceadas a partir de identidades verificadas, con las fuentes contra las que se contrastaron.",
+        "fr": "Dessinez structures, projections, mécanismes et réactions équilibrées à partir d'identités vérifiées, avec les sources utilisées.",
+        "de": "Zeichnet Strukturen, Projektionen, Mechanismen und ausgeglichene Reaktionen aus geprüften Identitäten, mit den verwendeten Quellen.",
+        "pt": "Desenha estruturas, projeções, mecanismos e reações equilibradas a partir de identidades verificadas, com as fontes usadas.",
+        "pt-BR": "Desenhe estruturas, projeções, mecanismos e reações balanceadas a partir de identidades verificadas, com as fontes usadas.",
+        "it": "Disegna strutture, proiezioni, meccanismi e reazioni bilanciate da identità verificate, con le fonti usate.",
+        "tr": "Doğrulanmış kimliklerden yapılar, projeksiyonlar, mekanizmalar ve denkleştirilmiş tepkimeler çizer; kontrol edildikleri kaynaklarla birlikte."
+      },
+      "version": "2.0.0",
+      "path": "plugins/chemistry-studio",
+      "replaces": [
+        "builtin-chemistry"
+      ],
+      "targets": [
+        "darwin-arm64",
+        "darwin-x64",
+        "win32-x64",
+        "linux-x64"
+      ],
+      "release": {
+        "tag": "chemistry-studio-v2.0.0",
+        "manifest": "release-manifest.json",
+        "signature": "release-manifest.sig",
+        "assets": [
+          {
+            "target": "darwin-arm64",
+            "asset": "chemistry-studio-2.0.0-darwin-arm64.nodus-plugin",
+            "bytes": 21412316
+          },
+          {
+            "target": "darwin-x64",
+            "asset": "chemistry-studio-2.0.0-darwin-x64.nodus-plugin",
+            "bytes": 1
+          },
+          {
+            "target": "win32-x64",
+            "asset": "chemistry-studio-2.0.0-win32-x64.nodus-plugin",
+            "bytes": 1
+          },
+          {
+            "target": "linux-x64",
+            "asset": "chemistry-studio-2.0.0-linux-x64.nodus-plugin",
             "bytes": 1
           }
         ]

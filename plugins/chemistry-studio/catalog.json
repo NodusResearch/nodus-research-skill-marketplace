@@ -1,0 +1,12 @@
+{
+  "description": {
+    "en": "Draw chemical structures, projections, mechanisms and balanced reactions from verified identities, with the sources they were checked against.",
+    "es": "Dibuja estructuras, proyecciones, mecanismos y reacciones balanceadas a partir de identidades verificadas, con las fuentes contra las que se contrastaron.",
+    "fr": "Dessinez structures, projections, mécanismes et réactions équilibrées à partir d'identités vérifiées, avec les sources utilisées.",
+    "de": "Zeichnet Strukturen, Projektionen, Mechanismen und ausgeglichene Reaktionen aus geprüften Identitäten, mit den verwendeten Quellen.",
+    "pt": "Desenha estruturas, projeções, mecanismos e reações equilibradas a partir de identidades verificadas, com as fontes usadas.",
+    "pt-BR": "Desenhe estruturas, projeções, mecanismos e reações balanceadas a partir de identidades verificadas, com as fontes usadas.",
+    "it": "Disegna strutture, proiezioni, meccanismi e reazioni bilanciate da identità verificate, con le fonti usate.",
+    "tr": "Doğrulanmış kimliklerden yapılar, projeksiyonlar, mekanizmalar ve denkleştirilmiş tepkimeler çizer; kontrol edildikleri kaynaklarla birlikte."
+  }
+}
