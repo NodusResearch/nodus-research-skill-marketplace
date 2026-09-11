@@ -14,6 +14,11 @@ jobs:
         run: node scripts/catalog.mjs --check
       - name: Validate templates
         run: node scripts/validate-templates.mjs
+
+      # The release pipeline's key handling is text, and text is what a future edit
+      # changes. Checked on every push, because a mistake here is invisible in a green run.
+      - name: The signing key stays where it belongs
+        run: node scripts/validate-workflows.mjs
       - name: Run package tests
         run: node --test scripts/test-anatomy-visualization.mjs
       - name: Install build dependencies

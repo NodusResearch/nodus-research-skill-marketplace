@@ -24,6 +24,25 @@ for (const id of fs.readdirSync(pluginsDir).sort()) {
     if (!fs.existsSync(path.join(dir, 'LICENSE'))) throw new Error('a package needs a LICENSE');
     if (!fs.existsSync(path.join(dir, 'test'))) throw new Error('a package needs tests');
 
+    // A package that builds a language runtime has to ship the pinned set for every
+    // target it publishes and every interpreter it claims to support. Without it the
+    // package installs and then refuses to work, which is a failure nobody sees until a
+    // user hits it.
+    const runtimeIds = new Set(manifest.capabilities.flatMap(relative =>
+      (read(path.join(dir, relative)).permissions.runtimes ?? []).map(entry => entry.id)));
+    for (const runtimeId of runtimeIds) {
+      const spec = path.join(dir, 'runtimes', `${runtimeId}.requirements.json`);
+      if (!fs.existsSync(spec)) throw new Error(`the ${runtimeId} runtime has no requirements file`);
+      const versions = read(spec).pythonVersions ?? [];
+      if (!versions.length) throw new Error(`the ${runtimeId} runtime declares no interpreter versions`);
+      for (const target of manifest.compatibility.targets) {
+        for (const version of versions) {
+          const lock = path.join(dir, 'runtimes', target, `lock-${version}.json`);
+          if (!fs.existsSync(lock)) throw new Error(`the ${runtimeId} runtime has no lock for ${target} on Python ${version}`);
+        }
+      }
+    }
+
     for (const relative of manifest.capabilities) {
       const capability = validateCapabilityManifestV2(read(path.join(dir, relative)));
       assertMayProvide(manifest, capability.provides);

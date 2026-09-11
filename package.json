@@ -6,7 +6,7 @@
   "description": "Official Nodus skills and capability packages.",
   "license": "AGPL-3.0-only",
   "scripts": {
-    "validate": "node scripts/catalog.mjs --check && node scripts/validate-templates.mjs && node scripts/validate-plugins.mjs && npm run typecheck",
+    "validate": "node scripts/catalog.mjs --check && node scripts/validate-templates.mjs && node scripts/validate-workflows.mjs && node scripts/validate-plugins.mjs && npm run typecheck",
     "build:plugins": "node scripts/build-plugins.mjs",
     "test:plugins": "node --test plugins/*/test/*.test.mjs",
     "catalog:v2": "node scripts/build-catalog-v2.mjs",
