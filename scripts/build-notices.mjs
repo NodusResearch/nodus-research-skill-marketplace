@@ -35,6 +35,9 @@ for (const name of [...seen].sort()) {
   sections.push(`## ${meta.name} ${meta.version}\n\nLicence: ${meta.license ?? 'see below'}\n${licenceFile ? `\n\`\`\`\n${fs.readFileSync(licenceFile, 'utf8').trim()}\n\`\`\`` : ''}`);
 }
 
-const output = `# Third-party notices — ${id}\n\nThis package bundles the following components. Their licences apply to the copies inside\nthe published archive.\n\n${sections.join('\n\n')}\n`;
+// One line ending, whatever the licences happened to use. This file is packed into the
+// archive and the archive is pinned by digest, so text that varies with whoever wrote a
+// licence would vary the package for no reason anyone could see.
+const output = `# Third-party notices — ${id}\n\nThis package bundles the following components. Their licences apply to the copies inside\nthe published archive.\n\n${sections.join('\n\n')}\n`.replace(/\r\n/g, '\n');
 fs.writeFileSync(path.join(root, 'plugins', id, 'THIRD_PARTY_NOTICES.md'), output);
 console.log(`Wrote notices for ${sections.length} bundled component(s).`);
