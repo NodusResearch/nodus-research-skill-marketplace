@@ -47,6 +47,12 @@ export async function buildPlugin({ root, entries, extraFiles = {}, target = 'an
       entryPoints: [path.join(root, source)],
       bundle: true, platform: 'node', format: 'cjs', target: 'node20',
       write: false, minify: false, legalComments: 'inline',
+      // A package is authored as ESM so its own tests can import it, and published as CJS
+      // because that is what the host bootstrap loads. Left alone, esbuild turns
+      // `import.meta.url` into an empty object in the CJS output, so a worker that used
+      // the ESM idiom to find a file it ships would fail at load with no useful message.
+      define: { 'import.meta.url': '__nodusModuleUrl' },
+      banner: { js: 'const __nodusModuleUrl = require("node:url").pathToFileURL(__filename).href;' },
       // The worker is loaded by the host bootstrap, which looks for a factory export.
       footer: { js: 'module.exports = module.exports?.default ?? module.exports;' },
       loader: { '.json': 'json' },

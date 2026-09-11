@@ -1,7 +1,59 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-11T14:18:57.761Z",
+  "updatedAt": "2026-09-11T14:23:34.010Z",
   "plugins": [
+    {
+      "id": "alphagenome",
+      "name": "AlphaGenome",
+      "description": {
+        "en": "Regulatory variant effect predictions from the official AlphaGenome API, for non-commercial research. Needs your own API key and Python 3.10 or newer.",
+        "es": "Predicciones del efecto de variantes reguladoras desde la API oficial de AlphaGenome, para investigación no comercial. Necesita tu propia clave y Python 3.10 o superior.",
+        "fr": "Prédictions de l'effet de variants régulateurs via l'API officielle AlphaGenome, pour la recherche non commerciale. Nécessite votre propre clé et Python 3.10 ou plus.",
+        "de": "Vorhersagen zur Wirkung regulatorischer Varianten über die offizielle AlphaGenome-API, für nicht-kommerzielle Forschung. Erfordert einen eigenen Schlüssel und Python 3.10 oder neuer.",
+        "pt": "Previsões do efeito de variantes reguladoras a partir da API oficial do AlphaGenome, para investigação não comercial. Precisa da tua chave e de Python 3.10 ou superior.",
+        "pt-BR": "Previsões do efeito de variantes regulatórias pela API oficial do AlphaGenome, para pesquisa não comercial. Precisa da sua chave e de Python 3.10 ou superior.",
+        "it": "Previsioni dell'effetto di varianti regolatorie dall'API ufficiale AlphaGenome, per ricerca non commerciale. Richiede una chiave propria e Python 3.10 o successivo.",
+        "tr": "Resmi AlphaGenome API'sinden düzenleyici varyant etkisi tahminleri; ticari olmayan araştırma için. Kendi anahtarınızı ve Python 3.10 veya üstünü gerektirir."
+      },
+      "version": "2.0.0",
+      "path": "plugins/alphagenome",
+      "replaces": [
+        "builtin-genomics"
+      ],
+      "targets": [
+        "darwin-arm64",
+        "darwin-x64",
+        "win32-x64",
+        "linux-x64"
+      ],
+      "release": {
+        "tag": "alphagenome-v2.0.0",
+        "manifest": "release-manifest.json",
+        "signature": "release-manifest.sig",
+        "assets": [
+          {
+            "target": "darwin-arm64",
+            "asset": "alphagenome-2.0.0-darwin-arm64.nodus-plugin",
+            "bytes": 1
+          },
+          {
+            "target": "darwin-x64",
+            "asset": "alphagenome-2.0.0-darwin-x64.nodus-plugin",
+            "bytes": 1
+          },
+          {
+            "target": "win32-x64",
+            "asset": "alphagenome-2.0.0-win32-x64.nodus-plugin",
+            "bytes": 1
+          },
+          {
+            "target": "linux-x64",
+            "asset": "alphagenome-2.0.0-linux-x64.nodus-plugin",
+            "bytes": 1
+          }
+        ]
+      }
+    },
     {
       "id": "legalize",
       "name": "Legalize",
@@ -31,7 +83,7 @@
           {
             "target": "any",
             "asset": "legalize-2.0.0-any.nodus-plugin",
-            "bytes": 56862
+            "bytes": 56905
           }
         ]
       }
