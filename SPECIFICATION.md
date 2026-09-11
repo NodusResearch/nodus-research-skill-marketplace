@@ -11,6 +11,11 @@ release manifest verifies. The signature is the security boundary — not the pr
 isolation, which buys fault containment, cancellation and limits, and is not sold as a
 sandbox.
 
+Three capabilities belong to the application itself and can only ever be depended on:
+`nodus:svg` for drawing, `nodus:image` for image generation, and `nodus:3d` for interactive
+glTF and GLB models. A package hands over an asset and gets back a reference; what draws it
+is always Nodus.
+
 # Nodus skill package v1
 
 Every published package is a direct child directory of the repository root. The directory name must exactly match the manifest `id`. Scanning is case-sensitive and looks for `<id>/skill.json`; templates nested below `templates/` are not catalog entries.
@@ -286,6 +291,29 @@ Exactly one capability may claim a fence, and each declares a priority that fixe
 in which the pipeline runs them. The reply is parsed once into a generic tree shared by every
 provider, and what a provider returns is typed mutations — never text to be re-parsed, so a
 result can never become the next instruction.
+
+## 3D models
+
+`nodus:3d` is generic on purpose. A molecule, a bone, a pot and a building are the same
+thing to it, and no discipline is named anywhere in it — a subject-specific 3D capability
+would be exactly the coupling capability API v2 exists to remove.
+
+A capability that wants to show a model declares `"models": true` in its permissions and
+`nodus:3d` in its `requires`. At runtime it calls `host.models.store({ bytes, mimeType,
+name })`, which validates the asset, keeps it beside the conversation and returns an
+attachment id; the capability then returns a `model` view node referring to that id. It
+never ships a renderer, a shader or a script, and there is no route by which it could.
+
+Two formats are accepted, `model/gltf-binary` (`.glb`) and `model/gltf+json` (`.gltf`), and
+both must be **self-contained**. glTF can reference buffers, images and shaders by URI, and
+a viewer that honoured those would fetch whatever a document named, whenever anyone
+reopened an old conversation. So every URI must be an inline `data:` one, or the asset is
+refused — at review, at storage and again when it is read back. A model must be glTF 2.0,
+must contain something to draw, must not require an extension the viewer does not
+implement, and must fit the published size ceiling.
+
+The viewer that opens it belongs to the application: rotate, zoom, pan, reset and fit, with
+the model parsed from bytes already in memory and a resource path that resolves nowhere.
 
 ## Artifacts
 

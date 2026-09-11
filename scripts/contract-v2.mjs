@@ -5,7 +5,7 @@ var CAPABILITY_API_V2 = 2;
 var TRUSTED_RUNTIME = "nodus-trusted-worker-v1";
 var TRUSTED_PROTOCOL = 1;
 var TRUSTED_PUBLISHER = "NodusResearch";
-var CORE_CAPABILITY_IDS = ["nodus:svg", "nodus:image"];
+var CORE_CAPABILITY_IDS = ["nodus:svg", "nodus:image", "nodus:3d"];
 var RESERVED_CAPABILITY_IDS = ["nodus:chemistry", "nodus:legal", "nodus:genomics"];
 var LIMITS = {
   /** Tool timeouts are declared per tool and clamped to this window. */
@@ -18,6 +18,11 @@ var LIMITS = {
   packageCompressedBytes: 128 * 1024 * 1024,
   packageExpandedBytes: 512 * 1024 * 1024,
   packageEntries: 25e3,
+  /** Interactive 3D models. One asset, stored like any other attachment and rendered by
+   *  the core viewer; a capability never ships a renderer of its own. */
+  modelBytes: 64 * 1024 * 1024,
+  modelJsonBytes: 16 * 1024 * 1024,
+  modelNodes: 2e5,
   /** Declarative views. */
   viewNodes: 512,
   viewDepth: 8,
@@ -90,6 +95,7 @@ var NODUS_CAPABILITY_IDS = [...CORE_CAPABILITY_IDS, ...RESERVED_CAPABILITY_IDS];
 var LEGACY = {
   svg: "nodus:svg",
   image: "nodus:image",
+  "3d": "nodus:3d",
   chemistry: "nodus:chemistry",
   legal: "nodus:legal",
   genomics: "nodus:genomics"
@@ -126,7 +132,7 @@ var localize = (text, locale) => text[locale] ?? text[locale.split("-")[0]] ?? t
 
 // packages/capability-api/src/permissions.ts
 var METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
-var KEYS = ["network", "secrets", "storage", "model", "svg", "subworkers", "runtimes"];
+var KEYS = ["network", "secrets", "storage", "model", "svg", "models", "subworkers", "runtimes"];
 function validateTrustedPermissions(input) {
   if (!input || typeof input !== "object" || Array.isArray(input) || !exactKeys(input, KEYS)) throw new Error("Invalid capability permissions.");
   const value = input;
@@ -162,6 +168,7 @@ function validateTrustedPermissions(input) {
     if (!value.model || !exactKeys(value.model, ["maxCalls", "purpose"]) || !Number.isInteger(value.model.maxCalls) || value.model.maxCalls < 1 || value.model.maxCalls > 4 || !plainText(value.model.purpose, 200)) throw new Error("Invalid capability model permission.");
   }
   if (value.svg !== void 0 && typeof value.svg !== "boolean") throw new Error("Invalid capability svg permission.");
+  if (value.models !== void 0 && typeof value.models !== "boolean") throw new Error("Invalid capability 3D permission.");
   if (value.subworkers !== void 0) {
     if (!value.subworkers || !exactKeys(value.subworkers, ["max"]) || !Number.isInteger(value.subworkers.max) || value.subworkers.max < 1 || value.subworkers.max > 8) throw new Error("Invalid capability subworker permission.");
   }
@@ -186,6 +193,7 @@ function permissionAtoms(permissions) {
   if (permissions.storage) atoms.push(`storage|${permissions.storage.stateBytes}|${permissions.storage.cacheBytes}|${permissions.storage.tempBytes}`);
   if (permissions.model) atoms.push(`model|${permissions.model.maxCalls}`);
   if (permissions.svg) atoms.push("svg");
+  if (permissions.models) atoms.push("models");
   if (permissions.subworkers) atoms.push(`subworkers|${permissions.subworkers.max}`);
   for (const runtime of permissions.runtimes ?? []) atoms.push(`runtime|${runtime.id}|${runtime.kind}|${runtime.minVersion}`);
   return atoms;
@@ -199,6 +207,103 @@ function permissionsExpandV2(previous, next) {
   return (next.subworkers?.max ?? 0) > (previous.subworkers?.max ?? 0);
 }
 var trustedCapabilityIsMetered = (permissions) => Boolean(permissions.network?.length || permissions.secrets?.length || permissions.model || permissions.storage || permissions.runtimes?.length);
+
+// packages/capability-api/src/models.ts
+var MODEL_MIME_TYPES = {
+  glb: "model/gltf-binary",
+  gltf: "model/gltf+json"
+};
+var GLB_MAGIC = 1179937895;
+var CHUNK_JSON = 1313821514;
+var CHUNK_BIN = 5130562;
+var isDataUri = (value) => typeof value === "string" && /^data:[a-z0-9.+-]+\/[a-z0-9.+-]+[;,]/i.test(value);
+function assertNoExternalReferences(gltf) {
+  for (const collection of ["buffers", "images"]) {
+    const entries = gltf[collection];
+    if (entries === void 0) continue;
+    if (!Array.isArray(entries)) throw new Error(`Invalid 3D model ${collection}.`);
+    for (const entry of entries) {
+      const uri = entry?.uri;
+      if (uri === void 0) continue;
+      if (!isDataUri(uri)) throw new Error("A 3D model may not reference anything outside itself.");
+    }
+  }
+}
+function summarize(gltf, format, bytes) {
+  const asset = gltf.asset;
+  const version = typeof asset?.version === "string" ? asset.version : "";
+  if (!/^2\.\d+$/.test(version)) throw new Error("Only glTF 2.0 models are supported.");
+  const count = (key) => Array.isArray(gltf[key]) ? gltf[key].length : 0;
+  const nodes = count("nodes");
+  const meshes = count("meshes");
+  if (nodes > LIMITS.modelNodes) throw new Error("The 3D model has more nodes than the viewer will open.");
+  if (!meshes) throw new Error("The 3D model contains nothing to draw.");
+  const required = gltf.extensionsRequired;
+  if (required !== void 0) {
+    if (!Array.isArray(required)) throw new Error("Invalid 3D model extensions.");
+    const unsupported = required.filter((name) => !SUPPORTED_EXTENSIONS.includes(String(name)));
+    if (unsupported.length) throw new Error(`The 3D model requires an extension the viewer does not implement: ${unsupported.slice(0, 3).join(", ")}.`);
+  }
+  assertNoExternalReferences(gltf);
+  return { format, bytes, version, meshes, nodes, selfContained: true };
+}
+var SUPPORTED_EXTENSIONS = [
+  "KHR_materials_unlit",
+  "KHR_texture_transform",
+  "KHR_materials_emissive_strength"
+];
+function readGlb(bytes) {
+  if (bytes.byteLength < 20) throw new Error("The 3D model is not a readable GLB file.");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0, true) !== GLB_MAGIC) throw new Error("The 3D model is not a readable GLB file.");
+  if (view.getUint32(4, true) !== 2) throw new Error("Only glTF 2.0 models are supported.");
+  const declared = view.getUint32(8, true);
+  if (declared !== bytes.byteLength) throw new Error("The 3D model declares a length it does not have.");
+  let offset = 12;
+  let json;
+  let sawBinary = false;
+  while (offset + 8 <= bytes.byteLength) {
+    const length = view.getUint32(offset, true);
+    const type = view.getUint32(offset + 4, true);
+    const start = offset + 8;
+    if (length > bytes.byteLength - start) throw new Error("The 3D model has a chunk that runs past its end.");
+    if (type === CHUNK_JSON) {
+      if (json) throw new Error("The 3D model has more than one JSON chunk.");
+      if (length > LIMITS.modelJsonBytes) throw new Error("The 3D model description is too large.");
+      try {
+        json = JSON.parse(new TextDecoder().decode(bytes.subarray(start, start + length)));
+      } catch {
+        throw new Error("The 3D model has an unreadable description.");
+      }
+    } else if (type === CHUNK_BIN) {
+      if (sawBinary) throw new Error("The 3D model has more than one binary chunk.");
+      sawBinary = true;
+    }
+    offset = start + length + (length % 4 === 0 ? 0 : 4 - length % 4);
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) throw new Error("The 3D model has no description.");
+  return json;
+}
+function validateModelAsset(input, mimeType) {
+  const bytes = input instanceof Uint8Array ? input : null;
+  if (!bytes) throw new Error("A 3D model must be handed over as bytes.");
+  if (!bytes.byteLength) throw new Error("The 3D model is empty.");
+  if (bytes.byteLength > LIMITS.modelBytes) throw new Error(`A 3D model may not exceed ${Math.round(LIMITS.modelBytes / (1024 * 1024))} MB.`);
+  if (mimeType === MODEL_MIME_TYPES.glb) return summarize(readGlb(bytes), "glb", bytes.byteLength);
+  if (mimeType === MODEL_MIME_TYPES.gltf) {
+    if (bytes.byteLength > LIMITS.modelJsonBytes) throw new Error("The 3D model description is too large.");
+    let json;
+    try {
+      json = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      throw new Error("The 3D model has an unreadable description.");
+    }
+    if (!json || typeof json !== "object" || Array.isArray(json)) throw new Error("The 3D model has no description.");
+    return summarize(json, "gltf", bytes.byteLength);
+  }
+  throw new Error(`A 3D model must be ${MODEL_MIME_TYPES.glb} or ${MODEL_MIME_TYPES.gltf}.`);
+}
+var isModelMimeType = (value) => value === MODEL_MIME_TYPES.glb || value === MODEL_MIME_TYPES.gltf;
 
 // packages/capability-api/src/views.ts
 var TONES = ["neutral", "info", "success", "warning", "danger"];
@@ -284,6 +389,9 @@ function validateNode(input, budget, depth) {
     case "download":
       if (!exactKeys(node, ["kind", "attachmentId", "label", "name", "mimeType", "bytes"]) || !/^[a-z0-9][a-z0-9-]{7,63}$/.test(String(node.attachmentId)) || !plainText(node.label, 200) || !plainText(node.name, 200) || node.name.includes("/") || node.name.includes("\\") || !/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/i.test(String(node.mimeType)) || !Number.isInteger(node.bytes) || node.bytes < 0) throw new Error("Invalid view download.");
       return structuredClone(node);
+    case "model":
+      if (!exactKeys(node, ["kind", "attachmentId", "title", "alt", "name", "mimeType", "bytes"]) || !/^[a-z0-9][a-z0-9-]{7,63}$/.test(String(node.attachmentId)) || !plainText(node.title, 200) || !plainText(node.alt, 1e3) || !plainText(node.name, 200) || node.name.includes("/") || node.name.includes("\\") || !isModelMimeType(node.mimeType) || !Number.isInteger(node.bytes) || node.bytes < 1 || node.bytes > LIMITS.modelBytes) throw new Error("Invalid view model.");
+      return structuredClone(node);
     case "status":
       if (!exactKeys(node, ["kind", "state", "label", "description"]) && !exactKeys(node, ["kind", "state", "label"])) throw new Error("Invalid view status.");
       if (!["ok", "pending", "failed"].includes(node.state) || !plainText(node.label, 200) || node.description !== void 0 && !plainText(node.description, 500)) throw new Error("Invalid view status.");
@@ -330,6 +438,8 @@ function viewToText(document) {
         return [node.summary, ...walk(node.children)];
       case "download":
         return [`${node.label} (${node.name}, ${node.bytes} bytes)`];
+      case "model":
+        return [`[${node.title}] ${node.alt}`];
       case "status":
         return [[node.label, node.description].filter(Boolean).join(" \u2014 ")];
     }
@@ -723,7 +833,7 @@ var WORKER_METHODS = [
   "renderLegacyResult",
   "shutdown"
 ];
-var HOST_CHANNELS = ["network", "storage", "secrets", "model", "svg", "subworker", "python", "attachments"];
+var HOST_CHANNELS = ["network", "storage", "secrets", "model", "svg", "models", "subworker", "python", "attachments"];
 var CALL_ID = /^[a-z0-9]{1,64}$/;
 var LEVELS = ["debug", "info", "warn", "error"];
 function validateWorkerToHost(input) {
@@ -977,10 +1087,12 @@ export {
   CORE_CAPABILITY_IDS,
   HOST_CHANNELS,
   LIMITS,
+  MODEL_MIME_TYPES,
   NODUS_CAPABILITY_IDS,
   RESERVED_CAPABILITY_IDS,
   SEMVER,
   SLUG,
+  SUPPORTED_EXTENSIONS,
   TRUSTED_PROTOCOL,
   TRUSTED_PUBLISHER,
   TRUSTED_RUNTIME,
@@ -1002,6 +1114,7 @@ export {
   exactKeys,
   isCapabilityReference,
   isCoreCapabilityId,
+  isModelMimeType,
   isNodusCapabilityId,
   isPlainFenceTag,
   isReservedCapabilityId,
@@ -1032,6 +1145,7 @@ export {
   validateHostToWorker,
   validateJsonSchema,
   validateLocalizedText,
+  validateModelAsset,
   validatePluginManifestV2,
   validatePrepareMutations,
   validateSettingsManifest,
