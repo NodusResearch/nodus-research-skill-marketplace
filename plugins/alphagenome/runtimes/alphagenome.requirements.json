@@ -1,0 +1,5 @@
+{
+  "comment": "What the AlphaGenome runtime needs. The resolved locks are generated per target and per interpreter by scripts/build-runtime-lock.mjs, and are what the user's machine actually installs: every wheel pinned by URL, size and SHA-256, fetched through the one host this capability is permitted to reach.",
+  "requirements": ["alphagenome==0.9.0"],
+  "pythonVersions": ["3.10", "3.11", "3.12", "3.13"]
+}

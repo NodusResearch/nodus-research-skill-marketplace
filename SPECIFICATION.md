@@ -1,9 +1,20 @@
 # Nodus package formats
 
-This repository publishes two formats. A **skill package** is one skill and its optional
+This repository publishes three formats. A **skill package** is one skill and its optional
 sandboxed JavaScript tools. A **plugin** bundles one or more skills with its own sandboxed
 capabilities. Both are direct children of the repository root, and both stay supported:
 existing skill packages keep working, and Nodus treats them as single-skill plugins.
+
+A **capability package v2** lives under `plugins/<id>` and is a different kind of thing: it
+carries trusted runtime code, so it is installed only after an Ed25519 signature over its
+release manifest verifies. The signature is the security boundary — not the process
+isolation, which buys fault containment, cancellation and limits, and is not sold as a
+sandbox.
+
+Three capabilities belong to the application itself and can only ever be depended on:
+`nodus:svg` for drawing, `nodus:image` for image generation, and `nodus:3d` for interactive
+glTF and GLB models. A package hands over an asset and gets back a reference; what draws it
+is always Nodus.
 
 # Nodus skill package v1
 
@@ -240,3 +251,144 @@ validation, sandbox check or write leaves the active version running. Auto-updat
 default for this official repository and is opt-in per plugin for community sources; sources are
 checked at startup and every 24 hours. Instructions the user edited locally survive updates as an
 overlay that can be reset to the author's version, and skills added by an update start disabled.
+
+
+# Nodus capability package v2
+
+A v2 package lives under `plugins/<id>` and is published as a signed release rather than
+read from the repository. Only NodusResearch may publish one, and only NodusResearch may
+provide the reserved capability ids (`nodus:chemistry`, `nodus:legal`, `nodus:genomics`).
+`nodus:svg` and `nodus:image` belong to the application and can only ever be depended on.
+
+## Layout
+
+```
+plugins/<id>/
+  plugin.json                     the package manifest
+  capabilities/<name>/capability.json
+  capabilities/<name>/…           the worker source, bundled at build time
+  skills/<name>/skill.json, SKILL.md
+  migrations/001-….cjs            the data version ladder, in order
+  runtimes/<runtime>.requirements.json
+  runtimes/<target>/lock-<python>.json
+  build.mjs, test/, LICENSE, RELEASE_NOTES.md, catalog.json
+```
+
+`plugin.json` declares the package id, version, publisher and `keyId`, the capability API
+version, the minimum Nodus version, the targets it publishes, the built-in skills it
+replaces, and the skills, capabilities and migrations it ships. `capability.json` declares
+one capability: what it provides, its tools and their input schemas, the artifact types it
+may produce, the chat protocols it claims, its settings, and its permissions. Every
+permission is enforced by the host; a capability that calls a channel its manifest does not
+declare gets an error, not a silent no-op.
+
+## Chat protocols
+
+A capability may claim fenced blocks in a reply. `requestProtocols` are blocks the model
+writes to ask for work; `legacyResults` are blocks an earlier version of the same discipline
+wrote before it became a package, which the application hands back to the package to render.
+Exactly one capability may claim a fence, and each declares a priority that fixes the order
+in which the pipeline runs them. The reply is parsed once into a generic tree shared by every
+provider, and what a provider returns is typed mutations — never text to be re-parsed, so a
+result can never become the next instruction.
+
+## 3D models
+
+`nodus:3d` is generic on purpose. A molecule, a bone, a pot and a building are the same
+thing to it, and no discipline is named anywhere in it — a subject-specific 3D capability
+would be exactly the coupling capability API v2 exists to remove.
+
+A capability that wants to show a model declares `"models": true` in its permissions and
+`nodus:3d` in its `requires`. At runtime it calls `host.models.store({ bytes, mimeType,
+name })`, which validates the asset, keeps it beside the conversation and returns an
+attachment id; the capability then returns a `model` view node referring to that id. It
+never ships a renderer, a shader or a script, and there is no route by which it could.
+
+Two formats are accepted, `model/gltf-binary` (`.glb`) and `model/gltf+json` (`.gltf`), and
+both must be **self-contained**. glTF can reference buffers, images and shaders by URI, and
+a viewer that honoured those would fetch whatever a document named, whenever anyone
+reopened an old conversation. So every URI must be an inline `data:` one, or the asset is
+refused — at review, at storage and again when it is read back. A model must be glTF 2.0,
+must contain something to draw, must not require an extension the viewer does not
+implement, and must fit the published size ceiling.
+
+The viewer that opens it belongs to the application: rotate, zoom, pan, reset and fit, with
+the model parsed from bytes already in memory and a resource path that resolves nowhere.
+
+## Result kinds
+
+A view document is a list of nodes, each of them data. Beyond the text-shaped kinds
+(`paragraph`, `badges`, `table`, `notice`, `details`, `links`, `download`, `status`,
+`code`) and `svg`, a package may return nine more. They are grouped by what each one is
+allowed to reach, and a package should know which group it is in.
+
+**Values the application draws.** `math` (TeX, typeset in strict mode with `trust` off),
+`chart` (line, bar, area or scatter, from series of points), `tree` (a bounded hierarchy),
+`passage` (text with marked spans) and `comparison` (two texts). No permission, no
+attachment, no host service: the package states values and the application renders them.
+Note what `comparison` does **not** have — a field for what changed. The application
+computes the difference, so no package can present a change that is not in the text.
+
+**Files the application opens.** `image` and `audio` need `"media": true` and go through
+`host.media.store({ bytes, mimeType, name })`, which returns an attachment id. Accepted:
+`image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/avif`, `audio/mpeg`,
+`audio/wav`, `audio/ogg`, `audio/flac`, `audio/mp4`. SVG is not among them; a drawing goes
+through `nodus:svg`, which sanitizes it. **The declared type is a claim and the bytes
+decide**: the magic bytes are sniffed and the asset is refused if they disagree, so a
+document that is not what it says it is cannot be stored under a name that might later be
+trusted.
+
+**Data that cannot point anywhere else.** `map` takes GeoJSON — the rare spatial format
+with no URI mechanism, so it is safe by construction rather than by sanitizing. Coordinates
+are checked against the bounds of the Earth and properties are rendered as text. `basemap`
+is opt-in: switching it on means a tile request to a third party every time the result is
+looked at.
+
+**The one kind that reaches the network.** `imageTiles` names a IIIF Image API service. It
+is the only result whose presence in an old conversation can cause a request, so the
+application fetches every tile itself, and only where the package's **own manifest already
+declared** that origin with `GET` and a matching path prefix. A view cannot widen what its
+package was granted, the path must stay under the declared service, the host must resolve
+publicly, and redirects are refused. If the package is uninstalled, the result stops
+fetching. Declare the service origin in `permissions.network` or the tiles will never load.
+
+Every kind that is looked at rather than read requires `alt`, and a package that omits it
+is rejected at review.
+
+## Artifacts
+
+A tool's result is an artifact: a type, a version, a one-line summary and data. The
+application stores it beside the chat with its own digest and keeps only a reference in the
+message. Each artifact type declares `modelVisibility`: `projection` lets the package offer
+a sanitized text projection to later turns, `none` means the result is rendered on the
+device and never returns to the model. An artifact type may also declare `decodes`, naming
+on-disk formats written by earlier versions so an old conversation can still be opened.
+
+## Migrations
+
+`migrations` is the data version ladder: the nth script raises a profile from version n-1 to
+n, and the numbering must run 001, 002, … in order. Each is a CommonJS module exporting one
+function, run in the package's own worker with the host it has at runtime, and is expected
+to be re-runnable. The application records only the version the scripts actually reached, and
+a capability is not announced until that version matches what the package declares — so a
+capability is never used against data that has not finished moving.
+
+## Runtimes
+
+A capability may declare a Python runtime. The interpreter is the user's; everything
+installed into it is pinned by the package: one lock per target and interpreter version,
+naming every wheel with its URL, size and SHA-256. The host downloads each through the
+capability's own network permission, verifies it, and installs with `--no-index
+--require-hashes`. Nothing is resolved from an index on the user's machine, and a package
+that ships no lock for a target it publishes cannot be built.
+
+## Distribution
+
+The catalog (`catalog-v2.json`) is a directory, not a distribution channel: it says where
+each package's signed release lives. Nothing in it is trusted — an entry that lies about a
+version, a size or an asset fails verification rather than installing something. An install
+verifies the signature, then the archive against the signed manifest, then extracts into a
+staging tree, validates what came out, and only then activates it. The previous version is
+kept so a bad release is one step from being undone. A version already installed cannot be
+replaced by different bytes under the same number, and a package cannot be walked backwards
+to an older version. An update that widens permissions is staged and waits for the user.

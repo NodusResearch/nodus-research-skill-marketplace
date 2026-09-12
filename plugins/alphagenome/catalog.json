@@ -1,0 +1,12 @@
+{
+  "description": {
+    "en": "Regulatory variant effect predictions from the official AlphaGenome API, for non-commercial research. Needs your own API key and Python 3.10 or newer.",
+    "es": "Predicciones del efecto de variantes reguladoras desde la API oficial de AlphaGenome, para investigación no comercial. Necesita tu propia clave y Python 3.10 o superior.",
+    "fr": "Prédictions de l'effet de variants régulateurs via l'API officielle AlphaGenome, pour la recherche non commerciale. Nécessite votre propre clé et Python 3.10 ou plus.",
+    "de": "Vorhersagen zur Wirkung regulatorischer Varianten über die offizielle AlphaGenome-API, für nicht-kommerzielle Forschung. Erfordert einen eigenen Schlüssel und Python 3.10 oder neuer.",
+    "pt": "Previsões do efeito de variantes reguladoras a partir da API oficial do AlphaGenome, para investigação não comercial. Precisa da tua chave e de Python 3.10 ou superior.",
+    "pt-BR": "Previsões do efeito de variantes regulatórias pela API oficial do AlphaGenome, para pesquisa não comercial. Precisa da sua chave e de Python 3.10 ou superior.",
+    "it": "Previsioni dell'effetto di varianti regolatorie dall'API ufficiale AlphaGenome, per ricerca non commerciale. Richiede una chiave propria e Python 3.10 o successivo.",
+    "tr": "Resmi AlphaGenome API'sinden düzenleyici varyant etkisi tahminleri; ticari olmayan araştırma için. Kendi anahtarınızı ve Python 3.10 veya üstünü gerektirir."
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 2,
+  "id": "chemistry",
+  "provides": "nodus:chemistry",
+  "version": "2.0.0",
+  "description": "Resolve chemical identities against references, validate the structure, and draw it as a verified document.",
+  "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
+  "requires": [{ "id": "nodus:svg", "minVersion": "1.0.0", "maxVersionExclusive": "2.0.0" }],
+  "tools": [
+    {
+      "id": "compile",
+      "description": "Resolve and draw one chemistry plan.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plan": { "type": "string", "minLength": 2, "maxLength": 64000 },
+          "question": { "type": "string", "maxLength": 8000 }
+        },
+        "required": ["plan"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["chemistry-document"],
+      "timeoutMs": 180000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": true
+    }
+  ],
+  "chat": {
+    "priority": 300,
+    "requestProtocols": [
+      { "fence": "chemistry-plan", "toolId": "compile", "maxPerReply": 1, "answerMode": "replace-block" }
+    ],
+    "legacyResults": [
+      { "fence": "chemistry-document", "artifactType": "chemistry-document", "artifactVersion": 2 },
+      { "fence": "chemistry-notice", "artifactType": "chemistry-document", "artifactVersion": 2 }
+    ],
+    "hooks": { "prepare": true },
+    "pendingLabel": { "en": "Drawing your structure…", "es": "Dibujando tu estructura…", "fr": "Dessin de votre structure…", "de": "Struktur wird gezeichnet…", "pt": "A desenhar a tua estrutura…", "pt-BR": "Desenhando sua estrutura…", "it": "Disegno della struttura…", "tr": "Yapınız çiziliyor…" }
+  },
+  "artifacts": [
+    {
+      "type": "chemistry-document",
+      "version": 2,
+      "label": { "en": "Chemistry document", "es": "Documento de química", "fr": "Document de chimie", "de": "Chemie-Dokument", "pt": "Documento de química", "pt-BR": "Documento de química", "it": "Documento di chimica", "tr": "Kimya belgesi" },
+      "modelVisibility": "projection",
+      "decodes": ["chemfig", "smiles", "lewis"]
+    }
+  ],
+  "permissions": {
+    "network": [
+      { "id": "opsin", "origin": "https://www.ebi.ac.uk", "pathPrefixes": ["/opsin/ws/"], "methods": ["GET"], "maxResponseBytes": 1048576, "timeoutMs": 30000 },
+      { "id": "pubchem", "origin": "https://pubchem.ncbi.nlm.nih.gov", "pathPrefixes": ["/rest/pug/compound/"], "methods": ["GET"], "maxResponseBytes": 4194304, "timeoutMs": 30000 }
+    ],
+    "model": { "maxCalls": 2, "purpose": "Repair a structurally invalid plan, or draw an explicitly unverified fallback when the verified lane abstains." },
+    "svg": true,
+    "subworkers": { "max": 1 },
+    "storage": { "stateBytes": 65536, "cacheBytes": 4194304, "tempBytes": 0 }
+  }
+}

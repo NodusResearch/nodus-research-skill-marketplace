@@ -1,0 +1,26 @@
+{
+  "name": "nodus-research-skill-marketplace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Official Nodus skills and capability packages.",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "validate": "node scripts/catalog.mjs --check && node scripts/validate-templates.mjs && node scripts/validate-workflows.mjs && node scripts/validate-plugins.mjs && npm run typecheck",
+    "build:plugins": "node scripts/build-plugins.mjs",
+    "test:plugins": "node --test plugins/*/test/*.test.mjs",
+    "catalog:v2": "node scripts/build-catalog-v2.mjs",
+    "typecheck": "tsc --noEmit -p plugins/chemistry-studio/tsconfig.json"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@rdkit/rdkit": "^2025.3.4-1.0.0",
+    "@types/node": "^22.20.2",
+    "adm-zip": "0.5.16",
+    "node-tikzjax": "^1.0.5",
+    "openchemlib": "^9.25.0"
+  }
+}

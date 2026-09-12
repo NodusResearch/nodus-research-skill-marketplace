@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 2,
+  "id": "genomics",
+  "provides": "nodus:genomics",
+  "version": "2.0.0",
+  "description": "Run one validated AlphaGenome regulatory variant prediction and keep the result on this device.",
+  "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
+  "requires": [],
+  "tools": [
+    {
+      "id": "predict",
+      "description": "Run one AlphaGenome prediction for a single-nucleotide substitution.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "version": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "assembly": { "type": "string", "enum": ["GRCh38"] },
+          "variant": { "type": "string", "minLength": 9, "maxLength": 40 },
+          "tissue": { "type": "string", "minLength": 9, "maxLength": 20 },
+          "output": { "type": "string", "enum": ["RNA_SEQ", "ATAC", "DNASE", "CAGE"] }
+        },
+        "required": ["version", "assembly", "variant", "tissue", "output"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["genomics-result"],
+      "timeoutMs": 300000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-answer",
+      "metered": true
+    }
+  ],
+  "chat": {
+    "priority": 200,
+    "requestProtocols": [
+      { "fence": "genomics-plan", "toolId": "predict", "maxPerReply": 1, "answerMode": "replace-answer" }
+    ],
+    "legacyResults": [
+      { "fence": "genomics-result", "artifactType": "genomics-result", "artifactVersion": 1 }
+    ],
+    "hooks": { "prepare": true },
+    "pendingLabel": { "en": "Consulting AlphaGenome…", "es": "Consultando AlphaGenome…", "fr": "Consultation d'AlphaGenome…", "de": "AlphaGenome wird abgefragt…", "pt": "A consultar o AlphaGenome…", "pt-BR": "Consultando o AlphaGenome…", "it": "Consultazione di AlphaGenome…", "tr": "AlphaGenome sorgulanıyor…" }
+  },
+  "artifacts": [
+    {
+      "type": "genomics-result",
+      "version": 1,
+      "label": { "en": "AlphaGenome prediction", "es": "Predicción de AlphaGenome", "fr": "Prédiction AlphaGenome", "de": "AlphaGenome-Prognose", "pt": "Previsão AlphaGenome", "pt-BR": "Previsão AlphaGenome", "it": "Previsione AlphaGenome", "tr": "AlphaGenome tahmini" },
+      "modelVisibility": "none",
+      "decodes": ["genomics"]
+    }
+  ],
+  "settings": {
+    "fields": [
+      {
+        "kind": "secret",
+        "id": "api-key",
+        "label": { "en": "AlphaGenome API key", "es": "Clave API de AlphaGenome", "fr": "Clé API AlphaGenome", "de": "AlphaGenome-API-Schlüssel", "pt": "Chave API do AlphaGenome", "pt-BR": "Chave de API do AlphaGenome", "it": "Chiave API AlphaGenome", "tr": "AlphaGenome API anahtarı" },
+        "description": { "en": "Your own personal key. It is stored in the system credential store and handed to the interpreter through stdin, never to the chat model.", "es": "Tu clave personal. Se guarda en el almacén de credenciales del sistema y se pasa al intérprete por stdin, nunca al modelo." },
+        "required": true
+      },
+      {
+        "kind": "consent",
+        "id": "terms",
+        "label": { "en": "I accept the AlphaGenome terms and confirm eligible non-commercial use", "es": "Acepto los términos de AlphaGenome y confirmo un uso no comercial elegible" },
+        "version": 2,
+        "termsUrl": "https://deepmind.google.com/science/alphagenome/terms"
+      }
+    ],
+    "actions": [
+      {
+        "id": "install-runtime",
+        "label": { "en": "Install runtime", "es": "Instalar runtime", "fr": "Installer le runtime", "de": "Runtime installieren", "pt": "Instalar runtime", "pt-BR": "Instalar runtime", "it": "Installa runtime", "tr": "Çalışma zamanını kur" },
+        "description": { "en": "Builds a pinned Python environment from the locked wheels published with this package.", "es": "Crea un entorno de Python fijado a partir de las ruedas bloqueadas que se publican con este paquete." }
+      },
+      {
+        "id": "forget-key",
+        "label": { "en": "Remove key", "es": "Eliminar clave", "fr": "Supprimer la clé", "de": "Schlüssel entfernen", "pt": "Eliminar chave", "pt-BR": "Excluir chave", "it": "Rimuovi chiave", "tr": "Anahtarı kaldır" },
+        "tone": "danger",
+        "confirm": { "en": "Remove the stored AlphaGenome key from this device?", "es": "¿Eliminar de este dispositivo la clave de AlphaGenome guardada?" }
+      }
+    ]
+  },
+  "permissions": {
+    "network": [
+      { "id": "wheels", "origin": "https://files.pythonhosted.org", "pathPrefixes": ["/packages/"], "methods": ["GET"], "maxResponseBytes": 268435456, "timeoutMs": 240000 }
+    ],
+    "runtimes": [{ "id": "alphagenome", "kind": "python", "minVersion": "3.10" }],
+    "secrets": [
+      { "id": "api-key", "label": "AlphaGenome API key", "required": true, "injection": { "kind": "process-stdin", "runtimeId": "alphagenome" } }
+    ],
+    "storage": { "stateBytes": 65536, "cacheBytes": 1048576, "tempBytes": 536870912 }
+  }
+}

@@ -1,0 +1,20 @@
+# Line endings are part of a package's bytes.
+#
+# A capability package is built from these files and published as an archive pinned by
+# SHA-256, and each target is built on its own platform. Left to Git's per-machine
+# defaults, a Windows checkout would produce CRLF in every text file and a different
+# archive for the same source — a reproducibility failure with no cause anyone could see
+# in a diff. So the working tree gets LF everywhere, on every platform.
+* text=auto eol=lf
+
+# Anything whose bytes are its meaning is never rewritten.
+*.wasm binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.zip binary
+*.nodus-plugin binary
+*.sig binary

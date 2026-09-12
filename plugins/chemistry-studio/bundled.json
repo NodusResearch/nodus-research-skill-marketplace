@@ -1,0 +1,7 @@
+{
+  "dependencies": [
+    "openchemlib",
+    "@rdkit/rdkit",
+    "node-tikzjax"
+  ]
+}

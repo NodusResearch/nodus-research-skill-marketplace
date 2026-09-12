@@ -1,0 +1,9 @@
+{
+  "comment": "Public halves of the Ed25519 keys that sign NodusResearch capability packages. This file must stay identical to electron/capabilities/trustedKeys.json in the Nodus repository: a release that verifies here and not there would fail on every user's machine. Generate a key with `npm run capabilities:keygen` in the Nodus checkout; the private half belongs in this repository's protected capability-signing environment and nowhere else.",
+  "keys": [
+    {
+      "keyId": "nr02",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAIe5vbG3NDyKRYMxkm2D02+chGWiCTvek/XnnvQdFL+c=\n-----END PUBLIC KEY-----\n"
+    }
+  ]
+}
