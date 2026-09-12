@@ -71,7 +71,7 @@ export async function searchSource(host, provider, query, batch, limit) {
       } catch { /* No fallback URL. */ }
     }
   } else if (provider === 'aic') {
-    const data = await json(host,'aic',path('/api/v1/artworks/search',{q:query,query:JSON.stringify({term:{is_public_domain:true}}),limit:String(limit),page:String(batch+1),fields:'id,title,image_id,is_public_domain,artist_display,credit_line,date_display'}));
+    const data = await json(host,'aic',path('/api/v1/artworks/search',{params:JSON.stringify({q:query,query:{term:{is_public_domain:true}},limit,page:batch+1,fields:['id','title','image_id','is_public_domain','artist_display','credit_line','date_display']})}));
     for (const item of (data.data ?? []).slice(0,limit)) {
       if (!Number.isSafeInteger(item.id) || item.is_public_domain !== true || !/^[a-f0-9-]{36}$/.test(item.image_id)) continue;
       const imageUrl = `https://www.artic.edu/iiif/2/${item.image_id}/full/600,/0/default.jpg`;
