@@ -150,7 +150,7 @@ Widening a capability's permissions in a new version is permitted but MUST be di
 
 The following are generated and MUST NOT be edited by hand:
 
-- `scripts/contract.mjs` — regenerated only from the main application with `node scripts/sync-skill-marketplace.mjs /path/to/marketplace-checkout`. It carries a generated-file banner.
+- `scripts/contract.mjs` and `scripts/contract-v2.mjs` — the v1 and v2 contracts, regenerated together and only from the main application with `node scripts/sync-skill-marketplace.mjs /path/to/marketplace-checkout`. Both carry a generated-file banner, validation fails if either is modified by the build, and Nodus's cross-repository check fails if what this repository validates against stops matching what the application enforces. A change belongs in the application's `packages/capability-api`, never here.
 - The category index between `<!-- catalog-index:start -->` and `<!-- catalog-index:end -->` and the catalog block between `<!-- catalog:start -->` and `<!-- catalog:end -->` in `README.md` — regenerated with `node scripts/catalog.mjs`.
 - `assets/nodus-marketplace.svg` — exported from the application's canonical mark.
 
@@ -172,6 +172,18 @@ Use repository-defined checks; inspect scripts before running them. For catalog 
 node scripts/catalog.mjs
 node scripts/catalog.mjs --check
 ```
+
+For a Capability API v2 package under `plugins/`, run what CI runs, in this order — the notices are packed into the archive, so regenerating them after a build describes a different build:
+
+```sh
+node scripts/build-notices.mjs <id>
+node scripts/validate-plugins.mjs
+npm run test:plugins
+node scripts/build-plugins.mjs
+npm run validate
+```
+
+Two facts an agent cannot discover by reading a green run on one machine. Package tests run on Linux, Windows and macOS, and the differences that matter are paths, line endings and filename case — `new URL(import.meta.url).pathname` is `/D:/…` on Windows, so use `fileURLToPath`. And `compatibility.targets` SHOULD be `["any"]` unless the archive genuinely differs per platform; declaring four targets for identical bytes publishes the same package four times. [CONTRIBUTING.md](CONTRIBUTING.md) has both in full, along with the release runbook, which no contributor and no agent performs: publishing is a maintainer action behind a protected environment.
 
 Run relevant application tests for upstream capability changes. Prefer safe fixtures; do not use real patient/student data or incur paid API charges without authorization.
 

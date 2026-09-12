@@ -10,7 +10,13 @@ import AdmZip from 'adm-zip';
 import { build } from 'esbuild';
 import { validateCapabilityManifestV2, validatePluginManifestV2, assertMayProvide } from './contract-v2.mjs';
 
-const EPOCH = new Date('2020-01-01T00:00:00Z');
+// Constructed from local components on purpose. A zip stores its timestamps in DOS
+// format, and the encoder reads them with `getHours()` and friends — local getters — so a
+// UTC instant encodes to a different value on every machine that is not on UTC. The build
+// pinned the instant and the archive still came out differently: CI runs on UTC, and a
+// maintainer in CET rebuilding the same commit got bytes an hour apart and no way to
+// verify what was published. These components encode to the same DOS value everywhere.
+const EPOCH = new Date(2020, 0, 1, 0, 0, 0, 0);
 
 /** Every package a vendored dependency needs, transitively, read from the flat install.
  *  Optional dependencies that are not present are skipped rather than failing the build:
