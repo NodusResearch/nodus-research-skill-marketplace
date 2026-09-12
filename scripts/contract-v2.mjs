@@ -76,7 +76,7 @@ function validateJsonSchema(schema, depth = 0) {
   if (value.properties) {
     if (value.type !== "object" || Object.keys(value.properties).length > 64) throw new Error("Invalid capability object schema.");
     for (const [key, child] of Object.entries(value.properties)) {
-      if (!SLUG.test(key)) throw new Error("Invalid capability schema property.");
+      if (!SLUG.test(key) && !/^[a-z][a-zA-Z0-9]{0,63}$/.test(key) || ["__proto__", "constructor", "prototype"].includes(key)) throw new Error("Invalid capability schema property.");
       validateJsonSchema(child, depth + 1);
     }
   }
@@ -1356,6 +1356,28 @@ function validateCapabilityCatalog(input) {
   return { schemaVersion: 2, updatedAt: value.updatedAt, plugins };
 }
 var catalogReplacedSkills = (catalog) => new Set(catalog.plugins.flatMap((entry) => entry.replaces));
+
+// packages/capability-api/src/pluginAssets.ts
+function validatePluginAssets(input) {
+  if (input === void 0) return;
+  if (!Array.isArray(input) || input.length > 64) throw new Error("Invalid plugin assets.");
+  const ids = /* @__PURE__ */ new Set(), paths = /* @__PURE__ */ new Set();
+  let total = 0;
+  for (const asset of input) {
+    if (!asset || !exactKeys(asset, ["id", "path", "mimeType", "bytes", "sha256"]) || typeof asset.id !== "string" || !SLUG.test(asset.id) || ids.has(asset.id) || typeof asset.path !== "string" || !/^assets\/[a-z0-9]+(?:-[a-z0-9]+)*\.(json|gltf|glb)$/.test(asset.path) || paths.has(asset.path) || !["application/json", "model/gltf+json", "model/gltf-binary"].includes(asset.mimeType) || asset.mimeType === "model/gltf+json" !== asset.path.endsWith(".gltf") || asset.mimeType === "model/gltf-binary" !== asset.path.endsWith(".glb") || !Number.isSafeInteger(asset.bytes) || asset.bytes < 1 || asset.bytes > (asset.mimeType === "model/gltf-binary" ? 64 * 1024 * 1024 : asset.mimeType === "application/json" ? 2e6 : 16 * 1024 * 1024) || typeof asset.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(asset.sha256)) throw new Error("Invalid plugin asset declaration.");
+    ids.add(asset.id);
+    paths.add(asset.path);
+    total += asset.bytes;
+  }
+  if (total > 128 * 1024 * 1024) throw new Error("Plugin assets exceed 128 MB.");
+}
+function validatePackagedModelResult(input) {
+  const result = input;
+  if (!result || !exactKeys(result, ["kind", "panels", "metadata"]) || result.kind !== "model" || !Array.isArray(result.panels) || !result.panels.length || result.panels.length > 12 || JSON.stringify(result).length > 256e3) throw new Error("Invalid packaged model result.");
+  for (const panel of result.panels) {
+    if (!panel || !exactKeys(panel, ["assetId", "nodeIds", "title", "alt"]) || typeof panel.assetId !== "string" || !SLUG.test(panel.assetId) || !plainText(panel.title, 160) || !plainText(panel.alt, 4e3) || !Array.isArray(panel.nodeIds) || !panel.nodeIds.length || panel.nodeIds.length > 2e3 || panel.nodeIds.some((id) => typeof id !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,127}$/.test(id)) || new Set(panel.nodeIds).size !== panel.nodeIds.length) throw new Error("Invalid packaged model panel.");
+  }
+}
 export {
   AUDIO_MIME_TYPES,
   CAPABILITY_API_V2,
@@ -1425,6 +1447,8 @@ export {
   validateLocalizedText,
   validateMediaAsset,
   validateModelAsset,
+  validatePackagedModelResult,
+  validatePluginAssets,
   validatePluginManifestV2,
   validatePrepareMutations,
   validateSettingsManifest,
