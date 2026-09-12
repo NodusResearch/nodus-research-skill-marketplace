@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "math-studio",
+  "name": "Math Studio",
+  "version": "1.0.0",
+  "author": "Drakonis96",
+  "description": "Calculate arithmetic, fractions, real equations, linear systems and matrices with reproducible steps and native mathematical notation.",
+  "category": "Mathematics and computing",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [
+    "self:mathematics"
+  ],
+  "tools": []
+}
