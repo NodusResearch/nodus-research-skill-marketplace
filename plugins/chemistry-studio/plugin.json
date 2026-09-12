@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "chemistry-studio",
   "name": "Chemistry Studio",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "author": "NodusResearch",
   "description": "Draw chemical structures, projections, mechanisms and balanced reactions from verified identities, with the sources they were checked against.",
   "license": "AGPL-3.0-only",
