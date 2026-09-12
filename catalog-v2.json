@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-12T18:19:23.855Z",
+  "updatedAt": "2026-09-12T18:42:38.615Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -149,7 +149,7 @@
           {
             "target": "any",
             "asset": "math-studio-1.0.0-any.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 29037
           }
         ]
       }
