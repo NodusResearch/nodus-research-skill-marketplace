@@ -13,14 +13,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '..');
 
 /** The timestamp the build stamps on every entry, as the build constructs it, encoded by
  *  the same library, in whatever timezone the child process is told to run in. */
 function archiveIn(timezone) {
+  // `pathToFileURL`, because an ESM specifier is a URL: `D:\\a\\…` is a path, not one, and
+  // Node refuses to load it. The same distinction this suite exists to catch in a package.
   const script = `
-    import AdmZip from '${path.join(root, 'node_modules/adm-zip/adm-zip.js').replace(/\\/g, '\\\\')}';
+    import AdmZip from '${pathToFileURL(path.join(root, 'node_modules/adm-zip/adm-zip.js')).href}';
     const EPOCH = new Date(2020, 0, 1, 0, 0, 0, 0);
     const zip = new AdmZip();
     zip.addFile('a.txt', Buffer.from('same bytes everywhere'));
