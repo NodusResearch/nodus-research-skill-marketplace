@@ -240,7 +240,7 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
     if (request.reaction) {
       if (request.mechanism) throw new Error('A balanced scheme cannot also claim mechanism verification.');
       const { renderBalancedReaction } = await import('./chemistryReaction');
-      result.reaction = await renderBalancedReaction(request.reaction, validateChemicalReferences);
+      result.reaction = await renderBalancedReaction(request.reaction, validateChemicalReferences, request.notes);
     }
     if (newman) result.projection = newmanEvidence(newman);
     if (request.exportChemfig) {

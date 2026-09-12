@@ -39,6 +39,11 @@ export function documentView(document: ChemistryDocument, locale: string, attach
   const mechanism = document.mechanism;
   if (reaction && typeof reaction.svg === 'string') {
     nodes.push(svgNode(reaction.svg, text('studio', locale), text('reactionScope', locale)));
+    // Below the drawing, and marked: the equation above was solved and checked, this was
+    // written. Putting them in one block would let the second borrow the first's standing.
+    if (typeof reaction.notes === 'string' && reaction.notes.trim()) {
+      nodes.push({ kind: 'notice', tone: 'info', title: text('notesTitle', locale), spans: [{ text: reaction.notes.slice(0, 2000) }] });
+    }
   } else if (mechanism && typeof mechanism.svg === 'string') {
     const panels = Array.isArray(mechanism.panels) ? mechanism.panels : [];
     if (panels.length) for (const panel of panels) nodes.push(svgNode(panel.svg, text('studio', locale), text('mechanismScope', locale)));

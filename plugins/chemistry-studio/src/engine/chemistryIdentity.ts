@@ -26,6 +26,8 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
     if (!question.split(/\s|`/).includes(value)) throw new Error('Provide the complete reaction SMILES on its own line or in a code fence.');
     raw = { version: 2, kind: 'reaction', depiction: 'skeletal', species: reactionSmilesSpecies(value) };
   }
+  if (raw?.notes != null && (typeof raw.notes !== 'string' || raw.notes.length > 2000)) throw new Error('Reaction notes must be text of at most 2000 characters.');
+  if (raw?.notes != null && raw.kind !== 'reaction') throw new Error('Notes describe a reaction; a structure carries no conditions.');
   if (!raw || raw.version !== 2 || !['structure', 'comparison', 'mechanism', 'reaction', 'resonance'].includes(raw.kind) || !['skeletal', 'wedge-dash', 'lone-pairs', 'fischer', 'haworth', 'newman'].includes(raw.depiction)) {
     throw new Error('Use a version-2 identity intent with a supported structure, projection, mechanism or resonance kind.');
   }
@@ -285,7 +287,7 @@ export async function resolveChemistryIntent(source: string, question: string, d
         : { rule: intent.rule!, inputs: species.map(s => s.graph.canonicalSmiles), approach: intent.approach },
     }, signal)).mechanism : undefined;
     if (wantsMechanism && !mechanism) throw new Error('The mechanism worker returned no checked rule result.');
-    const reaction = intent.kind === 'reaction' ? (await deps.validate({ references: [species[0].graph.canonicalSmiles], reaction: species.map(s => ({ id: s.id, smiles: s.graph.canonicalSmiles, role: s.role!, coefficient: s.coefficient! })) }, signal)).reaction : undefined;
+    const reaction = intent.kind === 'reaction' ? (await deps.validate({ references: [species[0].graph.canonicalSmiles], reaction: species.map(s => ({ id: s.id, smiles: s.graph.canonicalSmiles, role: s.role!, coefficient: s.coefficient! })), ...(intent.notes ? { notes: intent.notes } : {}) }, signal)).reaction : undefined;
     if (intent.kind === 'reaction' && !reaction) throw new Error('The worker returned no balanced reaction scheme.');
     // A scope limit is this build's boundary, not the user's mistake: the drawing is
     // still produced, and only the trust level it carries is reduced.

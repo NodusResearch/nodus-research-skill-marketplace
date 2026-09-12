@@ -1,32 +1,37 @@
-# Chemistry Studio 2.1.0
+# Chemistry Studio 2.2.0
 
-Two depictions that were previously refused, and the refusals were right at the time: there
-was no way to produce either without the model telling Nodus where the hydrogens and the
-electron pairs went, which is exactly what this package does not let it do. Both are derived
-now, so both are supported.
+Multi-step syntheses, drawn one balanced step at a time — and a change in what the package
+does that is worth stating plainly.
 
-## Wedge-and-dash
+## The coefficients are solved, not believed
 
-Ask for wedge-and-dash, tetrahedral perspective or explicit hydrogens and every hydrogen is
-expanded from the verified graph, with stereocentres labelled R/S and stereogenic double
-bonds E/Z. A molecule with one tetrahedral centre and no stereocentre — chloroform,
-dichloromethane — carries no wedge in its graph at all, so nothing would have been drawn;
-Nodus now chooses one solid wedge and one hashed bond, perpendicular in the projection, so
-the shape reads as tetrahedral instead of flat.
+Until now the model supplied the stoichiometric coefficients and Nodus checked them. Asking
+a model to balance ten equations in a row is asking it to do arithmetic under a deadline,
+which is where it fails; a route would die on a step whose chemistry was right and whose
+numbers were not.
 
-## Lewis structures
+Nodus now solves them, by exact rational elimination over the element, isotope and charge
+matrix. The model lists the species; the numbers are arithmetic and are treated as such.
+Coefficients that came with the request are kept when they already balance, so an equation
+someone wrote by hand comes back as they wrote it.
 
-Ask for lone pairs, nonbonding pairs or a Lewis structure and each pair is counted from
-valence electrons, formal charge and the bonds already drawn — never supplied by the model.
-Stereochemistry is not required for one: a Lewis structure is about where the electrons are,
-not which isomer it is.
+Two refusals stay refusals, because they are questions and not arithmetic. Species that
+cannot balance at all name the element that is missing, so the next attempt is informed
+rather than another guess. Species that admit more than one balanced equation — ethanol
+burning to a mixture of CO and CO₂ — are refused rather than resolved: choosing one would
+be inventing which reaction was meant.
 
-Neither depiction has a ChemFig export, and neither asserts anything about reactivity.
+## A route is a proposal, and says so
 
-## Also
+Each step is drawn as its own balanced scheme, with the conditions and the electron pushing
+in a `notes` field shown beneath it, labelled as proposed and unchecked. That label is not
+decoration. **What this package verifies has not changed:** that every species is a real
+structure, and that every equation balances. Whether the route works, whether the conditions
+are right, whether the yields are usable — none of that is checked by anything here, and the
+answer says so.
 
-Carbon dioxide was refused as a cumulated-diene stereochemistry case. Two double bonds on
-one carbon are axial chirality only when a double-bonded neighbour carries the chain onwards,
-as in an allene; a terminal system has no stereochemistry to get wrong.
+This is the first release where Chemistry Studio renders something it cannot verify. It is
+worth knowing which half is which.
 
-With thanks to Avi, who wrote the original of all of this.
+With thanks to Avi, who wrote the original of this and tested it against thirty synthesis
+problems before sending it.
