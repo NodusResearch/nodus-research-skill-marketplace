@@ -1,5 +1,7 @@
 # Research Visuals 1.0.0
 
+[Installable signed release](https://github.com/NodusResearch/nodus-research-skill-marketplace/releases/tag/research-visuals-v1.0.0) · [Merged contribution](https://github.com/NodusResearch/nodus-research-skill-marketplace/pull/27)
+
 Three independently enabled Skills share two signed workers and Nodus's native render/review services:
 
 | Skill | Tool | Result |

@@ -35,7 +35,7 @@ AlphaGenome and Legalize use Nodus's `nodus:genomics` and `nodus:legal` capabili
 
 [Research Visuals](plugins/research-visuals/) bundles three independently enabled Skills: **General Maps**, **Historical Maps** and **Open Image Finder**. Maps use native cartography and preserve editable SVG, geometry and provenance. Historical maps require supplied dated evidence; automatic historical border retrieval is not included. Image search defaults to Wikimedia Commons, with independently checked Met and Art Institute of Chicago sources in capability settings, visible attribution and bounded native visual review.
 
-Requires the companion Nodus build with Capability API 2.2 and native `nodus:maps` / `nodus:vision`; **unmodified released 5.3.2 is incompatible**. The signed release is published through the protected maintainer workflow. See the package README for source licences, permissions, limits and tests.
+Requires the companion Nodus build with Capability API 2.2 and native `nodus:maps` / `nodus:vision`; **unmodified released 5.3.2 is incompatible**. [Research Visuals 1.0.0](https://github.com/NodusResearch/nodus-research-skill-marketplace/releases/tag/research-visuals-v1.0.0) is signed and published through the protected maintainer workflow. See the package README for source licences, permissions, limits and tests.
 
 ## Skills, tools and native capabilities
 
