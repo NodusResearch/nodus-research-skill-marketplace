@@ -8,5 +8,8 @@
     "pt-BR": "Mapas gerais e históricos e busca de imagens abertas com revisão visual opcional. Requer maps e vision nativos.",
     "it": "Mappe generali e storiche e ricerca di immagini aperte con revisione visiva facoltativa. Richiede maps e vision nativi.",
     "tr": "Genel ve tarihî haritalar, isteğe bağlı görsel incelemeli açık lisanslı görsel arama. Yerel maps ve vision desteği gerektirir."
+  },
+  "assetBytes": {
+    "any": 45257
   }
 }

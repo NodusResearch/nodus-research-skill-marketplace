@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-12T15:59:07.764Z",
+  "updatedAt": "2026-09-12T16:08:43.484Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -149,7 +149,7 @@
           {
             "target": "any",
             "asset": "research-visuals-1.0.0-any.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 45257
           }
         ]
       }
