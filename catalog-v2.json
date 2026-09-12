@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-12T05:40:23.282Z",
+  "updatedAt": "2026-09-12T06:25:05.473Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -67,41 +67,23 @@
         "it": "Disegna strutture, proiezioni, meccanismi e reazioni bilanciate da identità verificate, con le fonti usate.",
         "tr": "Doğrulanmış kimliklerden yapılar, projeksiyonlar, mekanizmalar ve denkleştirilmiş tepkimeler çizer; kontrol edildikleri kaynaklarla birlikte."
       },
-      "version": "2.0.0",
+      "version": "2.0.1",
       "path": "plugins/chemistry-studio",
       "replaces": [
         "builtin-chemistry"
       ],
       "targets": [
-        "darwin-arm64",
-        "darwin-x64",
-        "win32-x64",
-        "linux-x64"
+        "any"
       ],
       "release": {
-        "tag": "chemistry-studio-v2.0.0",
+        "tag": "chemistry-studio-v2.0.1",
         "manifest": "release-manifest.json",
         "signature": "release-manifest.sig",
         "assets": [
           {
-            "target": "darwin-arm64",
-            "asset": "chemistry-studio-2.0.0-darwin-arm64.nodus-plugin",
-            "bytes": 21412815
-          },
-          {
-            "target": "darwin-x64",
-            "asset": "chemistry-studio-2.0.0-darwin-x64.nodus-plugin",
-            "bytes": 21412815
-          },
-          {
-            "target": "win32-x64",
-            "asset": "chemistry-studio-2.0.0-win32-x64.nodus-plugin",
-            "bytes": 21412815
-          },
-          {
-            "target": "linux-x64",
-            "asset": "chemistry-studio-2.0.0-linux-x64.nodus-plugin",
-            "bytes": 21412235
+            "target": "any",
+            "asset": "chemistry-studio-2.0.1-any.nodus-plugin",
+            "bytes": 134217728
           }
         ]
       }

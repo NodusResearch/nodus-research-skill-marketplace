@@ -1,34 +1,25 @@
-# Chemistry Studio 2.0.0
+# Chemistry Studio 2.0.1
 
-Chemistry Studio is now an installable capability package rather than part of the
-Nodus application. What it draws, and what it refuses to draw, has not changed: a
-structure is resolved against references, validated, and presented with the
-sources it was checked against.
+A packaging fix. Nothing about what the package draws, refuses to draw, reaches or spends
+has changed; the capability, its permissions and its behaviour are identical to 2.0.0.
 
 ## What is different
 
-- RDKit, OpenChemLib and the TeX engine travel inside this package instead of the
-  application. A Nodus install with no chemistry no longer carries thirty
-  megabytes of chemistry.
-- Structure validation runs in a subworker Nodus can kill. It is the slowest and
-  least bounded part of the work, so a pathological molecule now costs one
-  drawing rather than the package.
-- The package reaches only OPSIN and PubChem, over the paths it declares, and may
-  spend at most two model calls — one to repair a structurally invalid plan, one
-  to draw an explicitly unverified fallback. Nodus enforces both; the package
-  cannot widen them.
-- A result is stored as an artifact beside the conversation, with the verified
-  document and the ChemFig source as downloads rather than inline text.
+- **The licence notices are complete on Linux.** 2.0.0 shipped `combined-stream`,
+  `delayed-stream` and `form-data` there with only "Licence: MIT" and none of the text MIT
+  requires be distributed with them. Those three name their licence file `License`, and the
+  generator looked for a list of exact spellings: macOS matched it through a
+  case-insensitive filesystem and Linux did not. The notices are now read from the
+  directory, so the same package carries the same notices everywhere.
 
-## Unchanged on purpose
+- **One archive instead of four.** 2.0.0 declared four targets and published byte-identical
+  code in all of them — 21 MB, four times, for one package of JavaScript, WebAssembly and
+  data that does not vary by platform. It declares `any` now. Nodus installs the same
+  archive on every platform, and an install or an update from 2.0.0 needs no special
+  handling: the store resolves the target the catalog offers.
 
-An unverified fallback is still labelled unverified everywhere it appears,
-including in the text a screen reader gets. A drawing the verified lane did not
-produce must not read like one that did.
-
-Ambiguity is still reported rather than resolved by guessing: two drawing intents
-in one reply produce a notice, not a coin flip.
-
-What a later turn may know about a drawing is the identities and what was checked
-against which sources — never the picture, and never anything that could be read
-back as a new instruction.
+Both were only visible because the archives had three different digests for identical code.
+The third cause of that has also been fixed, in the build rather than here: zip timestamps
+are stored in DOS format and were encoded in the build machine's timezone, so an archive was
+reproducible only on UTC. A published package can now be rebuilt from its commit, on any
+machine, and compared against the digest its release manifest is signed over.
