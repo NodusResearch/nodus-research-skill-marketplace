@@ -10,9 +10,6 @@
     "tr": "Doğrulanmış kimliklerden yapılar, projeksiyonlar, mekanizmalar ve denkleştirilmiş tepkimeler çizer; kontrol edildikleri kaynaklarla birlikte."
   },
   "assetBytes": {
-    "darwin-arm64": 21412815,
-    "darwin-x64": 21412815,
-    "linux-x64": 21412235,
-    "win32-x64": 21412815
+    "any": 21412941
   }
 }
