@@ -37,6 +37,7 @@ await build({
       export { splitFences } from './src/engine/fences';
       export { documentView, summarize } from './src/view';
       export { assignLonePairs, forceTetrahedralPerspective } from './src/engine/chemistryScene';
+      export { balanceReaction } from './src/engine/chemistryReaction';
       export { parseChemistryIntent } from './src/engine/chemistryIdentity';
     `,
     resolveDir: root, loader: 'ts',
@@ -362,4 +363,64 @@ test('a depiction that was asked for is the one that is drawn', () => {
   assert.equal(lib.parseChemistryIntent(intent('wedge-dash', 'chloroform'), 'show chloroform with explicit hydrogens').depiction, 'wedge-dash');
   // And a plain request still gets a plain drawing.
   assert.equal(lib.parseChemistryIntent(intent('skeletal', 'water'), 'draw water').depiction, 'skeletal');
+});
+
+// ---------------------------------------------------------------- stoichiometry
+
+/** Compositions as the reaction path builds them: atoms keyed by atomic number and isotope. */
+const comp = (atoms, charge = 0) => ({ atoms: Object.fromEntries(Object.entries(atoms)), charge });
+const H2 = comp({ '1:0': 2 }), O2 = comp({ '8:0': 2 }), H2O = comp({ '1:0': 2, '8:0': 1 });
+const CH4 = comp({ '6:0': 1, '1:0': 4 }), CO2 = comp({ '6:0': 1, '8:0': 2 });
+
+test('the coefficients are solved, not taken on trust', () => {
+  // Two hydrogens and an oxygen make two waters. A model that says one of each is wrong,
+  // and the point of solving is that being wrong about it stops mattering.
+  assert.deepEqual(
+    lib.balanceReaction([H2, O2, H2O], ['reactant', 'reactant', 'product'], [1, 1, 1]),
+    [2, 1, 2]);
+
+  // Methane combustion, the arithmetic a model most often fumbles mid-route.
+  assert.deepEqual(
+    lib.balanceReaction([CH4, O2, CO2, H2O], ['reactant', 'reactant', 'product', 'product'], [1, 1, 1, 1]),
+    [1, 2, 1, 2]);
+
+  // An equation the request already balanced comes back exactly as it was written, rather
+  // than rescaled to some other multiple of itself.
+  assert.deepEqual(
+    lib.balanceReaction([H2, O2, H2O], ['reactant', 'reactant', 'product'], [4, 2, 4]),
+    [4, 2, 4]);
+
+  // Charge is conserved alongside the atoms: a proton and a hydroxide make one water.
+  const proton = comp({ '1:0': 1 }, 1), hydroxide = comp({ '1:0': 1, '8:0': 1 }, -1);
+  assert.deepEqual(
+    lib.balanceReaction([proton, hydroxide, H2O], ['reactant', 'reactant', 'product'], [1, 1, 1]),
+    [1, 1, 1]);
+});
+
+test('an agent takes no part in the balance', () => {
+  // A catalyst is recovered and a solvent is not consumed, so neither belongs in the
+  // matrix — and a platinum atom on one side only must not make the equation unsolvable.
+  const platinum = comp({ '78:0': 1 });
+  assert.deepEqual(
+    lib.balanceReaction([H2, O2, platinum, H2O], ['reactant', 'reactant', 'agent', 'product'], [1, 1, 1, 1]),
+    [2, 1, 1, 2]);
+});
+
+test('what cannot be balanced says what is missing', () => {
+  // Chlorine vanishing between the sides is the commonest failure in a proposed route: a
+  // byproduct nobody wrote down. The message has to name it, or the next attempt is a guess.
+  const HCl = comp({ '1:0': 1, '17:0': 1 }), MeOH = comp({ '6:0': 1, '1:0': 4, '8:0': 1 }), MeCl = comp({ '6:0': 1, '1:0': 3, '17:0': 1 });
+  assert.throws(
+    () => lib.balanceReaction([MeOH, HCl, MeCl], ['reactant', 'reactant', 'product'], [1, 1, 1]),
+    /cannot be balanced[\s\S]*O: reactants 1, products 0|cannot be balanced[\s\S]*H: reactants/);
+
+  // Ethanol burning can be written with carbon monoxide as well as carbon dioxide, and
+  // choosing between them would be inventing which reaction was meant.
+  const EtOH = comp({ '6:0': 2, '1:0': 6, '8:0': 1 }), CO = comp({ '6:0': 1, '8:0': 1 });
+  assert.throws(
+    () => lib.balanceReaction([EtOH, O2, CO2, CO, H2O], ['reactant', 'reactant', 'product', 'product', 'product'], [1, 1, 1, 1, 1]),
+    /more than one balanced equation/);
+
+  // One side missing entirely is not an equation.
+  assert.throws(() => lib.balanceReaction([H2, O2], ['reactant', 'reactant'], [1, 1]), /at least one reactant and one product/);
 });

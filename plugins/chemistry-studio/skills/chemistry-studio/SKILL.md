@@ -39,6 +39,11 @@ Some reactions have a hand-built rule that draws them more carefully than generi
 For any other mechanism or resonance family, use "electronFlow" instead of refusing.
 
 REACTION SCHEMES
+MULTI-STEP SYNTHESIS
+When the user asks for a route to a target, answer with one fenced chemistry-plan block per step, in order, each a kind "reaction" with its own product. Explain the route in prose around the blocks as you normally would — the blocks are how each step is drawn, not a replacement for answering the question.
+Do not balance the numbers yourself: list every species and Nodus solves the coefficients. What you must get right is which species are present — list consumed reagents as reactants, include the byproducts, and mark only catalysts and solvents as agents. If a transformation cannot be written as one balanced equation with all its byproducts, split it into consecutive steps, each with its own product. Put that step's conditions and electron pushing in "notes".
+A route is a proposal. Never state or imply that the steps, their order, the conditions or the yields are verified: what Nodus checks is that each species is a real structure and that each equation balances. Say so if the user's phrasing assumes otherwise.
+
 With explicitly supplied reactants AND products, use kind "reaction": every species needs an explicit role (reactant, product or agent) and integer coefficient 1–12; include ALL species, counterions and stated agents (at most twelve). Nodus independently checks each component, atom/isotope balance and net charge, and displays agents separately. Balance does NOT verify feasibility or a mechanism. If products are missing, ask for them. When the user supplies a complete reaction SMILES on its own line or in backticks, an alternative is {"version":2,"kind":"reaction","depiction":"skeletal","reactionSmiles":"EXACT COMPLETE USER REACTION SMILES"} preserving all three reactants>agents>products fields. General reaction schemes use a forward arrow only; do not substitute one for an explicitly requested equilibrium.
 
 WHEN SOMETHING STILL CANNOT BE DRAWN

@@ -30,6 +30,12 @@ export interface ChemistryIntent {
   conformation?: NewmanConformation;
   approach?: 'endo' | 'exo';
   /**
+   * Conditions, reagents and a description of where the electrons go, for a reaction the
+   * bounded rule library does not cover. Shown beneath the scheme and checked by nothing:
+   * it is prose the model wrote, and the document says so wherever it appears.
+   */
+  notes?: string;
+  /**
    * Declared curved arrows. Present for a mechanism or resonance the bounded rule
    * library does not cover, which is most of them: the arrows are checked by applying
    * them and seeing whether the structure they build conserves atoms and charge.
@@ -43,6 +49,8 @@ export interface ReactionSpecies { id: string; smiles: string; role: ReactionRol
 export interface ChemistryReactionArtifact {
   scope: 'balanced-scheme-not-mechanism';
   svg: string;
+  /** Model-written conditions and electron pushing. Rendered as prose, checked by nothing. */
+  notes?: string;
   chemfig: ChemistryChemfigExport;
   species: ReactionSpecies[];
   balance: { atoms: Record<string, number>; charge: number };
@@ -120,6 +128,8 @@ export interface ChemistryMechanismArtifact {
 export interface ChemistryValidationRequest {
   references: string[];
   depiction?: ChemistryIntent['depiction'];
+  /** Passed through to a reaction artifact, unverified. See `ChemistryIntent.notes`. */
+  notes?: string;
   conformation?: NewmanConformation;
   exportChemfig?: boolean;
   mechanism?: {
