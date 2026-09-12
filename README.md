@@ -37,6 +37,12 @@ AlphaGenome and Legalize use Nodus's `nodus:genomics` and `nodus:legal` capabili
 
 Requires the companion Nodus build with Capability API 2.2 and native `nodus:maps` / `nodus:vision`; **unmodified released 5.3.2 is incompatible**. [Research Visuals 1.0.0](https://github.com/NodusResearch/nodus-research-skill-marketplace/releases/tag/research-visuals-v1.0.0) is signed and published through the protected maintainer workflow. See the package README for source licences, permissions, limits and tests.
 
+## Math Studio: native mathematical results
+
+[Math Studio](plugins/math-studio/) calculates exact fractions, restricted arithmetic expressions, real linear and quadratic equations, small linear systems and matrices. Its permissionless trusted worker computes the result and algorithmic steps; Nodus renders them with native mathematical views. Irrational roots and transcendental functions are explicitly labelled as floating-point approximations.
+
+[Math Studio 1.0.0](https://github.com/NodusResearch/nodus-research-skill-marketplace/releases/tag/math-studio-v1.0.0) is signed and installable on Nodus 5.3.2 or newer. It requires no native capability, API key, network endpoint, external runtime or third-party dependency.
+
 ## Skills, tools and native capabilities
 
 A skill is an installable package: metadata, instructions, expected behavior and a declaration of what the assistant may use. A tool is one concrete operation the assistant can invoke. A native capability is functionality implemented and controlled by Nodus itself, which exposes one or more privileged or specialized tools to compatible skills.

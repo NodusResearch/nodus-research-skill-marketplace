@@ -8,7 +8,7 @@ Package version: 1.0.0. Tested application: Nodus 5.3.2 at commit `9871723b`. Ma
 - The repository plugin suite passed with 154 plugin tests, 10 infrastructure tests and 44 anatomy tests.
 - Plugin validation, deterministic package building, catalog generation, workflow checks and TypeScript checks passed.
 - Pull-request CI passed the package suite on macOS 14, Ubuntu and Windows.
-- The final built `any` archive was 29,037 bytes with SHA-256 `e9cccf4f2f2794b8cdb96bf91739ea4665241403031c56eb0e36d2bb9212fd96`. The catalog deliberately keeps the contract maximum until an official published asset supplies its signed size.
+- The final `any` archive is 29,037 bytes with SHA-256 `e9cccf4f2f2794b8cdb96bf91739ea4665241403031c56eb0e36d2bb9212fd96`. The catalog records that exact size from the signed release manifest.
 
 ## Nodus integration check
 
@@ -18,6 +18,8 @@ The check registered the capability, materialized the disabled-by-default skill,
 
 The real Nodus `ViewMath` component rendered 51 formulas through strict KaTeX with zero formula errors and zero horizontal overflows at the tested width. A preview and machine-readable evidence are generated under the ignored `build/math-studio-verification/` directory.
 
-## Remaining release checks
+## Published release verification
 
-Official release signing and publication were not performed. A maintainer must run the protected release workflow and record the published asset size. The chat integration used deterministic request fences rather than a live language-model response, so it proves routing and execution but not model prompt adherence.
+The protected workflow built the package reproducibly, signed its manifest with release key `nr02`, verified that signature through the Nodus verifier, and published all three release assets together. Nodus 5.3.2 then refreshed the public marketplace catalog, downloaded and installed Math Studio from the public release, verified its production signature and digest, registered the capability, and calculated `1/3+1/6 = 1/2` through a native math view. The installed digest was `e9cccf4f2f2794b8cdb96bf91739ea4665241403031c56eb0e36d2bb9212fd96`.
+
+The earlier chat integration used deterministic request fences rather than a live language-model response, so it proves routing and execution but not model prompt adherence.
