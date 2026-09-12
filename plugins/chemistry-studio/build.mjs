@@ -13,7 +13,6 @@ import { fileURLToPath } from 'node:url';
 // whose leading slash makes every path built from it point at a directory that is not
 // there — and the failure reads as a missing file rather than as a bad path.
 const root = fileURLToPath(new URL('.', import.meta.url));
-const target = process.env.NODUS_PLUGIN_TARGET ?? `${process.platform}-${process.arch}`;
 
 // The repair prompts have to quote the rules the model was actually given, so the skill's
 // own instructions are compiled in rather than duplicated by hand.
@@ -30,5 +29,7 @@ export default [await buildPlugin({
   // Vendored with their own transitive dependencies, under vendor/node_modules so Node's
   // own resolution finds them from the package's vendor root.
   vendorPackages: ['@rdkit/rdkit', 'node-tikzjax'],
-  target,
+  // No target: nothing in this package varies by platform. RDKit is WebAssembly and the
+  // rest is JavaScript and data, which is why the four archives 2.0.0 published held
+  // byte-identical code. `buildPlugin` defaults to `any`, and the manifest declares it.
 })];
