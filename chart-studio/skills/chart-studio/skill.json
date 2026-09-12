@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "chart-studio",
+  "name": "Chart Studio",
+  "version": "1.0.0",
+  "author": "Drakonis96",
+  "description": "Create 14 types of deterministic SVG charts from synthetic or non-personal data, with source notes and reproducible calculations.",
+  "category": "Data and statistics",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [
+    "self:charts"
+  ],
+  "tools": []
+}
