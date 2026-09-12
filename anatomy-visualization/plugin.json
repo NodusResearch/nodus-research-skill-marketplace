@@ -4,7 +4,7 @@
   "name": "Anatomy Visualization",
   "version": "1.1.0",
   "author": "Drakonis96",
-  "description": "Development 1.1.0 atlas: deterministic SVG, packaged 3D reference meshes and curated English/Spanish semantic queries. Requires the companion Nodus integration; publication is gated.",
+  "description": "Deterministic SVG and verified 3D anatomy with curated English/Spanish terminology and semantic queries. Requires a Nodus build containing PR #765; unmodified released 5.3.2 is incompatible.",
   "license": "AGPL-3.0-only",
   "compatibility": {
     "capabilityApi": 1,

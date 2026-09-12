@@ -393,9 +393,9 @@ kept so a bad release is one step from being undone. A version already installed
 replaced by different bytes under the same number, and a package cannot be walked backwards
 to an older version. An update that widens permissions is staged and waits for the user.
 
-## Sandboxed v1 packaged data and model results (development integration)
+## Sandboxed v1 packaged data and model results
 
-The Anatomy Visualization 1.1.0 development integration adds optional capability-local
+The generic integration used by Anatomy Visualization 1.1.0 adds optional capability-local
 `assets` declarations with exact `id`, `path`, `mimeType`, `bytes` and `sha256` fields.
 Allowed paths are `assets/<slug>.json`, `.gltf` and `.glb`; MIME types must match. JSON is
 bounded to 2 MB, glTF to 16 MiB, GLB to 64 MiB, and declared assets to 128 MiB total. There
@@ -411,6 +411,6 @@ from its installed packaged model, preserves transforms/provenance, validates it
 in the saved conversation and renders it with the existing generic viewer. Unknown or
 ambiguous nodes and animated/skinned subsets fail. There is no native anatomy capability.
 
-This extension requires the companion Nodus integration; an unmodified 5.3.2 build does not
-support it. Keep dependent publication gated until upstream integration and release. The
-exported contracts are generated from that application worktree, not hand-edited here.
+This extension requires a Nodus build containing upstream PR #765; the previously released,
+unmodified 5.3.2 does not support it. The anatomy README pins a compatible source-build
+commit. Exported contracts are generated from Nodus, never hand-edited here.

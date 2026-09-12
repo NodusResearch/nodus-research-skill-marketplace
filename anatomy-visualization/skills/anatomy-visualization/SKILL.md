@@ -43,8 +43,8 @@ there is no native anatomy capability and no plugin viewer. Keep both enabled fo
   and IS-A assertions. HAS-PART is the inverse of PART-OF, not model inference.
 
 Version 1.1.0 requires the Nodus packaged-asset integration described in the plugin README,
-not just an unmodified 5.3.2 installation. Until that upstream change is integrated and
-available, this is a development package, not a supported catalog release.
+integrated by Nodus PR #765. Use the compatible source build documented in the README
+or a later release containing that change; an unmodified released 5.3.2 is incompatible.
 
 No secrets, endpoints, network or writable storage are configured. Permissions remain `{}`.
 The only new host operation reads this installed capability's declared, hash-verified JSON

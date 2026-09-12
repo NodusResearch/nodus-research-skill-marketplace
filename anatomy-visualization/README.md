@@ -115,16 +115,26 @@ schematic, not to scale and not validated for clinical use. No clinical validati
 claimed.
 
 
-## 1.1.0 atlas extension and compatibility gate
+## 1.1.0 atlas extension and compatible application build
 
-**Development integration, not yet a supported release.** The changes require the generic
-v1 packaged-asset/model-result extension in the companion Nodus worktree
-(`codex/plugin-readonly-model-assets`, based on Nodus 5.3.2). An unmodified 5.3.2 build
-cannot install these asset declarations. Publication must wait for the separate upstream
-PR, integration, a documented compatible build and maintainer review.
-The upstream change is [Nodus PR #765](https://github.com/Drakonis96/nodus/pull/765);
-no release is claimed by this document. The minimum version field identifies the tested base;
-it is not sufficient without this integration. No native `nodus:anatomy` is introduced.
+The generic packaged-asset/model-result support is integrated by
+[Nodus PR #765](https://github.com/Drakonis96/nodus/pull/765), merge commit
+`ed567f211c05cb1db5a498310f64e4899cb153b5`. Use a Nodus source build containing that commit or a later
+release that includes it. **The previously released, unmodified Nodus 5.3.2 is not
+compatible.** The minimum version field identifies the tested 5.3.2 source-build base;
+it does not replace this feature prerequisite. No native `nodus:anatomy` is introduced.
+
+To reproduce the compatible build in a separate Nodus checkout:
+
+```sh
+git checkout ed567f211c05cb1db5a498310f64e4899cb153b5
+npm ci
+npm run build
+npm run dev
+```
+
+Import this plugin directory from that application. These instructions do not claim a
+new signed application release or trigger a marketplace package-release workflow.
 
 The plugin keeps Capability API v1 and its Chromium sandbox. Both `self:anatomy` and the
 native generic `nodus:3d` are declared. Models go through Nodus's existing validation,

@@ -3,9 +3,9 @@
 Validated locally on macOS arm64 with Node 22 against a Nodus 5.3.2 development build
 containing the companion generic integration. The marketplace branch is
 `codex/anatomy-atlas-1.1`; the separate application branch is
-`codex/plugin-readonly-model-assets` (base `b63a173f`). Upstream runtime PR: https://github.com/Drakonis96/nodus/pull/765.
-Repository CI supplies the cross-platform results; no release is claimed. Publication remains gated on upstream integration,
-a documented compatible build and maintainer review.
+`codex/plugin-readonly-model-assets` (final tested base `c0ad8cee`). Upstream runtime PR: https://github.com/Drakonis96/nodus/pull/765.
+Upstream is merged as `ed567f211c05cb1db5a498310f64e4899cb153b5`. The README documents the compatible source build.
+No new application or package release is claimed.
 
 ## Implementation under review
 
@@ -64,11 +64,22 @@ Application checks passed:
   External requests are refused. Captures of kidneys, digestive anatomy, uterus, deltoid
   portions and a number-only SVG quiz were inspected.
 - `npm run typecheck` and `npm run build` (Cloudflare worker, renderer and Electron builds).
+- `npm run test:e2e` on the committed application build: the complete smoke test passed
+  using an isolated temporary profile.
 
 These are synthetic, offline fixtures and direct pipeline/UI checks, without paid model
 calls or real personal, patient or student records. They are not a claim of manual live
-Assistant/Nodi conversations, Linux/Windows execution or scientific/clinical validation.
-Those platform CI jobs and maintainer admission review remain publication prerequisites.
+Assistant/Nodi conversations or scientific/clinical validation. The PR checks additionally
+passed the marketplace suites and cross-repository integration on Linux, macOS and Windows.
+Application CI: https://github.com/Drakonis96/nodus/actions/runs/34700087786.
+Marketplace CI: https://github.com/NodusResearch/nodus-research-skill-marketplace/pull/26/checks.
+
+## Existing dependency audit finding
+
+`npm audit` reports the pre-existing pinned `adm-zip@0.5.16` tooling dependency
+(GHSA-xcpc-8h2w-3j85 and GHSA-vwc7-r8mq-g2x9). This dependency is unchanged from
+marketplace main and is not included in the offline anatomy runtime. The audit is
+not counted as a passing check; updating repository archive tooling is separate work.
 
 ## Diff and commit status
 
