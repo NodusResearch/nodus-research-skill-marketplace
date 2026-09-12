@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 2,
+  "id": "mathematics",
+  "provides": "math-studio:mathematics",
+  "version": "1.0.0",
+  "description": "Bounded mathematical computation and native formula presentation without host I/O.",
+  "runtime": {
+    "kind": "nodus-trusted-worker-v1",
+    "protocol": 1,
+    "entry": "worker.js"
+  },
+  "requires": [],
+  "tools": [
+    {
+      "id": "compute",
+      "description": "Calculate a restricted expression, solve real linear/quadratic equations or linear systems, or operate on matrices up to 6 by 6. Returns computed steps and an exact or approximate result.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "calculate",
+              "equation",
+              "system",
+              "matrix"
+            ]
+          },
+          "expression": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "angles": {
+            "type": "string",
+            "enum": [
+              "radians",
+              "degrees"
+            ]
+          },
+          "coefficients": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 3,
+            "items": {}
+          },
+          "matrix": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 6,
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 6,
+              "items": {}
+            }
+          },
+          "rhs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 6,
+            "items": {}
+          },
+          "other": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 6,
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 6,
+              "items": {}
+            }
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "add",
+              "subtract",
+              "multiply",
+              "transpose",
+              "determinant",
+              "inverse",
+              "rref"
+            ]
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "artifactTypes": [
+        "math-calculation"
+      ],
+      "timeoutMs": 10000,
+      "concurrency": 1,
+      "maxPerReply": 4,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    }
+  ],
+  "artifacts": [
+    {
+      "type": "math-calculation",
+      "version": 1,
+      "label": {
+        "en": "Math Studio",
+        "es": "Math Studio",
+        "fr": "Math Studio",
+        "de": "Math Studio",
+        "pt": "Math Studio",
+        "pt-BR": "Math Studio",
+        "it": "Math Studio",
+        "tr": "Math Studio"
+      },
+      "modelVisibility": "none"
+    }
+  ],
+  "settings": {
+    "fields": [],
+    "actions": []
+  },
+  "permissions": {},
+  "chat": {
+    "priority": 430,
+    "requestProtocols": [
+      {
+        "fence": "math-studio-request",
+        "toolId": "compute",
+        "maxPerReply": 4,
+        "answerMode": "replace-block"
+      }
+    ],
+    "legacyResults": [],
+    "hooks": {},
+    "pendingLabel": {
+      "en": "Calculating…",
+      "es": "Calculando…",
+      "fr": "Calcul en cours…",
+      "de": "Berechnung läuft…",
+      "pt": "A calcular…",
+      "pt-BR": "Calculando…",
+      "it": "Calcolo in corso…",
+      "tr": "Hesaplanıyor…"
+    }
+  }
+}

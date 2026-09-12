@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-12T16:08:43.484Z",
+  "updatedAt": "2026-09-12T18:19:23.855Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -118,6 +118,38 @@
             "target": "any",
             "asset": "legalize-2.0.0-any.nodus-plugin",
             "bytes": 57411
+          }
+        ]
+      }
+    },
+    {
+      "id": "math-studio",
+      "name": "Math Studio",
+      "description": {
+        "en": "Exact fractions, real equations and matrices with computed steps and native mathematical notation.",
+        "es": "Fracciones exactas, ecuaciones reales y matrices con pasos calculados y notación matemática nativa.",
+        "fr": "Fractions exactes, équations réelles et matrices avec étapes calculées et notation mathématique native.",
+        "de": "Exakte Brüche, reelle Gleichungen und Matrizen mit berechneten Schritten und nativer mathematischer Darstellung.",
+        "pt": "Frações exatas, equações reais e matrizes com etapas calculadas e notação matemática nativa.",
+        "pt-BR": "Frações exatas, equações reais e matrizes com etapas calculadas e notação matemática nativa.",
+        "it": "Frazioni esatte, equazioni reali e matrici con passaggi calcolati e notazione matematica nativa.",
+        "tr": "Hesaplanmış adımlar ve yerel matematik gösterimiyle kesin kesirler, reel denklemler ve matrisler."
+      },
+      "version": "1.0.0",
+      "path": "plugins/math-studio",
+      "replaces": [],
+      "targets": [
+        "any"
+      ],
+      "release": {
+        "tag": "math-studio-v1.0.0",
+        "manifest": "release-manifest.json",
+        "signature": "release-manifest.sig",
+        "assets": [
+          {
+            "target": "any",
+            "asset": "math-studio-1.0.0-any.nodus-plugin",
+            "bytes": 134217728
           }
         ]
       }
