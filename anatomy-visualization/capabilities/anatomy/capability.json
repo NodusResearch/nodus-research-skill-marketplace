@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "anatomy",
-  "version": "1.0.1",
-  "description": "Deterministic anatomy resolver and SVG renderer over pinned, attributed muscle, organ and brain-region drawings. No network, secrets or storage.",
+  "version": "1.1.0",
+  "description": "Deterministic, attributed SVG anatomy, packaged 3D reference meshes and curated semantic queries. English/Spanish terminology; no generated anatomy or runtime network access.",
   "runtime": "javascript-sandbox-v1",
   "entry": "runtime.js",
   "tools": [
     {
       "id": "render-anatomy",
-      "description": "Resolve and render up to 12 English anatomical structures into one attributed SVG figure. Input: { structures: string[], view?: 'auto'|'front'|'back'|'both', sex?: 'auto'|'male'|'female', labels?: boolean, legend?: boolean, title?: string }. Each structure receives its own colour and a numbered callout with a leader line. Unsupported, ambiguous or laterality-specific requests fail with an explicit message; anatomy is never invented.",
+      "description": "Render up to 12 curated English or Spanish terms as a deterministic attributed SVG. Optional language en/es, view auto/front/back/both, sex auto/male/female/both, labelMode names/numbers/none, legacy labels boolean, legend boolean, title. Unsupported or ambiguous anatomy and unsupported laterality fail explicitly.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -34,7 +34,8 @@
             "enum": [
               "auto",
               "male",
-              "female"
+              "female",
+              "both"
             ]
           },
           "labels": {
@@ -47,6 +48,21 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 80
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "en",
+              "es"
+            ]
+          },
+          "labelMode": {
+            "type": "string",
+            "enum": [
+              "names",
+              "numbers",
+              "none"
+            ]
           }
         },
         "required": [
@@ -60,7 +76,7 @@
     },
     {
       "id": "list-supported-structures",
-      "description": "List the anatomical structures this capability can render, with canonical English names, reviewed aliases (marking generalised ones), category, provider, available views, laterality, ontology identifiers and licence. Input: { category?: 'muscle'|'muscle-group'|'organ'|'vessel'|'tissue'|'brain-region'|'body-region', search?: string }.",
+      "description": "List verified geometry metadata. Default dimension svg preserves the existing catalog; dimension model returns paginated 3D coverage distinct from semantic terms. Includes aliases, language labels, ontology, laterality, source revisions, licences and limitations. Use query-anatomy for relationships.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -80,6 +96,29 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "en",
+              "es"
+            ]
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "svg",
+              "model"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -87,7 +126,157 @@
       "resultKinds": [
         "json"
       ]
+    },
+    {
+      "id": "render-anatomy-3d",
+      "description": "Resolve curated anatomical entities and partial system collections to packaged read-only reference models for native nodus:3d. English/Spanish aliases and explicit source laterality. sex both keeps source models separate. Refuses unavailable geometry; returns stable node identities, source locks, licences and limitations. No remote URLs or model-authored geometry.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "structures": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "sex": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "male",
+              "female",
+              "both"
+            ]
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "en",
+              "es"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "structures"
+        ],
+        "additionalProperties": false
+      },
+      "resultKinds": [
+        "model"
+      ]
+    },
+    {
+      "id": "query-anatomy",
+      "description": "Query only the pinned reference relationship graph. PART-OF and IS-A are source assertions; HAS-PART reverses PART-OF. Returns canonical namespace identifiers, edges and provenance; no inferred relations. Semantic coverage does not imply renderability.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "structure": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "part-of",
+              "has-part",
+              "is-a"
+            ]
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "en",
+              "es"
+            ]
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "structure",
+          "relation"
+        ],
+        "additionalProperties": false
+      },
+      "resultKinds": [
+        "json"
+      ]
     }
   ],
-  "permissions": {}
+  "permissions": {},
+  "assets": [
+    {
+      "id": "bodyparts3d-male",
+      "path": "assets/bodyparts3d-male.glb",
+      "mimeType": "model/gltf-binary",
+      "bytes": 22310888,
+      "sha256": "bf60cad90ce0f7c224f142133a4714b64bf8bb25dbfb1f2705b7ee55a74790ad"
+    },
+    {
+      "id": "hra-kidney-left",
+      "path": "assets/hra-kidney-left.glb",
+      "mimeType": "model/gltf-binary",
+      "bytes": 1335664,
+      "sha256": "9ac8df21088fa3750737fa524c838d7f3f472df1ee0d64e31d904c2f03affbdd"
+    },
+    {
+      "id": "hra-kidney-right",
+      "path": "assets/hra-kidney-right.glb",
+      "mimeType": "model/gltf-binary",
+      "bytes": 1361652,
+      "sha256": "22a0e31952ab74ecc0ba3b11825d841f5b85745683ec68a27e3d1b28cd826e71"
+    },
+    {
+      "id": "hra-uterus",
+      "path": "assets/hra-uterus.glb",
+      "mimeType": "model/gltf-binary",
+      "bytes": 913632,
+      "sha256": "c1da73b30aa31359617e51c02dcecb5da4ef2b22b62744a2a491c33fad4cdce7"
+    },
+    {
+      "id": "hra-ovary-left",
+      "path": "assets/hra-ovary-left.glb",
+      "mimeType": "model/gltf-binary",
+      "bytes": 12072,
+      "sha256": "7b9020821730773150a82e192ca4a387a7babf4e456c6dded6bcdf81e8cb0d3e"
+    },
+    {
+      "id": "hra-ovary-right",
+      "path": "assets/hra-ovary-right.glb",
+      "mimeType": "model/gltf-binary",
+      "bytes": 11836,
+      "sha256": "791289aa97b1a8feda516924788696ac84281b10e3c58ed0e2c2316a954cb73e"
+    },
+    {
+      "id": "atlas",
+      "path": "assets/atlas.json",
+      "mimeType": "application/json",
+      "bytes": 1300171,
+      "sha256": "7060fc8425007f2f650701fd69400d167028362dcd9fdaa6f03b610438e8ab10"
+    },
+    {
+      "id": "notices",
+      "path": "assets/notices.json",
+      "mimeType": "application/json",
+      "bytes": 31560,
+      "sha256": "ea9e1db695c5cfd56ed9f95d05f36dc65fdc48707781cd6bc3820e16e5b85667"
+    }
+  ]
 }

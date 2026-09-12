@@ -392,3 +392,25 @@ staging tree, validates what came out, and only then activates it. The previous 
 kept so a bad release is one step from being undone. A version already installed cannot be
 replaced by different bytes under the same number, and a package cannot be walked backwards
 to an older version. An update that widens permissions is staged and waits for the user.
+
+## Sandboxed v1 packaged data and model results (development integration)
+
+The Anatomy Visualization 1.1.0 development integration adds optional capability-local
+`assets` declarations with exact `id`, `path`, `mimeType`, `bytes` and `sha256` fields.
+Allowed paths are `assets/<slug>.json`, `.gltf` and `.glb`; MIME types must match. JSON is
+bounded to 2 MB, glTF to 16 MiB, GLB to 64 MiB, and declared assets to 128 MiB total. There
+are at most 64 per capability. Nodus rejects symlinks, traversal, executable paths, mismatched
+hashes and undeclared assets. GLB remains binary on disk; the existing string package transport
+uses base64 for binary asset files, never for embedding models in `runtime.js`.
+
+`host.assets.read(id)` returns only the capability's declared, verified JSON. The sandbox
+cannot read model bytes, enumerate files, write assets or supply paths. A tool may declare
+result kind `model` and return `{kind:"model", panels:[{assetId,nodeIds,title,alt}], metadata}`.
+The skill must declare `nodus:3d`. Native Nodus selects explicit `nodes[].extras.id` entries
+from its installed packaged model, preserves transforms/provenance, validates it, stores it
+in the saved conversation and renders it with the existing generic viewer. Unknown or
+ambiguous nodes and animated/skinned subsets fail. There is no native anatomy capability.
+
+This extension requires the companion Nodus integration; an unmodified 5.3.2 build does not
+support it. Keep dependent publication gated until upstream integration and release. The
+exported contracts are generated from that application worktree, not hand-edited here.

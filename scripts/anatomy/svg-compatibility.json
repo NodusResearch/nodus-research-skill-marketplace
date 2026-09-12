@@ -1,0 +1,47 @@
+[
+  {
+    "input": {
+      "structures": [
+        "liver"
+      ]
+    },
+    "sha256": "de7c165c112dc456674f0b7dba5b65ee2352160d3a1e4941c976fd8c25e49e2f"
+  },
+  {
+    "input": {
+      "structures": [
+        "deltoid",
+        "liver"
+      ]
+    },
+    "sha256": "3cdaa2371cbdb4144e6b0e9fa7a30e99af4466a0aec1733ec4fc69604885d901"
+  },
+  {
+    "input": {
+      "structures": [
+        "heart",
+        "kidneys"
+      ]
+    },
+    "sha256": "c925448a1c31e8f4b62167eabc3f703e12d0e8f958c40918d6d0ed45527cb811"
+  },
+  {
+    "input": {
+      "structures": [
+        "uterus",
+        "ovaries"
+      ]
+    },
+    "sha256": "7d40c758d5def78383d714b65c6bcd25ea3956701cfa0a4ae3fab0458047e79c"
+  },
+  {
+    "input": {
+      "structures": [
+        "cerebellum"
+      ],
+      "labels": false,
+      "legend": false
+    },
+    "sha256": "fd8d783539add976cd2c1853c8d664afa09f61dfd82dac3c0c6adf4529116e65"
+  }
+]

@@ -5,7 +5,8 @@
 //
 // Deterministic behaviour: the same request and the same embedded, pinned data always
 // produce the same figure. There is no randomness, clock or network use, and the
-// capability declares no permissions, so the sandbox has no host operations at all.
+// capability declares no network, secrets or storage permissions. The optional atlas
+// extension can only read its declared, immutable JSON asset through the generic host.
 //
 // IMPORTANT BUILD CONSTRAINT: Nodus embeds this source inside a template literal, so the
 // generated file must not contain backticks, dollar-brace interpolation or backslashes.
@@ -62,11 +63,11 @@
   };
   const textElement = (attributes, value) => tag('text', attributes, escapeText(value));
   const normalizedTerm = (value) => {
-    const lower = String(value).toLowerCase();
+    const lower = String(value).normalize('NFC').toLowerCase();
     let result = '';
     for (const character of lower) {
       const code = character.charCodeAt(0);
-      const isLetter = code >= 97 && code <= 122;
+      const isLetter = code >= 97 && code <= 122 || 'áéíóúüñ'.includes(character);
       const isDigit = code >= 48 && code <= 57;
       result += isLetter || isDigit ? character : ' ';
     }
@@ -159,7 +160,7 @@
     if (distinct.size > 1) {
       throw new Error('Ambiguous structure ' + JSON.stringify(original) + '. Candidates: ' + [...distinct.values()].map((match) => describeStructure(match.structure)).join(', ') + '. Use one candidate name.');
     }
-    return [...distinct.values()][0];
+    return { ...[...distinct.values()][0] };
   };
 
   const validateStructures = (input) => {
@@ -314,10 +315,11 @@
       panel.box = box;
       panel.width = box[2] * scale;
       panel.height = box[3] * scale;
+      if (panel.markers.some(marker => marker.name)) x += 160;
       panel.x = x;
       panel.y = top;
       panel.attributionLines = wrapText(panel.attribution, Math.max(18, Math.floor(panel.width / (ATTRIB_FS * 0.56))));
-      x += panel.width + GAP;
+      x += panel.width + GAP + (panel.markers.some(marker => marker.name) ? 160 : 0);
     }
     return x - GAP;
   };
@@ -332,7 +334,7 @@
     for (const marker of panel.markers) {
       const x = panel.x + (marker.position[0] - panel.box[0]) * panel.scale;
       const y = panel.y + (marker.position[1] - panel.box[1]) * panel.scale;
-      if (!groups.has(marker.number)) groups.set(marker.number, { number: marker.number, color: marker.color, anchors: [] });
+      if (!groups.has(marker.number)) groups.set(marker.number, { number: marker.number, color: marker.color, name: marker.name, anchors: [] });
       groups.get(marker.number).anchors.push([x, y]);
     }
     const sides = { left: [], right: [] };
@@ -374,6 +376,7 @@
           x: formatNumber(labelX), y: formatNumber(item.labelY + 4), 'font-size': 11.5,
           'text-anchor': 'middle', 'font-weight': 'bold', fill: item.color,
         }, String(item.number)));
+        if (item.name) parts.push(textElement({x: formatNumber(labelX + (sideName === 'left' ? -13 : 13)), y: formatNumber(item.labelY + 4), 'font-size':11, 'text-anchor':sideName === 'left' ? 'end' : 'start', fill:TEXT_COLOR}, item.name));
       }
     }
     return parts.join('');
@@ -386,6 +389,9 @@
   ];
 
   const buildListResult = (input) => {
+    if(input.dimension!==undefined&&!['svg','model'].includes(input.dimension))throw new Error('dimension must be svg or model.');
+    if(input.search!==undefined&&(!input.search.trim()||input.search.length>64))throw new Error('search must have 1 to 64 characters.');
+    if(input.category!==undefined&&!Object.keys(CATEGORY_LABELS).includes(input.category))throw new Error('Unsupported metadata category.');
     const category = input.category;
     const search = input.search === undefined ? '' : normalizedTerm(input.search);
     let structures = DATA.structures;
@@ -403,7 +409,13 @@
       structures: structures.map((structure) => ({
         id: structure.id,
         canonicalName: structure.canonicalName,
-        aliases: structure.aliases.map((alias) => ({ term: alias.term, generalised: Boolean(alias.generalised) })),
+        aliases: structure.aliases.map((alias) => ({ term: alias.term, language: alias.language, generalised: Boolean(alias.generalised) })),
+        labels: structure.labels,
+        displayName: input.language === 'es' ? (structure.labels.es || structure.canonicalName) : structure.canonicalName,
+        sourceAssets: structure.sourceAssets,
+        availability: structure.availability,
+        lateralitySupport: {svg:structure.laterality==='unpaired'?'not-applicable':'bilateral-only', model:structure.modelLaterality},
+        modelSources:structure.modelSources,
         category: structure.category,
         granularity: structure.granularity,
         provider: structure.provider,
@@ -432,16 +444,20 @@
     const resolved = validateStructures(input);
     const view = requestedView(input);
     const sexInput = input.sex === undefined ? 'auto' : input.sex;
-    if (!['auto', 'male', 'female'].includes(sexInput)) throw new Error('sex must be auto, male or female.');
-    const labels = input.labels !== false;
+    if (!['auto', 'male', 'female', 'both'].includes(sexInput)) throw new Error('sex must be auto, male or female.');
+    const labelMode = input.labelMode === undefined ? (input.labels === false ? 'none' : 'legacy') : input.labelMode;
+    if (input.labelMode !== undefined && input.labels !== undefined) throw new Error('Use labelMode or legacy labels, not both.');
+    const labels = labelMode !== 'none';
+    const language = input.language || 'en';
+    const localizedName = structure => language === 'es' ? (structure.labels.es || structure.canonicalName) : structure.canonicalName;
     const legend = input.legend !== false;
     if (legend && !labels) throw new Error('A legend needs numbered labels. Set labels to true or legend to false.');
-    const title = input.title === undefined ? 'Anatomy visualization' : String(input.title).trim();
+    const title = input.title === undefined ? (language === 'es' ? 'Visualización anatómica' : 'Anatomy visualization') : String(input.title).trim();
     if (!title || title.length > 80) throw new Error('title must be between 1 and 80 characters.');
     if (/[<>]/.test(title)) throw new Error('title must not contain markup characters.');
 
     const groups = validateView(resolved, view);
-    const sex = chooseSex(resolved, sexInput);
+    const sexes = sexInput === 'both' ? ['male', 'female'] : [chooseSex(resolved, sexInput)];
     const muscleViews = pickViews(groups.muscle, view);
 
     for (const match of resolved) {
@@ -450,6 +466,7 @@
     }
 
     const panels = [];
+    for (const sex of sexes) {
     for (const name of muscleViews) {
       const resource = DATA.resources.anatome[sex][name];
       if (!resource) continue;
@@ -459,23 +476,31 @@
     }
     if (groups.body.length) {
       const resource = DATA.resources.anatomogram.body[sex];
-      panels.push(renderOrganPanel(resource, groups.body, labels, 'Organs - front view (' + sex + ')'));
+      const entries = groups.body.filter(match => match.structure.sexes.includes(sex));
+      if (entries.length) panels.push(renderOrganPanel(resource, entries, labels, 'Organs - front view (' + sex + ')'));
+    }
     }
     if (groups.brain.length) {
       panels.push(renderOrganPanel(DATA.resources.anatomogram.brain, groups.brain, labels, 'Brain regions - schematic view'));
     }
 
+    for (const panel of panels) {
+      if (language === 'es') panel.title = panel.title.replace('Muscles', 'Músculos').replace('Organs', 'Órganos').replace('Brain regions - schematic view', 'Regiones cerebrales - vista esquemática').replace('front view', 'vista anterior').replace('back view', 'vista posterior').replace('(male)', '(masculino)').replace('(female)', '(femenino)');
+      for (const marker of panel.markers) marker.name = labelMode === 'names' ? localizedName(resolved[marker.number - 1].structure) : '';
+    }
     const panelsWidth = layoutPanels(panels);
     const legendEntries = resolved.map((match) => ({
       number: match.number,
       color: match.color,
-      label: match.number + '. ' + match.structure.canonicalName + ' - ' + (CATEGORY_LABELS[match.structure.category] || match.structure.category),
+      label: match.number + '. ' + localizedName(match.structure) + (language === 'es' ? '' : ' - ' + (CATEGORY_LABELS[match.structure.category] || match.structure.category)),
     }));
     const legendChars = legendEntries.reduce((maximum, entry) => Math.max(maximum, entry.label.length), 0);
     const legendHeadingChars = 'Numbers and leader lines identify the highlighted structures.'.length;
     const legendWidth = legend ? Math.max(190, legendChars * LEGEND_FS * 0.56 + 30, legendHeadingChars * 11.5 * 0.56 + 18) : 0;
 
     const notices = [];
+    if (sexInput === 'both') notices.push(language === 'es' ? 'Comparación de sexos: paneles independientes, sin un sistema de coordenadas compartido.' : 'Sex comparison: independent panels with separate coordinate systems.');
+    if (language === 'es' && resolved.some(match => !match.structure.labels.es)) notices.push('Las estructuras sin etiqueta española revisada conservan su nombre canónico inglés.');
     for (const match of resolved) {
       if (match.generalised) notices.push('Generalised: ' + JSON.stringify(match.matchedTerm) + ' is shown as ' + describeStructure(match.structure) + '.' + (match.structure.notes ? ' ' + match.structure.notes : ''));
       else if (match.structure.notes && ['muscle-group', 'body-region'].includes(match.structure.category)) notices.push(match.structure.canonicalName + ': ' + match.structure.notes);
@@ -499,7 +524,7 @@
 
     const body = [];
     body.push(tag('title', { id: 'av-title' }, escapeText(title)));
-    body.push(tag('desc', { id: 'av-desc' }, escapeText(title + '. Highlighted: ' + resolved.map((match) => match.structure.canonicalName).join(', ') + '. ' + standardLimitations().join(' '))));
+    body.push(tag('desc', { id: 'av-desc' }, escapeText(title + '. Highlighted: ' + (labelMode === 'numbers' && !legend ? resolved.map(match => 'Structure ' + match.number).join(', ') : resolved.map((match) => localizedName(match.structure)).join(', ')) + '. ' + standardLimitations().join(' '))));
     body.push(tag('rect', { x: 0, y: 0, width: round1(canvasWidth), height: round1(canvasHeight), fill: '#ffffff' }));
     body.push(textElement({ x: PAD, y: PAD + TITLE_FS - 2, 'font-size': TITLE_FS, 'font-weight': 'bold', fill: TEXT_COLOR }, title));
 
@@ -529,8 +554,8 @@
 
     if (legend) {
       const legendX = PAD + panelsWidth + GAP + 4;
-      body.push(textElement({ x: round1(legendX), y: round1(panels.length ? panels[0].y - 10 : PAD + TITLE_FS + 18), 'font-size': PANEL_TITLE_FS, 'font-weight': 'bold', fill: TEXT_COLOR }, 'Legend'));
-      body.push(textElement({ x: round1(legendX), y: round1((panels.length ? panels[0].y - 10 : PAD + TITLE_FS + 18) + 20), 'font-size': 11.5, fill: MUTED_COLOR }, 'Numbers and leader lines identify the highlighted structures.'));
+      body.push(textElement({ x: round1(legendX), y: round1(panels.length ? panels[0].y - 10 : PAD + TITLE_FS + 18), 'font-size': PANEL_TITLE_FS, 'font-weight': 'bold', fill: TEXT_COLOR }, language === 'es' ? 'Leyenda' : 'Legend'));
+      body.push(textElement({ x: round1(legendX), y: round1((panels.length ? panels[0].y - 10 : PAD + TITLE_FS + 18) + 20), 'font-size': 11.5, fill: MUTED_COLOR }, language === 'es' ? 'Los números y las líneas identifican las estructuras.' : 'Numbers and leader lines identify the highlighted structures.'));
       legendEntries.forEach((entry, index) => {
         const baseY = (panels.length ? panels[0].y - 10 : PAD + TITLE_FS + 18) + 46 + index * LEGEND_LH;
         body.push(tag('circle', { cx: round1(legendX + 6), cy: round1(baseY - 4), r: 6, fill: entry.color, stroke: HIGHLIGHT_STROKE, 'stroke-width': 1 }));
@@ -552,6 +577,17 @@
     return { kind: 'svg', svg, title };
   };
 
+  const validateInput = (input, allowed) => {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Input must be an object.');
+    for (const key of Object.keys(input)) if (!allowed.includes(key)) throw new Error('Unknown anatomy input field: ' + key);
+    for (const key of ['labels','legend']) if (input[key] !== undefined && typeof input[key] !== 'boolean') throw new Error(key + ' must be boolean.');
+    if (input.language !== undefined && !['en','es'].includes(input.language)) throw new Error('language must be en or es.');
+    if (input.labelMode !== undefined && !['names','numbers','none'].includes(input.labelMode)) throw new Error('Invalid labelMode.');
+    for (const key of ['title','search','category']) if (input[key] !== undefined && typeof input[key] !== 'string') throw new Error(key + ' must be a string.');
+  };
+  if (request.toolId === 'render-anatomy') validateInput(request.input || {}, ['structures','view','sex','labels','labelMode','legend','title','language']);
+  if (request.toolId === 'list-supported-structures') validateInput(request.input || {}, ['category','search','language','dimension','limit','offset']);
+  __ATLAS_RUNTIME__
   if (request.toolId === 'render-anatomy') return buildRenderResult(request.input || {});
   if (request.toolId === 'list-supported-structures') return buildListResult(request.input || {});
   throw new Error('Unknown anatomy capability tool ' + JSON.stringify(String(request.toolId)) + '.');

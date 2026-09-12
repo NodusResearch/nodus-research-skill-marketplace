@@ -12,6 +12,7 @@
 //
 // The build never modifies Nodus. It only reads pinned public resources and writes inside
 // this marketplace checkout.
+import { SPANISH } from './terminology.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -305,6 +306,7 @@ function extractAnatomogram(svgText, providerIds, label, options = {}) {
 }
 
 function buildStructureRecords(lock, muscleResources, bodyResources, brainResources) {
+  const atlas = JSON.parse(fs.readFileSync(path.join(capabilityDir,'assets/atlas.json'),'utf8'));
   const records = [];
   for (const entry of ALL_STRUCTURES) {
     const record = {
@@ -315,7 +317,10 @@ function buildStructureRecords(lock, muscleResources, bodyResources, brainResour
       provider: entry.provider,
       providerId: entry.providerId,
       laterality: entry.laterality,
-      aliases: entry.aliases,
+      aliases: [...entry.aliases.map(alias => ({...alias, language:'en'})), ...(SPANISH[entry.id] || []).slice(1).map(term => ({term,language:'es',generalised:false}))],
+      labels: {en:entry.canonicalName, ...(SPANISH[entry.id] ? {es:SPANISH[entry.id][0]} : {})},
+      sourceAssets: lock.sources.filter(s => s.id === (entry.provider === 'anatome' ? 'anatome-body-paths' : entry.panel === 'brain' ? 'anatomogram-brain' : 'anatomogram-male') || (entry.panel === 'body' && s.id === 'anatomogram-female')),
+      availability: {svg:true, model:false},
       notes: entry.notes || null,
       license: entry.provider === 'anatome'
         ? 'MIT (react-native-body-highlighter path data, Copyright (c) 2022 ELABBASSI Hicham); provider repository Apache-2.0 (Anatome by NextSolutions)'
@@ -356,6 +361,15 @@ function buildStructureRecords(lock, muscleResources, bodyResources, brainResour
       if (!inMale) record.notes = record.notes || 'Only the female anatomogram draws this structure.';
       if (!inFemale) record.notes = record.notes || 'Only the male anatomogram draws this structure.';
     }
+    const atlasId=entry.id==='uterus'?'HRA:uterus':entry.id==='ovaries'?'HRA:ovaries':record.fma?.id.replace(':','');
+    const model=atlas.entities.find(e=>e.id===atlasId);
+    record.modelSources=model?.geometry||[];
+    record.modelLaterality=atlas.laterality[atlasId]||null;
+    if(entry.id==='deltoid') {
+      record.modelSources=atlas.deltoidPortions.bilateral.flatMap(id=>atlas.entities.find(e=>e.id===id).geometry);
+      record.modelLaterality=atlas.deltoidPortions;
+    }
+    record.availability.model=record.modelSources.length>0;
     records.push(record);
   }
   return records;
@@ -438,7 +452,7 @@ async function main() {
   const structures = buildStructureRecords(lock, muscleResources, bodyResources, brainResources);
   const fmaCount = structures.filter((entry) => entry.fma).length;
   const payload = {
-    catalogVersion: 1,
+    catalogVersion: 2,
     views: {
       muscles: 'Muscle drawings support front and back views, male and female.',
       organs: 'The organ drawing is a schematic front view, male and female.',
@@ -462,7 +476,7 @@ async function main() {
   const encoded = compressed.toString('base64');
   const template = fs.readFileSync(templatePath, 'utf8');
   if (!template.includes('__ANATOMY_PAYLOAD__')) throw new Error('runtime.template.js lost its payload placeholder.');
-  let source = template.replace('__ANATOMY_PAYLOAD__', encoded);
+  let source = template.replace('__ANATOMY_PAYLOAD__', encoded).replace('__ATLAS_RUNTIME__', fs.readFileSync(path.join(here,'atlas.runtime.js'),'utf8'));
   source = `${source}\n`;
   verifyRuntimeSource(source);
   fs.mkdirSync(capabilityDir, { recursive: true });
