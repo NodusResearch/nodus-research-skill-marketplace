@@ -45,6 +45,25 @@ function* walk(dir) {
   }
 }
 
+/** Prebuilt native binaries inside a vendored dependency, which never travel.
+ *
+ *  `tar-fs` carries `bare-fs`, `bare-path` and `bare-url`, and each ships a prebuildify
+ *  tree with one binary per platform — Android, iOS, macOS, Linux and Windows, thirty-nine
+ *  files and five megabytes in Chemistry Studio 2.2.0. Node resolves none of them: those
+ *  modules are reached only under the `bare` runtime condition, and a capability worker
+ *  runs on Node.
+ *
+ *  They were worse than dead weight. Apple's notary service opens archives it finds inside
+ *  a submitted application and requires every Mach-O in them to carry a Developer ID
+ *  signature, which nothing here can give them — the archive is pinned by digest against a
+ *  manifest signed for it. The fifteen macOS and iOS `.bare` files rejected both Nodus
+ *  5.4.0 macOS builds, over code that never runs. */
+const isNativePrebuild = (relative) => relative.split('/').includes('prebuilds');
+
+// Mach-O thin and universal binaries, in both byte orders. 0xCAFEBABE is also a Java class
+// file, which is not native code and which the notary has no opinion about.
+const MACH_O_MAGIC = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]);
+
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
 export async function buildPlugin({ root, entries, extraFiles = {}, extraDirs = {}, vendorPackages = [], external = [], define = {}, target = 'any' }) {
@@ -106,7 +125,9 @@ export async function buildPlugin({ root, entries, extraFiles = {}, extraDirs = 
   for (const name of closure(vendorPackages, path.resolve(root, '..', '..', 'node_modules'))) {
     const base = path.join(path.resolve(root, '..', '..', 'node_modules'), name);
     for (const entry of walk(base)) {
-      files.set(path.posix.join('vendor/node_modules', name, path.relative(base, entry).split(path.sep).join('/')), fs.readFileSync(entry));
+      const relative = path.relative(base, entry).split(path.sep).join('/');
+      if (isNativePrebuild(relative)) continue;
+      files.set(path.posix.join('vendor/node_modules', name, relative), fs.readFileSync(entry));
     }
   }
 
@@ -123,6 +144,15 @@ export async function buildPlugin({ root, entries, extraFiles = {}, extraDirs = 
   for (const licence of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) {
     const file = path.join(root, licence);
     if (fs.existsSync(file)) files.set(licence, fs.readFileSync(file));
+  }
+
+  // Nothing published from here carries unsigned native code. `isNativePrebuild` drops the
+  // trees this has come up in; this refuses the archive outright for any other one, rather
+  // than letting a dependency nobody read by hand break the notarization of every
+  // application that bundles the package.
+  for (const [name, bytes] of files) {
+    if (name.toLowerCase().endsWith('.class') || bytes.length < 4) continue;
+    if (MACH_O_MAGIC.has(bytes.readUInt32BE(0))) throw new Error(`${name} is a Mach-O binary. A package carrying unsigned native code cannot be bundled into a notarized macOS application.`);
   }
 
   const zip = new AdmZip();

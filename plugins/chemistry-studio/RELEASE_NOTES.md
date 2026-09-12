@@ -1,37 +1,21 @@
-# Chemistry Studio 2.2.0
+# Chemistry Studio 2.2.1
 
-Multi-step syntheses, drawn one balanced step at a time — and a change in what the package
-does that is worth stating plainly.
+A packaging fix. Nothing the package draws, verifies or refuses has changed.
 
-## The coefficients are solved, not believed
+## Five megabytes of code that never ran
 
-Until now the model supplied the stoichiometric coefficients and Nodus checked them. Asking
-a model to balance ten equations in a row is asking it to do arithmetic under a deadline,
-which is where it fails; a route would die on a step whose chemistry was right and whose
-numbers were not.
+Chemistry Studio vendors `tar-fs`, which carries `bare-fs`, `bare-path` and `bare-url`.
+Each of those ships a prebuilt binary for every platform the Bare runtime supports —
+Android, iOS, macOS, Linux and Windows — thirty-nine files and a little over five
+megabytes. Node loads none of them: those modules are reached only under the `bare`
+runtime condition, and a capability worker runs on Node.
 
-Nodus now solves them, by exact rational elimination over the element, isotope and charge
-matrix. The model lists the species; the numbers are arithmetic and are treated as such.
-Coefficients that came with the request are kept when they already balance, so an equation
-someone wrote by hand comes back as they wrote it.
+They were worse than unused. Apple's notary service opens archives it finds inside a
+submitted application and requires every Mach-O binary in them to carry a Developer ID
+signature. The fifteen macOS and iOS binaries in 2.2.0 therefore rejected the Nodus 5.4.0
+macOS builds outright: an application refused over code that could never execute in it,
+and that nothing could sign, because the archive is pinned by digest against a manifest
+signed for it.
 
-Two refusals stay refusals, because they are questions and not arithmetic. Species that
-cannot balance at all name the element that is missing, so the next attempt is informed
-rather than another guess. Species that admit more than one balanced equation — ethanol
-burning to a mixture of CO and CO₂ — are refused rather than resolved: choosing one would
-be inventing which reaction was meant.
-
-## A route is a proposal, and says so
-
-Each step is drawn as its own balanced scheme, with the conditions and the electron pushing
-in a `notes` field shown beneath it, labelled as proposed and unchecked. That label is not
-decoration. **What this package verifies has not changed:** that every species is a real
-structure, and that every equation balances. Whether the route works, whether the conditions
-are right, whether the yields are usable — none of that is checked by anything here, and the
-answer says so.
-
-This is the first release where Chemistry Studio renders something it cannot verify. It is
-worth knowing which half is which.
-
-With thanks to Avi, who wrote the original of this and tested it against thirty synthesis
-problems before sending it.
+Prebuilt native binaries no longer travel inside a capability package, and a build that
+finds native code it did not expect now fails rather than publishing it.

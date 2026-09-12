@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "chemistry-studio",
   "name": "Chemistry Studio",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "author": "NodusResearch",
   "description": "Reference-backed molecular structures, projections, declared curved-arrow mechanisms and resonance, across the whole periodic table.",
   "category": "Physical sciences",
