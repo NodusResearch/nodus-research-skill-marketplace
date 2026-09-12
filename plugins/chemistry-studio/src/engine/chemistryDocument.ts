@@ -25,7 +25,7 @@ export interface ElectronFlowEvent {
 export interface ChemistryIntent {
   version: 2;
   kind: 'structure' | 'comparison' | 'mechanism' | 'reaction' | 'resonance';
-  depiction: 'skeletal' | 'fischer' | 'haworth' | 'newman';
+  depiction: 'skeletal' | 'wedge-dash' | 'lone-pairs' | 'fischer' | 'haworth' | 'newman';
   rule?: ChemistryRule;
   conformation?: NewmanConformation;
   approach?: 'endo' | 'exo';

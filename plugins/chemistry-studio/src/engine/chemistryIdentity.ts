@@ -9,8 +9,7 @@ export interface ChemistryIdentityDependencies {
 /** No model-generated structures, status, captions, URLs or projection arrays. */
 export function parseChemistryIntent(source: string, question: string): ChemistryIntent {
   if (source.length > 8000) throw new Error('Chemical intent is too large.');
-  if (/\b(sawhorse|nitration|nitraci[oó]n|chair|silla|dehydration|deshidrataci[oó]n)\b/i.test(question)
-    || /wedge[\s\S]{0,40}(?:dash|hash)|solid wedge[\s\S]{0,60}hashed/i.test(question)) {
+  if (/\b(sawhorse|nitration|nitraci[oó]n|chair|silla|dehydration|deshidrataci[oó]n)\b/i.test(question)) {
     throw new Error('The requested specialized depiction is outside the current verified scope; a skeletal drawing will not be substituted.');
   }
   let raw = JSON.parse(source);
@@ -27,7 +26,7 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
     if (!question.split(/\s|`/).includes(value)) throw new Error('Provide the complete reaction SMILES on its own line or in a code fence.');
     raw = { version: 2, kind: 'reaction', depiction: 'skeletal', species: reactionSmilesSpecies(value) };
   }
-  if (!raw || raw.version !== 2 || !['structure', 'comparison', 'mechanism', 'reaction', 'resonance'].includes(raw.kind) || !['skeletal', 'fischer', 'haworth', 'newman'].includes(raw.depiction)) {
+  if (!raw || raw.version !== 2 || !['structure', 'comparison', 'mechanism', 'reaction', 'resonance'].includes(raw.kind) || !['skeletal', 'wedge-dash', 'lone-pairs', 'fischer', 'haworth', 'newman'].includes(raw.depiction)) {
     throw new Error('Use a version-2 identity intent with a supported structure, projection, mechanism or resonance kind.');
   }
   // Declared curved arrows are checked by applying them, so they do not need a rule
@@ -37,8 +36,19 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
   // Lone pairs and explicit hydrogens used to be refused outright. Both are now part of
   // how an electron-flow mechanism is expressed — a proton cannot be moved if it is not
   // an addressable atom — so the refusal only stands where no arrows were declared.
-  if (!declaredFlow && /\b(lone pairs?|pares? libres?|explicit hydrogens?|hidrógenos? explícitos?)\b/i.test(question)) {
-    throw new Error('Lone pairs and explicit hydrogens are drawn as part of a declared electron-flow mechanism; add "electronFlow" describing the arrows, or ask for the structure without them.');
+  // Wedge-and-dash and Lewis drawings used to be refused: nothing derived them, so the
+  // only way to produce one was for the model to say where the hydrogens and the pairs
+  // went, which is exactly what this package does not let it do. Both are derived now —
+  // hydrogens expanded from the canonical graph, pairs counted from valence electrons,
+  // formal charge and bond order — so what has to be guarded is the opposite case: that a
+  // request for one is not quietly answered with a drawing that leaves them out.
+  const wantsExplicitHydrogens = /wedge[\s\S]{0,40}(?:dash|hash)|solid wedge[\s\S]{0,60}hashed|\b(explicit hydrogens?|hidrógenos? explícitos?)\b/i.test(question);
+  if (wantsExplicitHydrogens && raw.depiction !== 'wedge-dash') {
+    throw new Error('The requested wedge-and-dash or explicit-hydrogen depiction must not be replaced with a skeletal drawing.');
+  }
+  const wantsLonePairs = /\b(lone pairs?|pares? libres?|nonbonding pairs?|lewis structures?|estructuras? de lewis)\b/i.test(question);
+  if (!declaredFlow && wantsLonePairs && raw.depiction !== 'lone-pairs') {
+    throw new Error('The requested lone-pair depiction must not be replaced with a drawing that omits the nonbonding pairs.');
   }
   if (/\bfischer\b/i.test(question) && raw.depiction !== 'fischer' || /\bhaworth\b/i.test(question) && raw.depiction !== 'haworth' || /\bnewman\b/i.test(question) && raw.depiction !== 'newman') throw new Error('The requested specialized depiction must not be replaced with another projection.');
   if (/\b(mechanism|mecanismo|resonance|resonancia)\b/i.test(question) && !['mechanism', 'resonance'].includes(raw.kind)) throw new Error('The requested mechanism must not be replaced with an isolated structure.');

@@ -1,25 +1,32 @@
-# Chemistry Studio 2.0.1
+# Chemistry Studio 2.1.0
 
-A packaging fix. Nothing about what the package draws, refuses to draw, reaches or spends
-has changed; the capability, its permissions and its behaviour are identical to 2.0.0.
+Two depictions that were previously refused, and the refusals were right at the time: there
+was no way to produce either without the model telling Nodus where the hydrogens and the
+electron pairs went, which is exactly what this package does not let it do. Both are derived
+now, so both are supported.
 
-## What is different
+## Wedge-and-dash
 
-- **The licence notices are complete on Linux.** 2.0.0 shipped `combined-stream`,
-  `delayed-stream` and `form-data` there with only "Licence: MIT" and none of the text MIT
-  requires be distributed with them. Those three name their licence file `License`, and the
-  generator looked for a list of exact spellings: macOS matched it through a
-  case-insensitive filesystem and Linux did not. The notices are now read from the
-  directory, so the same package carries the same notices everywhere.
+Ask for wedge-and-dash, tetrahedral perspective or explicit hydrogens and every hydrogen is
+expanded from the verified graph, with stereocentres labelled R/S and stereogenic double
+bonds E/Z. A molecule with one tetrahedral centre and no stereocentre — chloroform,
+dichloromethane — carries no wedge in its graph at all, so nothing would have been drawn;
+Nodus now chooses one solid wedge and one hashed bond, perpendicular in the projection, so
+the shape reads as tetrahedral instead of flat.
 
-- **One archive instead of four.** 2.0.0 declared four targets and published byte-identical
-  code in all of them — 21 MB, four times, for one package of JavaScript, WebAssembly and
-  data that does not vary by platform. It declares `any` now. Nodus installs the same
-  archive on every platform, and an install or an update from 2.0.0 needs no special
-  handling: the store resolves the target the catalog offers.
+## Lewis structures
 
-Both were only visible because the archives had three different digests for identical code.
-The third cause of that has also been fixed, in the build rather than here: zip timestamps
-are stored in DOS format and were encoded in the build machine's timezone, so an archive was
-reproducible only on UTC. A published package can now be rebuilt from its commit, on any
-machine, and compared against the digest its release manifest is signed over.
+Ask for lone pairs, nonbonding pairs or a Lewis structure and each pair is counted from
+valence electrons, formal charge and the bonds already drawn — never supplied by the model.
+Stereochemistry is not required for one: a Lewis structure is about where the electrons are,
+not which isomer it is.
+
+Neither depiction has a ChemFig export, and neither asserts anything about reactivity.
+
+## Also
+
+Carbon dioxide was refused as a cumulated-diene stereochemistry case. Two double bonds on
+one carbon are axial chirality only when a double-bonded neighbour carries the chain onwards,
+as in an allene; a terminal system has no stereochemistry to get wrong.
+
+With thanks to Avi, who wrote the original of all of this.

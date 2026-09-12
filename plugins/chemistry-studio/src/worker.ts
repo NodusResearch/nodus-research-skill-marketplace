@@ -168,7 +168,7 @@ function looksLikeIntent(content: string): boolean {
   try {
     const candidate = JSON.parse(content);
     return candidate?.version === 2
-      && ['skeletal', 'fischer', 'haworth', 'newman'].includes(candidate.depiction)
+      && ['skeletal', 'wedge-dash', 'lone-pairs', 'fischer', 'haworth', 'newman'].includes(candidate.depiction)
       && ['structure', 'comparison', 'mechanism', 'reaction', 'resonance'].includes(candidate.kind)
       && (Array.isArray(candidate.species) || candidate.kind === 'reaction' && typeof candidate.reactionSmiles === 'string');
   } catch { return false; }

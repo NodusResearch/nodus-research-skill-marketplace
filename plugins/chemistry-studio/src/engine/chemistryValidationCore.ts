@@ -2,7 +2,7 @@ import { Molecule } from 'openchemlib';
 import type { RDKitLoader, RDKitModule, JSMol } from '@rdkit/rdkit';
 import { requireVendored } from './vendor';
 import type { ChemistryGraph, ChemistryPartialReason, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
-import { sceneFromMolfile, sceneMolfile, renderScene, exportSceneChemfig, verifySceneChemfig } from './chemistryScene';
+import { sceneFromMolfile, sceneMolfile, renderScene, exportSceneChemfig, verifySceneChemfig, forceTetrahedralPerspective, assignLonePairs } from './chemistryScene';
 import { deriveProjection } from './chemistryProjections';
 import { deriveMechanism } from './chemistryMechanisms';
 import { deriveNewman, exportNewman, verifyNewman, renderNewman, newmanEvidence } from './chemistryNewman';
@@ -122,16 +122,26 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
     if (ocl.getAllAtoms() > 600) throw new Error('Structures above 600 atoms cannot be drawn in the available time budget.');
     if (ocl.getAllAtoms() > 160) partialReasons.add('structure-above-validated-size');
     ocl.ensureHelperArrays(Molecule.cHelperCIP);
+    const degree = Array.from({ length: ocl.getAllAtoms() }, () => 0);
+    for (let b = 0; b < ocl.getAllBonds(); b++) { degree[ocl.getBondAtom(0, b)]++; degree[ocl.getBondAtom(1, b)]++; }
     for (let atom = 0; atom < ocl.getAllAtoms(); atom++) {
-      let doubleBonds = 0;
+      if (ocl.getAtomLabel(atom) !== 'C') continue;
+      const doubleNeighbours: number[] = [];
       for (let b = 0; b < ocl.getAllBonds(); b++) {
-        if (ocl.getBondOrder(b) === 2 && (ocl.getBondAtom(0, b) === atom || ocl.getBondAtom(1, b) === atom)) doubleBonds++;
+        if (ocl.getBondOrder(b) !== 2) continue;
+        if (ocl.getBondAtom(0, b) === atom) doubleNeighbours.push(ocl.getBondAtom(1, b));
+        else if (ocl.getBondAtom(1, b) === atom) doubleNeighbours.push(ocl.getBondAtom(0, b));
       }
-      if (doubleBonds > 1) throw new Error('Cumulated double bonds are outside the validated stereochemical scope.');
+      // Two double bonds on one carbon is axial chirality only when a double-bonded
+      // neighbour carries the chain onwards, as in an allene or a butatriene. Counting
+      // the bonds alone refused carbon dioxide, which has no stereochemistry to get wrong.
+      if (doubleNeighbours.length > 1 && doubleNeighbours.some(neighbour => degree[neighbour] > 1 || ocl.getImplicitHydrogens(neighbour) > 0)) {
+        throw new Error('Cumulated double bonds are outside the validated stereochemical scope.');
+      }
     }
     const rings = ocl.getRingSet();
     for (let b = 0; b < ocl.getAllBonds(); b++) {
-      if (ocl.getBondParity(b) === Molecule.cBondParityUnknown && stereogenicRingBond(ocl, b, rings)) throw new Error('Bond stereochemistry is unspecified; provide the required E/Z isomer.');
+      if (request.depiction !== 'lone-pairs' && ocl.getBondParity(b) === Molecule.cBondParityUnknown && stereogenicRingBond(ocl, b, rings)) throw new Error('Bond stereochemistry is unspecified; provide the required E/Z isomer.');
       if (ocl.isBINAPChiralityBond(b)) throw new Error('Axial stereochemistry is outside the validated scope.');
     }
     // Two independent layout engines. A drawing is only usable if its coordinates
@@ -198,8 +208,33 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
     // contains, so a metal does not arrive in RDKit's default CPK colour.
     const atomColourPalette = Object.fromEntries([0, ...new Set(atoms.map((a: { atomicNumber: number }) => a.atomicNumber))].map(z => [z, [0, 0, 0]]));
     // CIP remains in the graph metadata; drawing it on every crowded centre can
-    // obscure the bonds which actually carry stereochemistry.
-    const svg = newman ? renderNewman(newman) : drawing.convention ? renderScene(drawing) : scene.get_svg_with_highlights(JSON.stringify({ ...size, atomColourPalette, prepareMolsBeforeDrawing: false, addStereoAnnotation: false }));
+    // obscure the bonds which actually carry stereochemistry. The two explicit-hydrogen
+    // depictions below are opt-ins: they expand the drawing only, and the graph recorded
+    // above stays the heavy-atom reference everything else is checked against.
+    const explicitHydrogenScene = (): string => {
+      // Expanded from the conformer-free canonical graph: add_hs() leaves the new atoms at
+      // the origin when the molecule it is given already carries a conformer.
+      const withH = parse(canonicalSmiles).add_hs();
+      if (request.depiction === 'lone-pairs') {
+        // Every hydrogen drawn, and the nonbonding pairs counted from valence electrons,
+        // formal charge and bond order. The model never supplies them.
+        const lone = sceneFromMolfile(withH);
+        assignLonePairs(lone);
+        return renderScene(lone);
+      }
+      // A stereocentre wedges itself under RDKit's own stereo annotation. A molecule with
+      // one tetrahedral centre and no stereocentre — chloroform, dichloromethane — does
+      // not, so the scene picks one solid wedge and one hashed bond to show its shape.
+      if (stereo.CIP_atoms.length === 0) {
+        const perspective = sceneFromMolfile(withH);
+        if (forceTetrahedralPerspective(perspective)) return renderScene(perspective);
+      }
+      return parse(withH).get_svg_with_highlights(JSON.stringify({ ...size, atomColourPalette, prepareMolsBeforeDrawing: false, addStereoAnnotation: true }));
+    };
+    const svg = newman ? renderNewman(newman)
+      : drawing.convention ? renderScene(drawing)
+        : request.depiction === 'wedge-dash' || request.depiction === 'lone-pairs' ? explicitHydrogenScene()
+          : scene.get_svg_with_highlights(JSON.stringify({ ...size, atomColourPalette, prepareMolsBeforeDrawing: false, addStereoAnnotation: false }));
     if (!svg.includes('<svg') || /NaN|Infinity/.test(svg)) throw new Error('Invalid SVG geometry.');
     const result: ChemistryValidationResult = { graph, svg, engineVersion: kit.version(), ...(partialReasons.size ? { partialReasons: [...partialReasons] } : {}), ...(reconciledStereochemistry ? { reconciledStereochemistry } : {}) };
     if (request.reaction) {

@@ -1,7 +1,7 @@
 import { Molecule } from 'openchemlib';
 import type { RDKitModule } from '@rdkit/rdkit';
 
-export interface SceneAtom { id: string; element: string; charge: number; isotope: number; label: string; x: number; y: number; depth?: number }
+export interface SceneAtom { id: string; element: string; charge: number; isotope: number; label: string; x: number; y: number; depth?: number; lonePairs?: number }
 export interface SceneBond { id: string; a: number; b: number; order: number; stereo: number; plain?: boolean }
 export interface ChemicalScene { atoms: SceneAtom[]; bonds: SceneBond[]; convention?: 'fischer' | 'haworth'; description?: string; spatial?: Array<{ x: number; y: number; z: number }> }
 
@@ -38,6 +38,42 @@ export function sceneMolfile(scene: ChemicalScene): string {
   return `\n     Nodus          ${is3D ? '3D' : '2D'}\n\n${field(atoms.length)}${field(bonds.length)}  0  0  0  0  0  0  0  0999 V2000\n${[...atoms, ...bonds, ...props, 'M  END', ''].join('\n')}`;
 }
 
+/** Force a didactic tetrahedral perspective on a molecule with exactly one
+ * four-coordinate single-bonded centre. Non-stereocentres such as chloroform carry
+ * no wedge in the graph, so the scene must choose one solid wedge and one hashed
+ * bond itself. The pair is chosen perpendicular in the projection so the four
+ * directions stay distinct. Molecules with several such centres are left to the
+ * ordinary explicit-hydrogen drawing, which is less cluttered. */
+export function forceTetrahedralPerspective(scene: ChemicalScene): boolean {
+  const incident: number[][] = scene.atoms.map(() => []);
+  scene.bonds.forEach((bond, index) => { incident[bond.a].push(index); incident[bond.b].push(index); });
+  const centres = scene.atoms.flatMap((atom, index) => ['C', 'N', 'Si'].includes(atom.element)
+    && incident[index].length === 4 && incident[index].every(bond => scene.bonds[bond].order === 1) ? [index] : []);
+  if (centres.length !== 1) return false;
+  const centre = centres[0], bonds = incident[centre];
+  const angle = (bond: number): number => {
+    const other = scene.bonds[bond].a === centre ? scene.bonds[bond].b : scene.bonds[bond].a;
+    return Math.atan2(scene.atoms[other].y - scene.atoms[centre].y, scene.atoms[other].x - scene.atoms[centre].x);
+  };
+  const first = bonds[0];
+  let hashed = bonds[1], closest = Infinity;
+  for (const bond of bonds.slice(1)) {
+    const separation = Math.abs(angle(bond) - angle(first)) % Math.PI;
+    const delta = Math.abs(separation - Math.PI / 2);
+    if (delta < closest) { closest = delta; hashed = bond; }
+  }
+  // The renderer draws the narrow end at the bond's first atom, so the centre
+  // must be that endpoint or the wedge/hash would point away from it.
+  for (const bond of [first, hashed]) if (scene.bonds[bond].b === centre) {
+    const other = scene.bonds[bond].a;
+    scene.bonds[bond].a = centre;
+    scene.bonds[bond].b = other;
+  }
+  scene.bonds[first].stereo = 1;
+  scene.bonds[hashed].stereo = 6;
+  return true;
+}
+
 export function canonicalScene(scene: ChemicalScene, kit: RDKitModule): string {
   const m = kit.get_mol(sceneMolfile(scene), JSON.stringify({ removeHs: true }));
   if (!m) throw new Error('The scene encodes an invalid chemical graph.');
@@ -46,6 +82,19 @@ export function canonicalScene(scene: ChemicalScene, kit: RDKitModule): string {
 
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const glyph = (s: string) => s.replace(/_([2-9])/g, (_, n) => '₀₁₂₃₄₅₆₇₈₉'[Number(n)]).replace(/\^\{([^}]+)\}/g, (_, text: string) => [...text].map(c => '0123456789+-'.includes(c) ? '⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻'['0123456789+-'.indexOf(c)] : c).join(''));
+
+const VALENCE_ELECTRONS: Record<string, number> = { H: 1, B: 3, C: 4, N: 5, O: 6, F: 7, Si: 4, P: 5, S: 6, Cl: 7, Br: 7, I: 7 };
+
+/** Nonbonding pairs are derived from valence electrons, formal charge and the sum
+ * of bond orders. The language model never supplies them. */
+export function assignLonePairs(scene: ChemicalScene): void {
+  const bondOrder = scene.atoms.map(() => 0);
+  scene.bonds.forEach(bond => { bondOrder[bond.a] += bond.order; bondOrder[bond.b] += bond.order; });
+  scene.atoms.forEach((atom, index) => {
+    const electrons = (VALENCE_ELECTRONS[atom.element] ?? 0) - atom.charge - bondOrder[index];
+    atom.lonePairs = Math.max(0, Math.min(4, Math.floor(electrons / 2)));
+  });
+}
 
 export function renderScene(scene: ChemicalScene): string {
   const xs = scene.atoms.map(a => a.x), ys = scene.atoms.map(a => a.y);
@@ -62,7 +111,35 @@ export function renderScene(scene: ChemicalScene): string {
     return Array.from({ length: b.order }, (_, i) => { const offset = (i - (b.order - 1) / 2) * 4; return `<path data-bond="${b.id}" d="M${a.x + px * offset},${a.y + py * offset} L${c.x + px * offset},${c.y + py * offset}"/>`; }).join('');
   }).join('');
   const labels = scene.atoms.map((a, i) => { const p = point(i), label = glyph(a.label); return `<g data-atom="${a.id}"><rect x="${p.x - Math.max(9, label.length * 6)}" y="${p.y - 13}" width="${Math.max(18, label.length * 12)}" height="26" fill="white" stroke="none"/><text x="${p.x}" y="${p.y + 7}" text-anchor="middle" fill="black" stroke="none" font-family="Arial" font-size="21">${escape(label)}</text></g>`; }).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${escape(scene.description ?? 'Chemical scene')}</title><rect width="100%" height="100%" fill="white"/><g stroke="black" stroke-width="1.8" fill="none">${paths}${labels}</g></svg>`;
+  // Lone pairs occupy the directions left over after bonding: they cluster in the
+  // widest angular gap between bonds rather than spreading between two bonds.
+  const lonePairs = scene.atoms.map((atom, i) => {
+    if (!atom.lonePairs) return '';
+    const count = atom.lonePairs;
+    const p = point(i), occupied: number[] = [];
+    scene.bonds.forEach(bond => {
+      const other = bond.a === i ? bond.b : bond.b === i ? bond.a : -1;
+      if (other >= 0) { const q = point(other); occupied.push(Math.atan2(q.y - p.y, q.x - p.x)); }
+    });
+    let angles: number[];
+    if (!occupied.length) angles = Array.from({ length: count }, (_, k) => k * 2 * Math.PI / count);
+    else {
+      const sorted = [...occupied].sort((a, b) => a - b);
+      let start = sorted[0], widest = 0;
+      for (let k = 0; k < sorted.length; k++) {
+        const end = sorted[(k + 1) % sorted.length] + (k + 1 === sorted.length ? 2 * Math.PI : 0);
+        if (end - sorted[k] > widest) { widest = end - sorted[k]; start = sorted[k]; }
+      }
+      const bisector = start + widest / 2, spread = Math.min(Math.PI / 3, widest / (count + 1));
+      angles = Array.from({ length: count }, (_, k) => bisector + (k - (count - 1) / 2) * spread);
+    }
+    return angles.map(angle => {
+      const cx = p.x + Math.cos(angle) * 26, cy = p.y + Math.sin(angle) * 26;
+      const tx = -Math.sin(angle) * 4.5, ty = Math.cos(angle) * 4.5;
+      return `<circle cx="${(cx + tx).toFixed(1)}" cy="${(cy + ty).toFixed(1)}" r="2.6" fill="black" stroke="none"/><circle cx="${(cx - tx).toFixed(1)}" cy="${(cy - ty).toFixed(1)}" r="2.6" fill="black" stroke="none"/>`;
+    }).join('');
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${escape(scene.description ?? 'Chemical scene')}</title><rect width="100%" height="100%" fill="white"/><g stroke="black" stroke-width="1.8" fill="none">${paths}${labels}${lonePairs}</g></svg>`;
 }
 
 /** A deliberately narrow, reversible ChemFig dialect, not arbitrary TeX. */
