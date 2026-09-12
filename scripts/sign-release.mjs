@@ -6,7 +6,8 @@
 // published target.
 import fs from 'node:fs';
 import path from 'node:path';
-import { createPrivateKey, sign as signBytes } from 'node:crypto';
+import { sign as signBytes } from 'node:crypto';
+import { readSigningKey } from './lib/signing-key.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const id = process.argv[2];
@@ -14,6 +15,7 @@ if (!id || !/^[a-z0-9-]+$/.test(id)) throw new Error('Pass the package id to sig
 
 const pem = process.env.CAPABILITY_SIGNING_KEY;
 if (!pem) throw new Error('CAPABILITY_SIGNING_KEY is not set. Signing runs only in the protected environment.');
+
 
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'plugins', id, 'plugin.json'), 'utf8'));
 const built = JSON.parse(fs.readFileSync(path.join(root, 'build/index.json'), 'utf8')).filter((entry) => entry.manifest.id === id);
@@ -32,8 +34,7 @@ const release = {
 
 // The signature covers these exact bytes, so the file written here is the file published.
 const bytes = Buffer.from(`${JSON.stringify(release, null, 2)}\n`);
-const key = createPrivateKey(pem);
-if (key.asymmetricKeyType !== 'ed25519') throw new Error('The signing key is not Ed25519.');
+const key = readSigningKey(pem);
 
 const signature = signBytes(null, bytes, key);
 fs.writeFileSync(path.join(root, 'build/release-manifest.json'), bytes);
