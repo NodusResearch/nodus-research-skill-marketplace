@@ -38,14 +38,19 @@ jobs:
           VERSION=$(node -p "require('./plugins/$PLUGIN/plugin.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$PLUGIN-v$VERSION" >> "$GITHUB_OUTPUT"
-          # Each declared target, with the runner that can build it.
+          # Each declared target, with the runner that can build it. `macos-15-intel` is
+          # the last x86_64 image GitHub offers — the same one the application's own
+          # release workflow uses for its Intel slice — and it is available until August
+          # 2027. A label that no longer exists does not fail: the job sits in `queued`
+          # until somebody cancels it, which is how a release waited three quarters of an
+          # hour on a runner that was never coming.
           node -e '
             const targets = require("./plugins/" + process.argv[1] + "/plugin.json").compatibility.targets;
             const runners = {
               "any": "ubuntu-latest",
               "linux-x64": "ubuntu-latest",
               "darwin-arm64": "macos-14",
-              "darwin-x64": "macos-13",
+              "darwin-x64": "macos-15-intel",
               "win32-x64": "windows-latest",
             };
             const include = targets.map(target => {
