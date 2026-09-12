@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "historical-maps",
+  "name": "Historical Maps",
+  "version": "1.0.0",
+  "author": "Drakonis96",
+  "description": "Map dated, source-backed historical geometry and locations without inventing historical borders.",
+  "category": "Design and visual communication",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [
+    "self:cartography"
+  ],
+  "tools": []
+}

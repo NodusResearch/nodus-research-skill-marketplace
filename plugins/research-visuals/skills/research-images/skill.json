@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "research-images",
+  "name": "Open Image Finder",
+  "version": "1.0.0",
+  "author": "Drakonis96",
+  "description": "Find openly reusable images in Wikimedia Commons by default, with optional museum sources and bounded visual relevance review.",
+  "category": "Design and visual communication",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [
+    "self:images"
+  ],
+  "tools": []
+}

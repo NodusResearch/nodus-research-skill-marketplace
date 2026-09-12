@@ -1,0 +1,827 @@
+{
+  "schemaVersion": 2,
+  "id": "cartography",
+  "provides": "research-visuals:cartography",
+  "version": "1.0.0",
+  "description": "Research maps through the native cartographic renderer, with dated-source enforcement for historical maps.",
+  "runtime": {
+    "kind": "nodus-trusted-worker-v1",
+    "protocol": 1,
+    "entry": "worker.js"
+  },
+  "requires": [
+    {
+      "id": "nodus:maps",
+      "minVersion": "1.0.0",
+      "maxVersionExclusive": "2.0.0"
+    }
+  ],
+  "tools": [
+    {
+      "id": "render-map",
+      "description": "Render supplied or approved-provider geography with attribution.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "alt": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number",
+            "minimum": 640,
+            "maximum": 1600
+          },
+          "height": {
+            "type": "number",
+            "minimum": 480,
+            "maximum": 1400
+          },
+          "projection": {
+            "type": "string",
+            "enum": [
+              "equal-earth",
+              "mercator",
+              "equirectangular"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "full"
+            ]
+          },
+          "centralMeridian": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "bounds": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "layers": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "enum": [
+                        "natural-earth",
+                        "geoboundaries"
+                      ]
+                    },
+                    "country": {
+                      "type": "string"
+                    },
+                    "level": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    },
+                    "period": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "provider"
+                  ],
+                  "additionalProperties": false
+                },
+                "datasetId": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "geojson": {
+                      "type": "object"
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "attribution": {
+                          "type": "string"
+                        },
+                        "license": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        },
+                        "period": {
+                          "type": "object",
+                          "properties": {
+                            "from": {
+                              "type": "string"
+                            },
+                            "to": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "from",
+                            "to"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "attribution",
+                        "license"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "geojson",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                },
+                "select": {
+                  "type": "object",
+                  "properties": {
+                    "property": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {},
+                      "minItems": 1,
+                      "maxItems": 5000
+                    }
+                  },
+                  "required": [
+                    "property",
+                    "values"
+                  ],
+                  "additionalProperties": false
+                },
+                "fill": {
+                  "type": "string"
+                },
+                "colors": {
+                  "type": "object",
+                  "properties": {
+                    "property": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": {},
+                          "color": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "color"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 1000
+                    }
+                  },
+                  "required": [
+                    "property",
+                    "values"
+                  ],
+                  "additionalProperties": false
+                },
+                "labelProperty": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "markers": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "properties": {
+                "coordinates": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "label": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "radius": {
+                  "type": "number",
+                  "minimum": 2,
+                  "maximum": 16
+                }
+              },
+              "required": [
+                "coordinates"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "routes": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "properties": {
+                "coordinates": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "minItems": 2,
+                  "maxItems": 100
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "straight",
+                    "curved",
+                    "great-circle"
+                  ]
+                },
+                "arrow": {
+                  "type": "boolean"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 12
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "coordinates"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "overlaySource": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "attribution": {
+                "type": "string"
+              },
+              "license": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "period": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "label",
+              "attribution",
+              "license"
+            ],
+            "additionalProperties": false
+          },
+          "legend": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "color"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "title",
+          "alt"
+        ],
+        "additionalProperties": false
+      },
+      "artifactTypes": [
+        "research-map"
+      ],
+      "timeoutMs": 30000,
+      "concurrency": 1,
+      "maxPerReply": 4,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
+      "id": "render-historical-map",
+      "description": "Render only supplied dated historical geography. Each source must cover the requested period; no modern boundary substitution.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "alt": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number",
+            "minimum": 640,
+            "maximum": 1600
+          },
+          "height": {
+            "type": "number",
+            "minimum": 480,
+            "maximum": 1400
+          },
+          "projection": {
+            "type": "string",
+            "enum": [
+              "equal-earth",
+              "mercator",
+              "equirectangular"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "full"
+            ]
+          },
+          "centralMeridian": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "bounds": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "layers": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "enum": [
+                        "natural-earth",
+                        "geoboundaries"
+                      ]
+                    },
+                    "country": {
+                      "type": "string"
+                    },
+                    "level": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    },
+                    "period": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "provider"
+                  ],
+                  "additionalProperties": false
+                },
+                "datasetId": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "geojson": {
+                      "type": "object"
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "attribution": {
+                          "type": "string"
+                        },
+                        "license": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        },
+                        "period": {
+                          "type": "object",
+                          "properties": {
+                            "from": {
+                              "type": "string"
+                            },
+                            "to": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "from",
+                            "to"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "attribution",
+                        "license"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "geojson",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                },
+                "select": {
+                  "type": "object",
+                  "properties": {
+                    "property": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {},
+                      "minItems": 1,
+                      "maxItems": 5000
+                    }
+                  },
+                  "required": [
+                    "property",
+                    "values"
+                  ],
+                  "additionalProperties": false
+                },
+                "fill": {
+                  "type": "string"
+                },
+                "colors": {
+                  "type": "object",
+                  "properties": {
+                    "property": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": {},
+                          "color": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "color"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 1000
+                    }
+                  },
+                  "required": [
+                    "property",
+                    "values"
+                  ],
+                  "additionalProperties": false
+                },
+                "labelProperty": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "markers": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "properties": {
+                "coordinates": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "label": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "radius": {
+                  "type": "number",
+                  "minimum": 2,
+                  "maximum": 16
+                }
+              },
+              "required": [
+                "coordinates"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "routes": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "properties": {
+                "coordinates": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "minItems": 2,
+                  "maxItems": 100
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "straight",
+                    "curved",
+                    "great-circle"
+                  ]
+                },
+                "arrow": {
+                  "type": "boolean"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 12
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "coordinates"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "overlaySource": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "attribution": {
+                "type": "string"
+              },
+              "license": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "period": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "label",
+              "attribution",
+              "license"
+            ],
+            "additionalProperties": false
+          },
+          "legend": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "color"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "period": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "title",
+          "alt",
+          "period"
+        ],
+        "additionalProperties": false
+      },
+      "artifactTypes": [
+        "research-map"
+      ],
+      "timeoutMs": 30000,
+      "concurrency": 1,
+      "maxPerReply": 4,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    }
+  ],
+  "artifacts": [
+    {
+      "type": "research-map",
+      "version": 1,
+      "label": {
+        "en": "Research map",
+        "es": "Research map",
+        "fr": "Research map",
+        "de": "Research map",
+        "pt": "Research map",
+        "pt-BR": "Research map",
+        "it": "Research map",
+        "tr": "Research map"
+      },
+      "modelVisibility": "none"
+    }
+  ],
+  "permissions": {
+    "maps": {
+      "maxCalls": 4,
+      "providers": [
+        "natural-earth",
+        "geoboundaries"
+      ]
+    }
+  },
+  "chat": {
+    "priority": 400,
+    "requestProtocols": [
+      {
+        "fence": "research-map-request",
+        "toolId": "render-map",
+        "maxPerReply": 4,
+        "answerMode": "replace-block"
+      },
+      {
+        "fence": "historical-map-request",
+        "toolId": "render-historical-map",
+        "maxPerReply": 4,
+        "answerMode": "replace-block"
+      }
+    ],
+    "legacyResults": [],
+    "hooks": {},
+    "pendingLabel": {
+      "en": "Preparing research visuals…",
+      "es": "Preparando recursos visuales…",
+      "fr": "Préparation des visuels…",
+      "de": "Forschungsvisualisierungen werden erstellt…",
+      "pt": "A preparar recursos visuais…",
+      "pt-BR": "Preparando recursos visuais…",
+      "it": "Preparazione dei contenuti visivi…",
+      "tr": "Araştırma görselleri hazırlanıyor…"
+    }
+  }
+}

@@ -43,3 +43,9 @@ For a plugin, every component carries the same SemVer version, and any change in
 5. Report concerns using a repository issue without private data or harmful payloads; sensitive vulnerabilities follow SECURITY.md. Appeal a listing decision with evidence and a concrete correction in the original pull request or a new issue.
 
 Removal from the official catalog does not remotely delete installations. Users control their local skills. Authors may host independent repositories with the same package format. Nodus does not review or endorse those sources; their availability does not exempt anyone from applicable laws or grant rights to protected content.
+
+### Narrow exception: controlled public-image relevance review
+
+The repository owner explicitly authorized this exception on 2026-09-12. Public tool-retrieved images, including public photographs depicting people, and safe source metadata/attribution may be sent to the user's selected vision model **only** through the application-controlled `nodus:vision` relevance-review service. Trusted capability-generated imagery is also eligible. This exception takes precedence over the blanket model-access/consent language for this specific operation; it does not declare public personal information anonymous.
+
+The host must enforce approved public endpoints, bounded decoded thumbnails, per-turn review/cost/time limits, cancellation, verified model support and non-forgeable host results. Private files, student records, credentials, identity matching, sensitive personal inferences and unrelated application data remain excluded. Generated provenance must not disguise private inputs. Source-specific licensing and attribution still require review. This grants neither arbitrary network access nor a general model-call API. Tests must continue to use synthetic/non-personal fixtures.

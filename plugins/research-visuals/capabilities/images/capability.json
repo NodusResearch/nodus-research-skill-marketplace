@@ -1,0 +1,238 @@
+{
+  "schemaVersion": 2,
+  "id": "images",
+  "provides": "research-visuals:images",
+  "version": "1.0.0",
+  "description": "Search checked open image sources and review at most three batches of five thumbnails through native vision.",
+  "runtime": {
+    "kind": "nodus-trusted-worker-v1",
+    "protocol": 1,
+    "entry": "worker.js"
+  },
+  "requires": [
+    {
+      "id": "nodus:vision",
+      "minVersion": "1.0.0",
+      "maxVersionExclusive": "2.0.0"
+    }
+  ],
+  "tools": [
+    {
+      "id": "search-images",
+      "description": "Search user-enabled sources; select up to maximum images, including zero. Vision may incur up to three model calls; text-only models fall back to metadata.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 180
+          },
+          "maximum": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "artifactTypes": [
+        "research-images"
+      ],
+      "timeoutMs": 120000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": true,
+      "billing": "per-call"
+    }
+  ],
+  "artifacts": [
+    {
+      "type": "research-images",
+      "version": 1,
+      "label": {
+        "en": "Open image search",
+        "es": "Open image search",
+        "fr": "Open image search",
+        "de": "Open image search",
+        "pt": "Open image search",
+        "pt-BR": "Open image search",
+        "it": "Open image search",
+        "tr": "Open image search"
+      },
+      "modelVisibility": "none"
+    }
+  ],
+  "settings": {
+    "fields": [
+      {
+        "kind": "toggle",
+        "id": "wikimedia",
+        "label": {
+          "en": "Wikimedia Commons",
+          "es": "Wikimedia Commons",
+          "fr": "Wikimedia Commons",
+          "de": "Wikimedia Commons",
+          "pt": "Wikimedia Commons",
+          "pt-BR": "Wikimedia Commons",
+          "it": "Wikimedia Commons",
+          "tr": "Wikimedia Commons"
+        }
+      },
+      {
+        "kind": "toggle",
+        "id": "met",
+        "label": {
+          "en": "The Metropolitan Museum of Art",
+          "es": "The Metropolitan Museum of Art",
+          "fr": "The Metropolitan Museum of Art",
+          "de": "The Metropolitan Museum of Art",
+          "pt": "The Metropolitan Museum of Art",
+          "pt-BR": "The Metropolitan Museum of Art",
+          "it": "The Metropolitan Museum of Art",
+          "tr": "The Metropolitan Museum of Art"
+        }
+      },
+      {
+        "kind": "toggle",
+        "id": "aic",
+        "label": {
+          "en": "Art Institute of Chicago",
+          "es": "Art Institute of Chicago",
+          "fr": "Art Institute of Chicago",
+          "de": "Art Institute of Chicago",
+          "pt": "Art Institute of Chicago",
+          "pt-BR": "Art Institute of Chicago",
+          "it": "Art Institute of Chicago",
+          "tr": "Art Institute of Chicago"
+        }
+      }
+    ],
+    "actions": []
+  },
+  "permissions": {
+    "network": [
+      {
+        "id": "commons",
+        "origin": "https://commons.wikimedia.org",
+        "pathPrefixes": [
+          "/w/api.php"
+        ],
+        "methods": [
+          "GET"
+        ],
+        "maxResponseBytes": 1048576,
+        "timeoutMs": 15000
+      },
+      {
+        "id": "commons-upload",
+        "origin": "https://upload.wikimedia.org",
+        "pathPrefixes": [
+          "/wikipedia/commons/"
+        ],
+        "methods": [
+          "GET"
+        ],
+        "maxResponseBytes": 5242880,
+        "timeoutMs": 15000
+      },
+      {
+        "id": "commons-thumb",
+        "origin": "https://thumb.wikimedia.org",
+        "pathPrefixes": [
+          "/wikipedia/commons/"
+        ],
+        "methods": [
+          "GET"
+        ],
+        "maxResponseBytes": 5242880,
+        "timeoutMs": 15000
+      },
+      {
+        "id": "met",
+        "origin": "https://collectionapi.metmuseum.org",
+        "pathPrefixes": [
+          "/public/collection/v1.1/search",
+          "/public/collection/v1/objects/"
+        ],
+        "methods": [
+          "GET"
+        ],
+        "maxResponseBytes": 1048576,
+        "timeoutMs": 15000
+      },
+      {
+        "id": "met-images",
+        "origin": "https://images.metmuseum.org",
+        "pathPrefixes": [
+          "/CRDImages/"
+        ],
+        "methods": [
+          "GET"
+        ],
+        "maxResponseBytes": 5242880,
+        "timeoutMs": 15000
+      },
+      {
+        "id": "aic",
+        "origin": "https://api.artic.edu",
+        "pathPrefixes": [
+          "/api/v1/artworks/search"
+        ],
+        "methods": [
+          "GET"
+        ],
+        "maxResponseBytes": 1048576,
+        "timeoutMs": 15000
+      },
+      {
+        "id": "aic-images",
+        "origin": "https://www.artic.edu",
+        "pathPrefixes": [
+          "/iiif/2/"
+        ],
+        "methods": [
+          "GET"
+        ],
+        "maxResponseBytes": 5242880,
+        "timeoutMs": 15000
+      }
+    ],
+    "storage": {
+      "stateBytes": 4096,
+      "cacheBytes": 0,
+      "tempBytes": 0
+    },
+    "vision": {
+      "maxRounds": 3
+    },
+    "media": true
+  },
+  "chat": {
+    "priority": 410,
+    "requestProtocols": [
+      {
+        "fence": "research-image-request",
+        "toolId": "search-images",
+        "maxPerReply": 1,
+        "answerMode": "replace-block"
+      }
+    ],
+    "legacyResults": [],
+    "hooks": {},
+    "pendingLabel": {
+      "en": "Preparing research visuals…",
+      "es": "Preparando recursos visuales…",
+      "fr": "Préparation des visuels…",
+      "de": "Forschungsvisualisierungen werden erstellt…",
+      "pt": "A preparar recursos visuais…",
+      "pt-BR": "Preparando recursos visuais…",
+      "it": "Preparazione dei contenuti visivi…",
+      "tr": "Araştırma görselleri hazırlanıyor…"
+    }
+  }
+}

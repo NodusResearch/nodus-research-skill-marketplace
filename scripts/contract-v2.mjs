@@ -5,7 +5,7 @@ var CAPABILITY_API_V2 = 2;
 var TRUSTED_RUNTIME = "nodus-trusted-worker-v1";
 var TRUSTED_PROTOCOL = 1;
 var TRUSTED_PUBLISHER = "NodusResearch";
-var CORE_CAPABILITY_IDS = ["nodus:svg", "nodus:image", "nodus:3d"];
+var CORE_CAPABILITY_IDS = ["nodus:svg", "nodus:image", "nodus:3d", "nodus:maps", "nodus:vision"];
 var RESERVED_CAPABILITY_IDS = ["nodus:chemistry", "nodus:legal", "nodus:genomics"];
 var LIMITS = {
   /** Tool timeouts are declared per tool and clamped to this window. */
@@ -67,7 +67,7 @@ var SEMVER = /^\d+\.\d+\.\d+$/;
 var CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f]/;
 var plainText = (value, max) => typeof value === "string" && value.trim().length > 0 && value.length <= max && !CONTROL.test(value);
 var exactKeys = (value, allowed) => Object.keys(value).every((key) => allowed.includes(key));
-var SCHEMA_KEYS = ["type", "properties", "required", "items", "enum", "additionalProperties", "minLength", "maxLength", "minimum", "maximum"];
+var SCHEMA_KEYS = ["type", "properties", "required", "items", "enum", "additionalProperties", "minLength", "maxLength", "minItems", "maxItems", "minimum", "maximum"];
 function validateJsonSchema(schema, depth = 0) {
   if (!schema || typeof schema !== "object" || Array.isArray(schema) || depth > 8) throw new Error("Invalid capability JSON schema.");
   const value = schema;
@@ -85,6 +85,8 @@ function validateJsonSchema(schema, depth = 0) {
     if (value.type !== "array") throw new Error("Invalid capability array schema.");
     validateJsonSchema(value.items, depth + 1);
   }
+  for (const bound of [value.minItems, value.maxItems]) if (bound !== void 0 && (value.type !== "array" || !Number.isInteger(bound) || bound < 0 || bound > 2e5)) throw new Error("Invalid capability array limit.");
+  if (value.minItems !== void 0 && value.maxItems !== void 0 && value.minItems > value.maxItems) throw new Error("Invalid capability array limits.");
   if (value.enum && (!Array.isArray(value.enum) || value.enum.length > 100)) throw new Error("Invalid capability enum.");
 }
 function jsonSchemaMatches(schema, value) {
@@ -94,13 +96,13 @@ function jsonSchemaMatches(schema, value) {
   if (schema.type === "boolean") return typeof value === "boolean";
   if (schema.type === "string") return typeof value === "string" && (schema.minLength === void 0 || value.length >= schema.minLength) && (schema.maxLength === void 0 || value.length <= schema.maxLength);
   if (schema.type === "number" || schema.type === "integer") return typeof value === "number" && Number.isFinite(value) && (schema.type !== "integer" || Number.isInteger(value)) && (schema.minimum === void 0 || value >= schema.minimum) && (schema.maximum === void 0 || value <= schema.maximum);
-  if (schema.type === "array") return Array.isArray(value) && (!schema.items || value.every((item) => jsonSchemaMatches(schema.items, item)));
+  if (schema.type === "array") return Array.isArray(value) && (schema.minItems === void 0 || value.length >= schema.minItems) && (schema.maxItems === void 0 || value.length <= schema.maxItems) && (!schema.items || value.every((item) => jsonSchemaMatches(schema.items, item)));
   if (schema.type === "object") {
     if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-    const record = value;
-    if (schema.required?.some((key) => !(key in record))) return false;
-    if (schema.additionalProperties === false && Object.keys(record).some((key) => !schema.properties?.[key])) return false;
-    return Object.entries(schema.properties ?? {}).every(([key, child]) => !(key in record) || jsonSchemaMatches(child, record[key]));
+    const record2 = value;
+    if (schema.required?.some((key) => !(key in record2))) return false;
+    if (schema.additionalProperties === false && Object.keys(record2).some((key) => !schema.properties?.[key])) return false;
+    return Object.entries(schema.properties ?? {}).every(([key, child]) => !(key in record2) || jsonSchemaMatches(child, record2[key]));
   }
   return false;
 }
@@ -117,19 +119,21 @@ var LEGACY = {
   svg: "nodus:svg",
   image: "nodus:image",
   "3d": "nodus:3d",
+  maps: "nodus:maps",
+  vision: "nodus:vision",
   chemistry: "nodus:chemistry",
   legal: "nodus:legal",
   genomics: "nodus:genomics"
 };
-function normalizeCapabilityId(id) {
-  return LEGACY[id] ?? id;
+function normalizeCapabilityId(id2) {
+  return LEGACY[id2] ?? id2;
 }
-function legacyCapabilityId(id) {
-  return Object.entries(LEGACY).find(([, canonical]) => canonical === id)?.[0] ?? id;
+function legacyCapabilityId(id2) {
+  return Object.entries(LEGACY).find(([, canonical]) => canonical === id2)?.[0] ?? id2;
 }
-var isCoreCapabilityId = (id) => CORE_CAPABILITY_IDS.includes(id);
-var isReservedCapabilityId = (id) => RESERVED_CAPABILITY_IDS.includes(id);
-var isNodusCapabilityId = (id) => isCoreCapabilityId(id) || isReservedCapabilityId(id);
+var isCoreCapabilityId = (id2) => CORE_CAPABILITY_IDS.includes(id2);
+var isReservedCapabilityId = (id2) => RESERVED_CAPABILITY_IDS.includes(id2);
+var isNodusCapabilityId = (id2) => isCoreCapabilityId(id2) || isReservedCapabilityId(id2);
 function isCapabilityReference(value) {
   if (typeof value !== "string" || value.length > 160) return false;
   if (value in LEGACY || isNodusCapabilityId(value)) return true;
@@ -141,19 +145,236 @@ var canonicalPluginCapabilityId = (pluginId, localId) => `${pluginId}:${localId}
 var LOCALE = /^[a-z]{2}(?:-[A-Z]{2})?$/;
 function validateLocalizedText(value, max = 500) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid localized text.");
-  const record = value;
-  const entries = Object.entries(record);
-  if (typeof record.en !== "string" || !record.en.trim() || entries.length > 24) throw new Error('Localized text needs an "en" entry.');
-  for (const [locale, text] of entries) {
-    if (!LOCALE.test(locale) || typeof text !== "string" || !text.trim() || text.length > max) throw new Error(`Invalid localized text for ${locale}.`);
+  const record2 = value;
+  const entries = Object.entries(record2);
+  if (typeof record2.en !== "string" || !record2.en.trim() || entries.length > 24) throw new Error('Localized text needs an "en" entry.');
+  for (const [locale, text2] of entries) {
+    if (!LOCALE.test(locale) || typeof text2 !== "string" || !text2.trim() || text2.length > max) throw new Error(`Invalid localized text for ${locale}.`);
   }
-  return structuredClone(record);
+  return structuredClone(record2);
 }
-var localize = (text, locale) => text[locale] ?? text[locale.split("-")[0]] ?? text.en;
+var localize = (text2, locale) => text2[locale] ?? text2[locale.split("-")[0]] ?? text2.en;
+
+// packages/capability-api/src/maps.ts
+var MAP_LIMITS = { calls: 8, retrievals: 4, layers: 4, features: 5e3, positions: 2e5, inputBytes: 12e6, responseBytes: 16e6, svgChars: 3e5, markers: 200, routes: 100, timeoutMs: 3e4 };
+var MAP_PROVIDERS = ["natural-earth", "geoboundaries"];
+function object(value, keys, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !exactKeys(value, keys)) throw new Error(`Invalid map ${label}.`);
+}
+function text(value, max, label) {
+  if (!plainText(value, max)) throw new Error(`Invalid map ${label}.`);
+}
+function number(value, min, max, label) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) throw new Error(`Invalid map ${label}.`);
+}
+function list(value, max, label) {
+  if (!Array.isArray(value) || value.length > max) throw new Error(`Invalid map ${label}.`);
+}
+function validateMapPosition(value) {
+  if (!Array.isArray(value) || value.length !== 2) throw new Error("Map coordinates must be [longitude, latitude].");
+  number(value[0], -180, 180, "longitude");
+  number(value[1], -90, 90, "latitude");
+}
+function color(value) {
+  if (typeof value !== "string" || !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Map colors must be six-digit hexadecimal values.");
+}
+function period(value) {
+  object(value, ["from", "to"], "period");
+  const date = (d) => typeof d === "string" && /^(?:\d{4}|[+-]\d{6})-\d{2}-\d{2}$/.test(d) && Number.isFinite(Date.parse(d)) && new Date(d).toISOString().split("T")[0] === d;
+  if (!date(value.from) || !date(value.to) || Date.parse(value.from) > Date.parse(value.to)) throw new Error("Invalid map period.");
+}
+function validateMapSource(value) {
+  object(value, ["label", "attribution", "license", "url", "period"], "source");
+  text(value.label, 160, "source label");
+  text(value.attribution, 500, "attribution");
+  text(value.license, 200, "license");
+  if (value.url !== void 0) {
+    text(value.url, 1500, "source URL");
+    const url = new URL(value.url);
+    if (url.protocol !== "https:" || url.username || url.password) throw new Error("Invalid source URL.");
+  }
+  if (value.period !== void 0) period(value.period);
+  return structuredClone(value);
+}
+function validateMapQuery(value) {
+  object(value, ["provider", "country", "level", "period"], "source query");
+  if (!MAP_PROVIDERS.includes(value.provider)) throw new Error("Map provider is not approved.");
+  if (value.period !== void 0) period(value.period);
+  if (value.provider === "natural-earth") {
+    if (value.country !== void 0 || value.level !== void 0) throw new Error("Natural Earth supplies the world countries layer; select features after retrieval.");
+  } else if (typeof value.country !== "string" || !/^[A-Z]{3}$/.test(value.country) || value.country === "ALL" || !Number.isInteger(value.level) || value.level < 0 || value.level > 2) throw new Error("Administrative retrieval requires one ISO alpha-3 country and level 0, 1 or 2.");
+  return structuredClone(value);
+}
+function validateMapGeometry(input) {
+  if (JSON.stringify(input).length > MAP_LIMITS.inputBytes) throw new Error("Map geometry exceeds the input limit.");
+  let positions = 0, geometries = 0;
+  const position = (v) => {
+    validateMapPosition(v);
+    if (++positions > MAP_LIMITS.positions) throw new Error("Map position limit exceeded.");
+  };
+  const line = (v, ring = false) => {
+    list(v, MAP_LIMITS.positions, "line");
+    if (v.length < (ring ? 4 : 2)) throw new Error("Map line has too few positions.");
+    v.forEach(position);
+    if (ring) {
+      if (v[0][0] !== v.at(-1)[0] || v[0][1] !== v.at(-1)[1]) throw new Error("Polygon rings must be closed.");
+      if (new Set(v.map((p) => p.join(","))).size < 3) throw new Error("Degenerate polygon ring.");
+    }
+  };
+  const polygon = (v) => {
+    list(v, 1e3, "polygon");
+    if (!v.length) throw new Error("Empty polygon.");
+    v.forEach((r) => line(r, true));
+  };
+  const geometry = (v, depth = 0) => {
+    if (++geometries > MAP_LIMITS.features * 10 || depth > 8) throw new Error("Map geometry nesting limit exceeded.");
+    object(v, ["type", "coordinates", "geometries"], "geometry");
+    if (v.type === "GeometryCollection") {
+      list(v.geometries, MAP_LIMITS.features, "geometry collection");
+      if (!v.geometries.length || v.coordinates !== void 0) throw new Error("Invalid geometry collection.");
+      v.geometries.forEach((g) => geometry(g, depth + 1));
+      return;
+    }
+    if (v.geometries !== void 0) throw new Error("Invalid geometry fields.");
+    switch (v.type) {
+      case "Point":
+        position(v.coordinates);
+        break;
+      case "MultiPoint":
+        list(v.coordinates, MAP_LIMITS.positions, "multipoint");
+        if (!v.coordinates.length) throw new Error("Empty multipoint.");
+        v.coordinates.forEach(position);
+        break;
+      case "LineString":
+        line(v.coordinates);
+        break;
+      case "MultiLineString":
+        list(v.coordinates, MAP_LIMITS.features, "multiline");
+        if (!v.coordinates.length) throw new Error("Empty multiline.");
+        v.coordinates.forEach((l) => line(l));
+        break;
+      case "Polygon":
+        polygon(v.coordinates);
+        break;
+      case "MultiPolygon":
+        list(v.coordinates, MAP_LIMITS.features, "multipolygon");
+        if (!v.coordinates.length) throw new Error("Empty multipolygon.");
+        v.coordinates.forEach(polygon);
+        break;
+      default:
+        throw new Error("Unsupported map geometry type.");
+    }
+  };
+  const fc = input;
+  object(fc, ["type", "features"], "FeatureCollection");
+  if (fc.type !== "FeatureCollection") throw new Error("Expected a GeoJSON FeatureCollection.");
+  list(fc.features, MAP_LIMITS.features, "features");
+  if (!fc.features.length) throw new Error("Empty map geometry.");
+  const ids = /* @__PURE__ */ new Set();
+  for (const f of fc.features) {
+    object(f, ["type", "id", "geometry", "properties"], "feature");
+    if (f.type !== "Feature") throw new Error("Invalid GeoJSON feature.");
+    if (f.id !== void 0) {
+      if (!(typeof f.id === "string" ? plainText(f.id, 160) : typeof f.id === "number" && Number.isFinite(f.id)) || ids.has(String(f.id))) throw new Error("Invalid or duplicate feature ID.");
+      ids.add(String(f.id));
+    }
+    geometry(f.geometry);
+    if (f.properties !== null) {
+      object(f.properties, Object.keys(f.properties ?? {}), "properties");
+      if (Object.keys(f.properties).length > 40) throw new Error("Too many map properties.");
+      for (const [k, v] of Object.entries(f.properties)) {
+        text(k, 120, "property");
+        if (v === null || typeof v === "boolean") continue;
+        if (typeof v === "number") {
+          if (!Number.isFinite(v)) throw new Error("Invalid map property.");
+        } else text(v, 2e3, "property");
+      }
+    }
+  }
+  return structuredClone(fc);
+}
+function validateMapRenderRequest(input) {
+  if (JSON.stringify(input).length > MAP_LIMITS.inputBytes) throw new Error("Map request exceeds the input limit.");
+  const v = input;
+  object(v, ["title", "alt", "width", "height", "projection", "detail", "centralMeridian", "bounds", "layers", "markers", "routes", "overlaySource", "legend"], "request");
+  if (v.detail !== void 0 && !["standard", "full"].includes(v.detail)) throw new Error("Invalid map detail.");
+  text(v.title, 120, "title");
+  text(v.alt, 1e3, "alt text");
+  if (v.width !== void 0) number(v.width, 640, 1600, "width");
+  if (v.height !== void 0) number(v.height, 480, 1400, "height");
+  if (v.projection !== void 0 && !["equal-earth", "mercator", "equirectangular"].includes(v.projection)) throw new Error("Unsupported map projection.");
+  if (v.centralMeridian !== void 0) number(v.centralMeridian, -180, 180, "central meridian");
+  if (v.bounds !== void 0) {
+    if (!Array.isArray(v.bounds) || v.bounds.length !== 4) throw new Error("Invalid map bounds.");
+    validateMapPosition(v.bounds.slice(0, 2));
+    validateMapPosition(v.bounds.slice(2));
+    if (v.bounds[0] >= v.bounds[2] || v.bounds[1] >= v.bounds[3]) throw new Error("Bounds must have west < east and south < north.");
+  }
+  list(v.layers ?? [], MAP_LIMITS.layers, "layers");
+  list(v.markers ?? [], MAP_LIMITS.markers, "markers");
+  list(v.routes ?? [], MAP_LIMITS.routes, "routes");
+  list(v.legend ?? [], 16, "legend");
+  if (!v.layers?.length && !v.markers?.length && !v.routes?.length) throw new Error("A map needs geometry or coordinates.");
+  for (const layer of v.layers ?? []) {
+    object(layer, ["query", "datasetId", "data", "select", "fill", "colors", "labelProperty"], "layer");
+    if ([layer.query, layer.datasetId, layer.data].filter((x) => x !== void 0).length !== 1) throw new Error("Each map layer needs exactly one data source.");
+    if (layer.query) validateMapQuery(layer.query);
+    if (layer.datasetId !== void 0 && !/^[a-f0-9-]{36}$/.test(layer.datasetId)) throw new Error("Invalid map dataset reference.");
+    if (layer.data) {
+      object(layer.data, ["geojson", "source"], "layer data");
+      validateMapGeometry(layer.data.geojson);
+      validateMapSource(layer.data.source);
+    }
+    if (layer.fill !== void 0) color(layer.fill);
+    if (layer.labelProperty !== void 0) text(layer.labelProperty, 120, "label property");
+    if (layer.select) {
+      object(layer.select, ["property", "values"], "selection");
+      text(layer.select.property, 120, "selection property");
+      list(layer.select.values, 5e3, "selection");
+      if (!layer.select.values.length || layer.select.values.some((x) => typeof x !== "string" && !Number.isFinite(x))) throw new Error("Invalid map selection.");
+    }
+    if (layer.colors) {
+      object(layer.colors, ["property", "values"], "colors");
+      text(layer.colors.property, 120, "color property");
+      list(layer.colors.values, 1e3, "color values");
+      for (const c of layer.colors.values) {
+        object(c, ["value", "color"], "color entry");
+        if (typeof c.value !== "string" && !Number.isFinite(c.value)) throw new Error("Invalid category.");
+        color(c.color);
+      }
+    }
+  }
+  for (const m of v.markers ?? []) {
+    object(m, ["coordinates", "label", "color", "radius"], "marker");
+    validateMapPosition(m.coordinates);
+    if (m.label !== void 0) text(m.label, 80, "marker label");
+    if (m.color !== void 0) color(m.color);
+    if (m.radius !== void 0) number(m.radius, 2, 16, "radius");
+  }
+  for (const r of v.routes ?? []) {
+    object(r, ["coordinates", "kind", "arrow", "color", "width", "label"], "route");
+    list(r.coordinates, 100, "route");
+    if (r.coordinates.length < 2) throw new Error("A route needs at least two positions.");
+    r.coordinates.forEach(validateMapPosition);
+    if (r.kind !== void 0 && !["straight", "curved", "great-circle"].includes(r.kind)) throw new Error("Invalid route kind.");
+    if (r.arrow !== void 0 && typeof r.arrow !== "boolean") throw new Error("Invalid arrow.");
+    if (r.color !== void 0) color(r.color);
+    if (r.width !== void 0) number(r.width, 1, 12, "route width");
+    if (r.label !== void 0) text(r.label, 80, "route label");
+  }
+  if (v.overlaySource !== void 0) validateMapSource(v.overlaySource);
+  if ((v.markers?.length || v.routes?.length) && !v.overlaySource) throw new Error("Coordinate overlays require source attribution.");
+  for (const item of v.legend ?? []) {
+    object(item, ["label", "color"], "legend");
+    text(item.label, 80, "legend label");
+    color(item.color);
+  }
+  return structuredClone(v);
+}
 
 // packages/capability-api/src/permissions.ts
 var METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
-var KEYS = ["network", "secrets", "storage", "model", "svg", "models", "media", "subworkers", "runtimes"];
+var KEYS = ["network", "secrets", "storage", "model", "svg", "models", "media", "maps", "vision", "subworkers", "runtimes"];
 function validateTrustedPermissions(input) {
   if (!input || typeof input !== "object" || Array.isArray(input) || !exactKeys(input, KEYS)) throw new Error("Invalid capability permissions.");
   const value = input;
@@ -191,6 +412,10 @@ function validateTrustedPermissions(input) {
   if (value.svg !== void 0 && typeof value.svg !== "boolean") throw new Error("Invalid capability svg permission.");
   if (value.models !== void 0 && typeof value.models !== "boolean") throw new Error("Invalid capability 3D permission.");
   if (value.media !== void 0 && typeof value.media !== "boolean") throw new Error("Invalid capability media permission.");
+  if (value.vision !== void 0 && (!value.vision || !exactKeys(value.vision, ["maxRounds"]) || !Number.isInteger(value.vision.maxRounds) || value.vision.maxRounds < 1 || value.vision.maxRounds > 3)) throw new Error("Invalid capability vision permission.");
+  if (value.maps !== void 0) {
+    if (!value.maps || !exactKeys(value.maps, ["maxCalls", "providers"]) || !Number.isInteger(value.maps.maxCalls) || value.maps.maxCalls < 1 || value.maps.maxCalls > MAP_LIMITS.calls || !Array.isArray(value.maps.providers) || new Set(value.maps.providers).size !== value.maps.providers.length || value.maps.providers.some((p) => !MAP_PROVIDERS.includes(p))) throw new Error("Invalid capability maps permission.");
+  }
   if (value.subworkers !== void 0) {
     if (!value.subworkers || !exactKeys(value.subworkers, ["max"]) || !Number.isInteger(value.subworkers.max) || value.subworkers.max < 1 || value.subworkers.max > 8) throw new Error("Invalid capability subworker permission.");
   }
@@ -217,19 +442,26 @@ function permissionAtoms(permissions) {
   if (permissions.svg) atoms.push("svg");
   if (permissions.models) atoms.push("models");
   if (permissions.media) atoms.push("media");
+  if (permissions.vision) atoms.push(`vision|${permissions.vision.maxRounds}`);
+  if (permissions.maps) {
+    atoms.push(`maps|${permissions.maps.maxCalls}`);
+    for (const provider of permissions.maps.providers) atoms.push(`maps-provider|${provider}`);
+  }
   if (permissions.subworkers) atoms.push(`subworkers|${permissions.subworkers.max}`);
   for (const runtime of permissions.runtimes ?? []) atoms.push(`runtime|${runtime.id}|${runtime.kind}|${runtime.minVersion}`);
   return atoms;
 }
 function permissionsExpandV2(previous, next) {
   const granted = new Set(permissionAtoms(previous));
-  if (permissionAtoms(next).some((atom) => !granted.has(atom) && !atom.startsWith("storage|") && !atom.startsWith("model|") && !atom.startsWith("subworkers|"))) return true;
+  if (permissionAtoms(next).some((atom) => !granted.has(atom) && !atom.startsWith("storage|") && !atom.startsWith("model|") && !atom.startsWith("maps|") && !atom.startsWith("vision|") && !atom.startsWith("subworkers|"))) return true;
   const storage = next.storage, priorStorage = previous.storage ?? { stateBytes: 0, cacheBytes: 0, tempBytes: 0 };
   if (storage && (storage.stateBytes > priorStorage.stateBytes || storage.cacheBytes > priorStorage.cacheBytes || storage.tempBytes > priorStorage.tempBytes)) return true;
   if ((next.model?.maxCalls ?? 0) > (previous.model?.maxCalls ?? 0)) return true;
+  if ((next.vision?.maxRounds ?? 0) > (previous.vision?.maxRounds ?? 0)) return true;
+  if ((next.maps?.maxCalls ?? 0) > (previous.maps?.maxCalls ?? 0)) return true;
   return (next.subworkers?.max ?? 0) > (previous.subworkers?.max ?? 0);
 }
-var trustedCapabilityIsMetered = (permissions) => Boolean(permissions.network?.length || permissions.secrets?.length || permissions.model || permissions.storage || permissions.runtimes?.length);
+var trustedCapabilityIsMetered = (permissions) => Boolean(permissions.vision || permissions.network?.length || permissions.maps?.providers.length || permissions.secrets?.length || permissions.model || permissions.storage || permissions.runtimes?.length);
 
 // packages/capability-api/src/models.ts
 var MODEL_MIME_TYPES = {
@@ -399,6 +631,57 @@ function validateMediaAsset(input, mimeType, expected) {
 }
 var isImageMimeType = (value) => IMAGE_MIME_TYPES.includes(String(value));
 var isAudioMimeType = (value) => AUDIO_MIME_TYPES.includes(String(value));
+
+// packages/capability-api/src/vision.ts
+var VISION_LIMITS = Object.freeze({ candidates: 5, rounds: 3, inputBytes: 5 * 1024 * 1024, pixels: 16e6, thumbnailEdge: 768, thumbnailBytes: 512 * 1024, outputTokens: 1200, callMs: 3e4, sessionMs: 12e4 });
+var record = (value) => !!value && typeof value === "object" && !Array.isArray(value);
+var id = (value) => typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
+function validateVisionCandidates(value) {
+  if (!Array.isArray(value) || !value.length || value.length > VISION_LIMITS.candidates || new Set(value.map((v) => v?.id)).size !== value.length) throw new Error("Expected 1\u20135 distinct image candidates.");
+  for (const candidate of value) {
+    if (!record(candidate) || !exactKeys(candidate, ["id", "metadata", "source"]) || !id(candidate.id) || !record(candidate.metadata) || !exactKeys(candidate.metadata, ["title", "description", "attribution"]) || !plainText(candidate.metadata.title, 300)) throw new Error("Invalid image candidate.");
+    for (const key of ["description", "attribution"]) if (candidate.metadata[key] !== void 0 && !plainText(candidate.metadata[key], 1e3)) throw new Error("Invalid image metadata.");
+    const s = candidate.source;
+    if (!record(s)) throw new Error("Invalid image source.");
+    if (s.kind === "public") {
+      if (!exactKeys(s, ["kind", "endpointId", "path"]) || !id(s.endpointId) || !plainText(s.path, 2e3)) throw new Error("Invalid public image source.");
+    } else if (s.kind === "generated") {
+      if (!exactKeys(s, ["kind", "bytes", "mimeType"]) || !(s.bytes instanceof Uint8Array) || !s.bytes.length || s.bytes.length > VISION_LIMITS.inputBytes || !["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"].includes(String(s.mimeType))) throw new Error("Invalid generated image.");
+    } else throw new Error("Private files and arbitrary URLs are not image sources.");
+  }
+  return value;
+}
+function validateVisionReviewRequest(value) {
+  if (!record(value) || !exactKeys(value, ["request", "candidates"]) || !plainText(value.request, 2e4) || !Array.isArray(value.candidates) || !value.candidates.length || value.candidates.length > 5) throw new Error("Invalid image review request.");
+  const candidates = value.candidates;
+  if (candidates.some((c) => !record(c) || !exactKeys(c, ["id", "imageId"]) || !id(c.id) || !id(c.imageId)) || new Set(candidates.map((c) => c.id)).size !== candidates.length || new Set(candidates.map((c) => c.imageId)).size !== candidates.length) throw new Error("Invalid image review handles.");
+  return value;
+}
+function validateVisionScores(value, ids) {
+  if (!record(value) || !exactKeys(value, ["candidates"]) || !Array.isArray(value.candidates) || value.candidates.length !== ids.length) throw new Error("Invalid vision response.");
+  const seen = /* @__PURE__ */ new Set();
+  for (const c of value.candidates) {
+    if (!record(c) || !exactKeys(c, ["id", "relevance", "reasoning"]) || typeof c.id !== "string" || !ids.includes(c.id) || seen.has(c.id) || typeof c.relevance !== "number" || !Number.isFinite(c.relevance) || c.relevance < 0 || c.relevance > 1 || !plainText(c.reasoning, 300)) throw new Error("Invalid vision candidate score.");
+    seen.add(c.id);
+  }
+  return value.candidates;
+}
+function validateVisionReviewResult(value) {
+  if (!record(value) || !exactKeys(value, ["reviewId", "status", "outcome", "reason", "model", "round", "remainingRounds", "selected", "candidates"]) || !id(value.reviewId) || !Number.isInteger(value.round) || Number(value.round) < 0 || Number(value.round) > 3 || !Number.isInteger(value.remainingRounds) || Number(value.remainingRounds) < 0 || Number(value.remainingRounds) > 3 - Number(value.round)) throw new Error("Invalid vision receipt.");
+  if (value.reason !== void 0 && !plainText(value.reason, 500)) throw new Error("Invalid vision receipt reason.");
+  if (value.model !== null && (!record(value.model) || !exactKeys(value.model, ["provider", "model"]) || !plainText(value.model.provider, 80) || !plainText(value.model.model, 200))) throw new Error("Invalid vision receipt model.");
+  const outcomes = { reviewed: ["selected", "no_relevant_candidate"], skipped: ["vision_unavailable", "privacy_blocked", "limit_reached"], error: ["invalid_review", "review_failed"] };
+  if (typeof value.status !== "string" || !outcomes[value.status]?.includes(String(value.outcome)) || !Array.isArray(value.selected) || !Array.isArray(value.candidates) || !value.candidates.length || value.candidates.length > 5) throw new Error("Invalid vision receipt status.");
+  const reviewed = value.status === "reviewed", seen = /* @__PURE__ */ new Set();
+  for (const c of value.candidates) {
+    if (!record(c) || !exactKeys(c, ["id", "imageId", "inspected", "relevance", "reasoning", "thumbnailSha256"]) || !id(c.id) || !id(c.imageId) || seen.has(c.id) || c.inspected !== reviewed || typeof c.reasoning !== "string" || c.reasoning.length > 300) throw new Error("Invalid vision receipt candidate.");
+    seen.add(c.id);
+    if (reviewed ? typeof c.relevance !== "number" || !Number.isFinite(c.relevance) || c.relevance < 0 || c.relevance > 1 || !plainText(c.reasoning, 300) || typeof c.thumbnailSha256 !== "string" || !/^[a-f0-9]{64}$/.test(c.thumbnailSha256) : c.relevance !== null || c.reasoning !== "" || c.thumbnailSha256 !== void 0) throw new Error("Invalid vision inspection claim.");
+  }
+  const expected = reviewed ? value.candidates.filter((c) => c.relevance >= 0.6).sort((a, b) => b.relevance - a.relevance || a.id.localeCompare(b.id)).map((c) => c.id) : [];
+  if (JSON.stringify(value.selected) !== JSON.stringify(expected) || reviewed && value.outcome === "selected" !== Boolean(expected.length)) throw new Error("Invalid vision selection claim.");
+  return structuredClone(value);
+}
 
 // packages/capability-api/src/views.ts
 var TONES = ["neutral", "info", "success", "warning", "danger"];
@@ -739,11 +1022,11 @@ function validateWorkerArtifact(input, declared) {
   return structuredClone(value);
 }
 var INVISIBLE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g;
-function sanitizeProjection(text) {
-  if (typeof text !== "string" || !text.trim()) throw new Error("Invalid artifact projection.");
-  const bytes = Buffer.byteLength(text, "utf8");
+function sanitizeProjection(text2) {
+  if (typeof text2 !== "string" || !text2.trim()) throw new Error("Invalid artifact projection.");
+  const bytes = Buffer.byteLength(text2, "utf8");
   if (bytes > LIMITS.projectionBytes) throw new Error(`Artifact projection exceeds ${LIMITS.projectionBytes} bytes.`);
-  return text.replace(/```/g, "'''").replace(INVISIBLE, "");
+  return text2.replace(/```/g, "'''").replace(INVISIBLE, "");
 }
 function artifactEnvelope(artifact, context) {
   return {
@@ -941,23 +1224,23 @@ function validateSettingsState(input, manifest) {
   const value = input;
   if (!value.fields || typeof value.fields !== "object" || Array.isArray(value.fields)) throw new Error("Invalid settings state fields.");
   const fields = {};
-  for (const [id, raw] of Object.entries(value.fields)) {
-    const declared = manifest.fields.find((field) => field.id === id);
-    if (!declared || !raw || typeof raw !== "object" || Array.isArray(raw) || !exactKeys(raw, ["configured", "value"]) && !exactKeys(raw, ["configured"]) && !exactKeys(raw, ["value"])) throw new Error(`Undeclared settings field: ${id}.`);
+  for (const [id2, raw] of Object.entries(value.fields)) {
+    const declared = manifest.fields.find((field) => field.id === id2);
+    if (!declared || !raw || typeof raw !== "object" || Array.isArray(raw) || !exactKeys(raw, ["configured", "value"]) && !exactKeys(raw, ["configured"]) && !exactKeys(raw, ["value"])) throw new Error(`Undeclared settings field: ${id2}.`);
     if (declared.kind === "secret") {
       if ("value" in raw) throw new Error("A secret field must not report its value.");
-      fields[id] = { configured: Boolean(raw.configured) };
+      fields[id2] = { configured: Boolean(raw.configured) };
       continue;
     }
-    if (raw.value !== void 0 && typeof raw.value !== "string" && typeof raw.value !== "boolean") throw new Error(`Invalid settings value for ${id}.`);
-    if (declared.kind === "text" && typeof raw.value === "string" && raw.value.length > declared.maxLength) throw new Error(`Settings value too long for ${id}.`);
-    if (declared.kind === "select" && raw.value !== void 0 && !declared.options.some((option) => option.value === raw.value)) throw new Error(`Settings value outside the declared options for ${id}.`);
-    fields[id] = { ...raw.configured !== void 0 ? { configured: Boolean(raw.configured) } : {}, ...raw.value !== void 0 ? { value: raw.value } : {} };
+    if (raw.value !== void 0 && typeof raw.value !== "string" && typeof raw.value !== "boolean") throw new Error(`Invalid settings value for ${id2}.`);
+    if (declared.kind === "text" && typeof raw.value === "string" && raw.value.length > declared.maxLength) throw new Error(`Settings value too long for ${id2}.`);
+    if (declared.kind === "select" && raw.value !== void 0 && !declared.options.some((option) => option.value === raw.value)) throw new Error(`Settings value outside the declared options for ${id2}.`);
+    fields[id2] = { ...raw.configured !== void 0 ? { configured: Boolean(raw.configured) } : {}, ...raw.value !== void 0 ? { value: raw.value } : {} };
   }
   const disabledActions = {};
-  for (const [id, reason] of Object.entries(value.disabledActions ?? {})) {
-    if (!manifest.actions.some((action) => action.id === id)) throw new Error(`Undeclared settings action: ${id}.`);
-    disabledActions[id] = validateLocalizedText(reason, 300);
+  for (const [id2, reason] of Object.entries(value.disabledActions ?? {})) {
+    if (!manifest.actions.some((action) => action.id === id2)) throw new Error(`Undeclared settings action: ${id2}.`);
+    disabledActions[id2] = validateLocalizedText(reason, 300);
   }
   return {
     fields,
@@ -974,17 +1257,17 @@ function validateSettingsSubmission(input, manifest) {
   const value = input;
   if (!value.fields || typeof value.fields !== "object" || Array.isArray(value.fields)) throw new Error("Invalid settings submission.");
   const fields = {};
-  for (const [id, raw] of Object.entries(value.fields)) {
-    const declared = manifest.fields.find((field) => field.id === id);
-    if (!declared) throw new Error(`Undeclared settings field: ${id}.`);
+  for (const [id2, raw] of Object.entries(value.fields)) {
+    const declared = manifest.fields.find((field) => field.id === id2);
+    if (!declared) throw new Error(`Undeclared settings field: ${id2}.`);
     if (declared.kind === "toggle" || declared.kind === "consent") {
-      if (typeof raw !== "boolean") throw new Error(`Settings field ${id} expects a boolean.`);
+      if (typeof raw !== "boolean") throw new Error(`Settings field ${id2} expects a boolean.`);
     } else if (typeof raw !== "string" || raw.length > (declared.kind === "text" ? declared.maxLength : 8e3)) {
-      throw new Error(`Settings field ${id} expects text.`);
+      throw new Error(`Settings field ${id2} expects text.`);
     } else if (declared.kind === "select" && !declared.options.some((option) => option.value === raw)) {
-      throw new Error(`Settings value outside the declared options for ${id}.`);
+      throw new Error(`Settings value outside the declared options for ${id2}.`);
     }
-    fields[id] = raw;
+    fields[id2] = raw;
   }
   return { fields };
 }
@@ -1014,12 +1297,13 @@ function validateCapabilityManifestV2(input) {
   if (!Array.isArray(value.tools) || !value.tools.length || value.tools.length > LIMITS.toolsPerCapability) throw new Error("Invalid capability tools.");
   const toolIds = /* @__PURE__ */ new Set();
   const tools = value.tools.map((tool) => {
-    if (!tool || !exactKeys(tool, ["id", "description", "inputSchema", "artifactTypes", "timeoutMs", "concurrency", "maxPerReply", "answerMode", "metered"]) || !SLUG.test(tool.id) || toolIds.has(tool.id) || !plainText(tool.description, 500) || !Array.isArray(tool.artifactTypes) || tool.artifactTypes.some((type) => !artifactTypes.has(type)) || !Number.isInteger(tool.timeoutMs) || tool.timeoutMs < LIMITS.toolTimeoutMsMin || tool.timeoutMs > LIMITS.toolTimeoutMsMax || !Number.isInteger(tool.concurrency) || tool.concurrency < 1 || tool.concurrency > 8 || !Number.isInteger(tool.maxPerReply) || tool.maxPerReply < 1 || tool.maxPerReply > LIMITS.chatFenceMaxPerReply || !["replace-block", "replace-answer"].includes(tool.answerMode) || typeof tool.metered !== "boolean") throw new Error("Invalid capability tool.");
+    if (!tool || !exactKeys(tool, ["id", "description", "inputSchema", "artifactTypes", "timeoutMs", "concurrency", "maxPerReply", "answerMode", "metered", "billing"]) || !SLUG.test(tool.id) || toolIds.has(tool.id) || !plainText(tool.description, 500) || !Array.isArray(tool.artifactTypes) || tool.artifactTypes.some((type) => !artifactTypes.has(type)) || !Number.isInteger(tool.timeoutMs) || tool.timeoutMs < LIMITS.toolTimeoutMsMin || tool.timeoutMs > LIMITS.toolTimeoutMsMax || !Number.isInteger(tool.concurrency) || tool.concurrency < 1 || tool.concurrency > 8 || !Number.isInteger(tool.maxPerReply) || tool.maxPerReply < 1 || tool.maxPerReply > LIMITS.chatFenceMaxPerReply || !["replace-block", "replace-answer"].includes(tool.answerMode) || typeof tool.metered !== "boolean" || tool.billing !== void 0 && !["none", "per-call", "unknown"].includes(tool.billing)) throw new Error("Invalid capability tool.");
     validateJsonSchema(tool.inputSchema);
     toolIds.add(tool.id);
     return structuredClone(tool);
   });
   const permissions = validateTrustedPermissions(value.permissions);
+  if (permissions.vision && tools.some((tool) => !tool.metered || tool.billing !== "per-call")) throw new Error("Tools with vision permission must declare metered per-call billing.");
   const chat = value.chat === void 0 ? void 0 : validateChatContract(value.chat);
   if (chat) {
     for (const protocol of chat.requestProtocols) {
@@ -1061,7 +1345,7 @@ function validatePluginManifestV2(input) {
   if (!value.publisher || !exactKeys(value.publisher, ["id", "keyId"]) || value.publisher.id !== TRUSTED_PUBLISHER || !KEY_ID.test(String(value.publisher.keyId))) throw new Error("Invalid plugin publisher.");
   if (!value.compatibility || !exactKeys(value.compatibility, ["capabilityApi", "minNodusVersion", "targets"]) || value.compatibility.capabilityApi !== CAPABILITY_API_V2 || !SEMVER.test(value.compatibility.minNodusVersion) || !Array.isArray(value.compatibility.targets) || !value.compatibility.targets.length || value.compatibility.targets.length > 8 || value.compatibility.targets.some((target) => !TARGET.test(String(target))) || new Set(value.compatibility.targets).size !== value.compatibility.targets.length) throw new Error("Invalid plugin compatibility.");
   if (value.compatibility.targets.includes("any") && value.compatibility.targets.length > 1) throw new Error("A portable plugin cannot also declare platform targets.");
-  if (!Array.isArray(value.replacesSkills) || value.replacesSkills.length > 8 || value.replacesSkills.some((id) => !/^[a-z0-9-]{1,64}$/.test(String(id))) || new Set(value.replacesSkills).size !== value.replacesSkills.length) throw new Error("Invalid replacesSkills list.");
+  if (!Array.isArray(value.replacesSkills) || value.replacesSkills.length > 8 || value.replacesSkills.some((id2) => !/^[a-z0-9-]{1,64}$/.test(String(id2))) || new Set(value.replacesSkills).size !== value.replacesSkills.length) throw new Error("Invalid replacesSkills list.");
   assertPaths(value.skills, /^skills\/([a-z0-9]+(?:-[a-z0-9]+)*)\/skill\.json$/, 40, "skill");
   assertPaths(value.capabilities, /^capabilities\/([a-z0-9]+(?:-[a-z0-9]+)*)\/capability\.json$/, 20, "capability");
   assertPaths(value.migrations, /^migrations\/(\d{3})-[a-z0-9]+(?:-[a-z0-9]+)*\.cjs$/, 40, "migration", false);
@@ -1070,10 +1354,10 @@ function validatePluginManifestV2(input) {
   });
   return structuredClone(value);
 }
-function assertPaths(list, pattern, max, what, required = true) {
-  if (!Array.isArray(list) || list.length > max || required && !list.length) throw new Error(`Invalid plugin ${what} list.`);
+function assertPaths(list2, pattern, max, what, required = true) {
+  if (!Array.isArray(list2) || list2.length > max || required && !list2.length) throw new Error(`Invalid plugin ${what} list.`);
   const seen = /* @__PURE__ */ new Set();
-  for (const entry of list) {
+  for (const entry of list2) {
     if (typeof entry !== "string" || !pattern.test(entry) || seen.has(entry) || entry.includes("..")) throw new Error(`Invalid plugin ${what} path.`);
     seen.add(entry);
   }
@@ -1107,7 +1391,7 @@ var WORKER_METHODS = [
   "renderLegacyResult",
   "shutdown"
 ];
-var HOST_CHANNELS = ["network", "storage", "secrets", "model", "svg", "models", "media", "subworker", "python", "attachments"];
+var HOST_CHANNELS = ["network", "storage", "secrets", "model", "svg", "models", "media", "vision", "maps", "subworker", "python", "attachments"];
 var CALL_ID = /^[a-z0-9]{1,64}$/;
 var LEVELS = ["debug", "info", "warn", "error"];
 function validateWorkerToHost(input) {
@@ -1244,15 +1528,15 @@ function defineCapability(factory) {
 function defineCapabilityManifest(manifest) {
   return validateCapabilityManifestV2(manifest);
 }
-function noticeView(summary, text, tone = "info") {
-  return { schemaVersion: 1, summary, nodes: [{ kind: "notice", tone, spans: [{ text }] }] };
+function noticeView(summary, text2, tone = "info") {
+  return { schemaVersion: 1, summary, nodes: [{ kind: "notice", tone, spans: [{ text: text2 }] }] };
 }
 
 // packages/capability-api/src/conformance.ts
 async function runConformanceSuite(manifest, worker, options = {}) {
   const findings = [];
   const locale = options.locale ?? "en";
-  const record = async (check, run) => {
+  const record2 = async (check, run) => {
     try {
       await run();
       findings.push({ check, ok: true });
@@ -1260,15 +1544,15 @@ async function runConformanceSuite(manifest, worker, options = {}) {
       findings.push({ check, ok: false, detail: error instanceof Error ? error.message : String(error) });
     }
   };
-  await record("manifest validates", () => {
+  await record2("manifest validates", () => {
     validateCapabilityManifestV2(manifest);
   });
-  await record("health reports a status and a data version", async () => {
+  await record2("health reports a status and a data version", async () => {
     const health = await worker.health({ nodusVersion: options.nodusVersion ?? "5.3.2", locale, platform: process.platform, arch: process.arch, dataVersion: 0 });
     if (!["ready", "degraded", "needs-setup", "needs-migration"].includes(health?.status)) throw new Error(`Unexpected health status: ${String(health?.status)}.`);
     if (!Number.isInteger(health.dataVersion) || health.dataVersion < 0) throw new Error("health must report an integer dataVersion.");
   });
-  await record("declared hooks are implemented", () => {
+  await record2("declared hooks are implemented", () => {
     if (manifest.chat?.hooks.prepare && typeof worker.prepareChat !== "function") throw new Error("The manifest declares a prepare hook the worker does not implement.");
     if (manifest.chat?.hooks.finalize && typeof worker.finalizeChat !== "function") throw new Error("The manifest declares a finalize hook the worker does not implement.");
     if (manifest.settings && typeof worker.getSettings !== "function") throw new Error("The manifest declares settings the worker cannot read.");
@@ -1280,13 +1564,13 @@ async function runConformanceSuite(manifest, worker, options = {}) {
     artifactTypes: manifest.artifacts
   };
   if (options.chatNodes && worker.prepareChat) {
-    await record("prepareChat returns valid mutations", async () => {
+    await record2("prepareChat returns valid mutations", async () => {
       validatePrepareMutations(await worker.prepareChat({ nodes: options.chatNodes, locale }), context);
     });
   }
   for (const invocation of options.invocations ?? []) {
     const tool = manifest.tools.find((candidate) => candidate.id === invocation.toolId);
-    await record(`invoke ${invocation.toolId} returns a valid result`, async () => {
+    await record2(`invoke ${invocation.toolId} returns a valid result`, async () => {
       if (!tool) throw new Error(`The manifest declares no tool ${invocation.toolId}.`);
       const result = await worker.invoke({ invocationId: "conformance", toolId: invocation.toolId, input: invocation.input, locale });
       for (const artifact of result.artifacts ?? []) {
@@ -1298,17 +1582,17 @@ async function runConformanceSuite(manifest, worker, options = {}) {
     });
   }
   if (options.chatNodes && worker.finalizeChat) {
-    await record("finalizeChat returns valid mutations", async () => {
+    await record2("finalizeChat returns valid mutations", async () => {
       validateFinalMutations(await worker.finalizeChat({ nodes: options.chatNodes, locale }), context);
     });
   }
   for (const artifact of options.artifacts ?? []) {
     const declared = manifest.artifacts.find((entry) => entry.type === artifact.artifactType);
-    await record(`renderArtifact ${artifact.artifactType} returns a valid view`, async () => {
+    await record2(`renderArtifact ${artifact.artifactType} returns a valid view`, async () => {
       if (!declared) throw new Error(`The manifest declares no artifact type ${artifact.artifactType}.`);
       validateViewDocument(await worker.renderArtifact({ ...artifact, locale }));
     });
-    await record(`${artifact.artifactType} honours its declared model visibility`, async () => {
+    await record2(`${artifact.artifactType} honours its declared model visibility`, async () => {
       if (!declared) throw new Error(`The manifest declares no artifact type ${artifact.artifactType}.`);
       if (declared.modelVisibility === "none") {
         if (typeof worker.projectArtifactForModel === "function") {
@@ -1322,11 +1606,11 @@ async function runConformanceSuite(manifest, worker, options = {}) {
     });
   }
   if (manifest.settings && worker.getSettings) {
-    await record("getSettings never reports a stored secret", async () => {
+    await record2("getSettings never reports a stored secret", async () => {
       validateSettingsState(await worker.getSettings(), manifest.settings);
     });
   }
-  await record("shutdown resolves", async () => {
+  await record2("shutdown resolves", async () => {
     await worker.shutdown();
   });
   return findings;
@@ -1343,7 +1627,7 @@ function validateCapabilityCatalog(input) {
   if (value.schemaVersion !== 2 || typeof value.updatedAt !== "string" || Number.isNaN(Date.parse(value.updatedAt)) || !Array.isArray(value.plugins) || value.plugins.length > 200) throw new Error("Invalid catalog-v2.json.");
   const ids = /* @__PURE__ */ new Set();
   const plugins = value.plugins.map((entry) => {
-    if (!entry || !exactKeys(entry, ["id", "name", "description", "version", "path", "replaces", "targets", "release"]) || !SLUG.test(entry.id) || ids.has(entry.id) || !plainText(entry.name, 80) || !SEMVER.test(entry.version) || entry.path !== `plugins/${entry.id}` || !Array.isArray(entry.replaces) || entry.replaces.length > 8 || entry.replaces.some((id) => !/^[a-z0-9-]{1,64}$/.test(String(id))) || !Array.isArray(entry.targets) || !entry.targets.length || entry.targets.length > 8 || entry.targets.some((target) => !TARGET3.test(String(target))) || !entry.release || !exactKeys(entry.release, ["tag", "manifest", "signature", "assets"]) || !TAG.test(String(entry.release.tag)) || !ASSET2.test(String(entry.release.manifest)) || !ASSET2.test(String(entry.release.signature)) || !Array.isArray(entry.release.assets) || !entry.release.assets.length) throw new Error(`Invalid catalog entry: ${String(entry?.id)}`);
+    if (!entry || !exactKeys(entry, ["id", "name", "description", "version", "path", "replaces", "targets", "release"]) || !SLUG.test(entry.id) || ids.has(entry.id) || !plainText(entry.name, 80) || !SEMVER.test(entry.version) || entry.path !== `plugins/${entry.id}` || !Array.isArray(entry.replaces) || entry.replaces.length > 8 || entry.replaces.some((id2) => !/^[a-z0-9-]{1,64}$/.test(String(id2))) || !Array.isArray(entry.targets) || !entry.targets.length || entry.targets.length > 8 || entry.targets.some((target) => !TARGET3.test(String(target))) || !entry.release || !exactKeys(entry.release, ["tag", "manifest", "signature", "assets"]) || !TAG.test(String(entry.release.tag)) || !ASSET2.test(String(entry.release.manifest)) || !ASSET2.test(String(entry.release.signature)) || !Array.isArray(entry.release.assets) || !entry.release.assets.length) throw new Error(`Invalid catalog entry: ${String(entry?.id)}`);
     const targets = /* @__PURE__ */ new Set();
     for (const asset of entry.release.assets) {
       if (!asset || !exactKeys(asset, ["target", "asset", "bytes"]) || !TARGET3.test(String(asset.target)) || targets.has(asset.target) || !ASSET2.test(String(asset.asset)) || !asset.asset.endsWith(".nodus-plugin") || !Number.isInteger(asset.bytes) || asset.bytes < 1 || asset.bytes > 512 * 1024 * 1024) throw new Error(`Invalid catalog asset for ${entry.id}.`);
@@ -1375,7 +1659,7 @@ function validatePackagedModelResult(input) {
   const result = input;
   if (!result || !exactKeys(result, ["kind", "panels", "metadata"]) || result.kind !== "model" || !Array.isArray(result.panels) || !result.panels.length || result.panels.length > 12 || JSON.stringify(result).length > 256e3) throw new Error("Invalid packaged model result.");
   for (const panel of result.panels) {
-    if (!panel || !exactKeys(panel, ["assetId", "nodeIds", "title", "alt"]) || typeof panel.assetId !== "string" || !SLUG.test(panel.assetId) || !plainText(panel.title, 160) || !plainText(panel.alt, 4e3) || !Array.isArray(panel.nodeIds) || !panel.nodeIds.length || panel.nodeIds.length > 2e3 || panel.nodeIds.some((id) => typeof id !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,127}$/.test(id)) || new Set(panel.nodeIds).size !== panel.nodeIds.length) throw new Error("Invalid packaged model panel.");
+    if (!panel || !exactKeys(panel, ["assetId", "nodeIds", "title", "alt"]) || typeof panel.assetId !== "string" || !SLUG.test(panel.assetId) || !plainText(panel.title, 160) || !plainText(panel.alt, 4e3) || !Array.isArray(panel.nodeIds) || !panel.nodeIds.length || panel.nodeIds.length > 2e3 || panel.nodeIds.some((id2) => typeof id2 !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,127}$/.test(id2)) || new Set(panel.nodeIds).size !== panel.nodeIds.length) throw new Error("Invalid packaged model panel.");
   }
 }
 export {
@@ -1385,6 +1669,8 @@ export {
   HOST_CHANNELS,
   IMAGE_MIME_TYPES,
   LIMITS,
+  MAP_LIMITS,
+  MAP_PROVIDERS,
   MODEL_MIME_TYPES,
   NODUS_CAPABILITY_IDS,
   RESERVED_CAPABILITY_IDS,
@@ -1394,6 +1680,7 @@ export {
   TRUSTED_PROTOCOL,
   TRUSTED_PUBLISHER,
   TRUSTED_RUNTIME,
+  VISION_LIMITS,
   WORKER_METHODS,
   artifactEnvelope,
   assertArchiveMatchesRelease,
@@ -1445,6 +1732,11 @@ export {
   validateHostToWorker,
   validateJsonSchema,
   validateLocalizedText,
+  validateMapGeometry,
+  validateMapPosition,
+  validateMapQuery,
+  validateMapRenderRequest,
+  validateMapSource,
   validateMediaAsset,
   validateModelAsset,
   validatePackagedModelResult,
@@ -1456,6 +1748,10 @@ export {
   validateSettingsSubmission,
   validateTrustedPermissions,
   validateViewDocument,
+  validateVisionCandidates,
+  validateVisionReviewRequest,
+  validateVisionReviewResult,
+  validateVisionScores,
   validateWorkerArtifact,
   validateWorkerToHost,
   verifyReleaseManifest,
