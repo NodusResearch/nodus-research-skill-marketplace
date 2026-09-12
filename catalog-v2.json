@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-11T15:36:19.023Z",
+  "updatedAt": "2026-09-12T05:40:23.282Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -34,22 +34,22 @@
           {
             "target": "darwin-arm64",
             "asset": "alphagenome-2.0.0-darwin-arm64.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 47565
           },
           {
             "target": "darwin-x64",
             "asset": "alphagenome-2.0.0-darwin-x64.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 47595
           },
           {
             "target": "win32-x64",
             "asset": "alphagenome-2.0.0-win32-x64.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 47355
           },
           {
             "target": "linux-x64",
             "asset": "alphagenome-2.0.0-linux-x64.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 47765
           }
         ]
       }
@@ -86,22 +86,22 @@
           {
             "target": "darwin-arm64",
             "asset": "chemistry-studio-2.0.0-darwin-arm64.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 21412815
           },
           {
             "target": "darwin-x64",
             "asset": "chemistry-studio-2.0.0-darwin-x64.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 21412815
           },
           {
             "target": "win32-x64",
             "asset": "chemistry-studio-2.0.0-win32-x64.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 21412815
           },
           {
             "target": "linux-x64",
             "asset": "chemistry-studio-2.0.0-linux-x64.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 21412235
           }
         ]
       }
@@ -135,7 +135,7 @@
           {
             "target": "any",
             "asset": "legalize-2.0.0-any.nodus-plugin",
-            "bytes": 134217728
+            "bytes": 57411
           }
         ]
       }

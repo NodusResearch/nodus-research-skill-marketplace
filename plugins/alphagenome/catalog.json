@@ -8,5 +8,11 @@
     "pt-BR": "Previsões do efeito de variantes regulatórias pela API oficial do AlphaGenome, para pesquisa não comercial. Precisa da sua chave e de Python 3.10 ou superior.",
     "it": "Previsioni dell'effetto di varianti regolatorie dall'API ufficiale AlphaGenome, per ricerca non commerciale. Richiede una chiave propria e Python 3.10 o successivo.",
     "tr": "Resmi AlphaGenome API'sinden düzenleyici varyant etkisi tahminleri; ticari olmayan araştırma için. Kendi anahtarınızı ve Python 3.10 veya üstünü gerektirir."
+  },
+  "assetBytes": {
+    "darwin-arm64": 47565,
+    "darwin-x64": 47595,
+    "linux-x64": 47765,
+    "win32-x64": 47355
   }
 }
