@@ -14,9 +14,9 @@ Catalog updates do not change installed **skill packages**: installing a replace
 
 ## Browse the catalog
 
-17 skills across 10 categories.
+18 skills across 10 categories.
 
-- [Data and statistics (2)](#data-and-statistics)
+- [Data and statistics (3)](#data-and-statistics)
 - [Design and visual communication (2)](#design-and-visual-communication)
 - [Health and medicine (1)](#health-and-medicine)
 - [Law and public policy (1)](#law-and-public-policy)
@@ -79,6 +79,7 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
+<tr><td><a href="chart-studio/">Chart Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Create 14 types of deterministic SVG charts from synthetic or non-personal data, with source notes and reproducible calculations.</td><td>✅ <code>self:charts</code></td></tr>
 <tr><td><a href="descriptive-statistics/">Descriptive Statistics</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Calculate count, mean, median, range and population standard deviation from a supplied numeric sample.</td><td>❌</td></tr>
 <tr><td><a href="unit-converter/">Unit Converter</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Convert lengths, masses and temperatures exactly and in batches, without the model doing the arithmetic.</td><td>✅ <code>self:units</code></td></tr>
 </tbody>

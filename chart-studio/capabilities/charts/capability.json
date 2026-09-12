@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "id": "charts",
+  "version": "1.0.0",
+  "description": "Validate bounded numeric data and calculate 14 chart types as self-contained SVG, without host access.",
+  "runtime": "javascript-sandbox-v1",
+  "entry": "runtime.js",
+  "tools": [
+    {
+      "id": "render-chart",
+      "description": "Render one deterministic SVG chart. Supply chartType, title, dataKind, source, and series; categorical charts also need labels. Use only synthetic or demonstrably non-personal data. See SKILL.md for per-type shapes and limits.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chartType": {
+            "type": "string",
+            "enum": [
+              "line",
+              "area",
+              "bar",
+              "grouped-bar",
+              "horizontal-bar",
+              "stacked-bar",
+              "pie",
+              "donut",
+              "histogram",
+              "scatter",
+              "bubble",
+              "box",
+              "heatmap",
+              "radar"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96
+          },
+          "dataKind": {
+            "type": "string",
+            "enum": [
+              "synthetic",
+              "non-personal"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "xLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "yLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36
+            },
+            "minItems": 1,
+            "maxItems": 24
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 48
+                },
+                "values": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": -1000000000000.0,
+                    "maximum": 1000000000000.0
+                  },
+                  "minItems": 1,
+                  "maxItems": 1000
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": -1000000000000.0,
+                        "maximum": 1000000000000.0
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": -1000000000000.0,
+                        "maximum": 1000000000000.0
+                      },
+                      "size": {
+                        "type": "number",
+                        "minimum": 1e-09,
+                        "maximum": 1000000000000.0
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 1,
+                  "maxItems": 300
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 8
+          },
+          "bins": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 30
+          },
+          "radarMax": {
+            "type": "number",
+            "minimum": 1e-09,
+            "maximum": 1000000000000.0
+          }
+        },
+        "required": [
+          "chartType",
+          "title",
+          "dataKind",
+          "source",
+          "series"
+        ],
+        "additionalProperties": false
+      },
+      "resultKinds": [
+        "svg",
+        "text"
+      ]
+    }
+  ],
+  "permissions": {}
+}
