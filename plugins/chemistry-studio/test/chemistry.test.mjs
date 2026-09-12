@@ -8,11 +8,14 @@ import test from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 import { runConformanceSuite, conformanceFailures } from '../../../scripts/contract-v2.mjs';
 
-const here = path.dirname(new URL(import.meta.url).pathname);
+// `fileURLToPath`, not `.pathname`: on Windows a file URL's pathname is `/D:/…`, and
+// joining that onto anything produces `D:\D:\…`, which opens nothing.
+const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'chemistry-studio-test-'));
 process.on('exit', () => fs.rmSync(scratch, { recursive: true, force: true }));
