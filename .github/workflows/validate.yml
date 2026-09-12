@@ -39,7 +39,7 @@ jobs:
       - name: The signing key stays where it belongs
         run: node scripts/validate-workflows.mjs
       - name: Run package tests
-        run: node --test scripts/test-anatomy-visualization.mjs scripts/test-signing-key-shapes.mjs
+        run: node --test scripts/test-anatomy-visualization.mjs scripts/test-signing-key-shapes.mjs scripts/test-licence-file.mjs
       - name: Install build dependencies
         run: npm ci
       - name: Validate capability packages

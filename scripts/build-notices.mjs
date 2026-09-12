@@ -4,6 +4,7 @@
 // too: the application's THIRD_PARTY_NOTICES no longer covers code it does not contain.
 import fs from 'node:fs';
 import path from 'node:path';
+import { findLicenceFile } from './lib/licence-file.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const id = process.argv[2];
@@ -27,8 +28,7 @@ const sections = [];
 for (const name of [...seen].sort()) {
   const dir = path.join(root, 'node_modules', name);
   const meta = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
-  const licenceFile = ['LICENSE', 'LICENSE.md', 'LICENCE', 'LICENCE.md', 'license', 'license.md', 'LICENSE.txt', 'LICENSE-MIT']
-    .map((file) => path.join(dir, file)).find((file) => fs.existsSync(file));
+  const licenceFile = findLicenceFile(dir);
   // A component with no licence text of its own still has to declare one; shipping bytes
   // nobody can account for is the thing this file exists to prevent.
   if (!licenceFile && !meta.license) throw new Error(`${name} declares no licence and ships no licence file; it cannot be bundled.`);

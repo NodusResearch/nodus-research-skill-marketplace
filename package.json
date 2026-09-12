@@ -8,7 +8,7 @@
   "scripts": {
     "validate": "node scripts/catalog.mjs --check && node scripts/validate-templates.mjs && node scripts/validate-workflows.mjs && node scripts/validate-plugins.mjs && npm run typecheck",
     "build:plugins": "node scripts/build-plugins.mjs",
-    "test:plugins": "node --test plugins/*/test/*.test.mjs",
+    "test:plugins": "node --test plugins/*/test/*.test.mjs && node --test scripts/test-licence-file.mjs scripts/test-signing-key-shapes.mjs",
     "catalog:v2": "node scripts/build-catalog-v2.mjs",
     "typecheck": "tsc --noEmit -p plugins/chemistry-studio/tsconfig.json"
   },
