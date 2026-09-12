@@ -117,6 +117,74 @@ permits. Validation refuses a package that declares a runtime and ships no lock 
 target it publishes, because such a package installs and then fails at the first person
 who tries to use it.
 
+### Which targets your package declares
+
+`compatibility.targets` decides how many archives get built, signed and published. Declare
+**`["any"]`** unless the package genuinely differs per platform: a package of JavaScript,
+WebAssembly and data is the same everywhere, and declaring four targets publishes the same
+bytes four times, four times the build, four times the storage, for nothing.
+
+Declare per-platform targets — `darwin-arm64`, `darwin-x64`, `linux-x64`, `win32-x64` — when
+something in the archive actually differs: a native module, a platform-specific binary, or a
+Python runtime lock per target. If you are unsure, build both ways and compare the digests;
+identical digests mean `any`.
+
+Chemistry Studio 2.0.0 declares four and ships byte-identical code in all of them. It is the
+example of getting this wrong, not the example to follow.
+
+A target with no runner configured in `.github/workflows/release-plugin.yml` fails the
+release at its first step, deliberately: adding a platform is a maintainer decision about
+which runner image can honestly build it.
+
+Maintainers editing that map: check the label still exists before you use it. GitHub retires
+runner images, and a retired label does not fail — the job sits in `queued` for as long as
+anyone lets it, while the other targets finish in under a minute. `macos-13` was retired and
+a release waited three quarters of an hour on it. `macos-15-intel` is the last x86_64 image,
+available until August 2027, and is the one the application's own release workflow uses.
+
+### Build and check it locally before opening a pull request
+
+Everything CI runs, you can run. In order, and all of it must pass:
+
+```bash
+npm ci                              # once
+node scripts/build-notices.mjs <id> # regenerate the notices FIRST: the build packs them
+node scripts/validate-plugins.mjs   # manifests, permissions, locks, migration ladder
+npm run test:plugins                # your package's tests, plus the repository's own
+node scripts/build-plugins.mjs      # builds every target your package declares
+npm run validate                    # everything the pull request check runs
+```
+
+The order matters in one place: the notices are packed into the archive, so regenerating
+them after the build produces a package whose notices describe a different build. The
+release workflow generates them before the build that includes them for the same reason.
+
+The build is reproducible, and that is worth something concrete: anyone can rebuild a
+published version from its commit and get the same bytes, so a signature attests something
+checkable rather than something asserted. Verify a published archive with
+
+```bash
+node scripts/build-plugins.mjs
+shasum -a 256 build/<id>-<version>-<target>.nodus-plugin
+```
+
+and compare against the `sha256` for that target in the release's `release-manifest.json`.
+It holds from any machine and in any timezone — a zip stores its timestamps in DOS format
+and the encoder reads them with local getters, so this was true only on UTC until the
+build started pinning components rather than an instant.
+
+**Your tests run on Linux, Windows and macOS.** They did not always, and the day they
+started, a path bug surfaced that had blocked a release: `new URL(import.meta.url).pathname`
+is `/D:/…` on Windows, so joining it onto anything gives `D:\D:\…` and opens nothing. Use
+`fileURLToPath`. Anything that touches a path, a line ending or a filename's case will
+behave differently on one of the three, and the one you do not develop on is the one that
+will find it.
+
+**Every bundled dependency must ship a licence file the notice generator can find.** It
+looks for `LICENSE`, `LICENCE`, `COPYING` in any capitalisation, with or without `.md` or
+`.txt`. A dependency with neither a licence file nor a `license` field in its
+`package.json` stops the build rather than shipping bytes nobody can account for.
+
 ### Publishing
 
 An accepted package becomes official only when a maintainer starts the **Release capability
@@ -139,6 +207,72 @@ The workflow has three stages, and they are separate on purpose:
 `scripts/validate-workflows.mjs` enforces that separation as text on every push: a job that
 reads the key without the protected environment, a signing job that runs a build, or
 anything on a pull request that so much as names the key fails the check.
+
+#### Running a release, step by step
+
+```bash
+gh workflow run "Release capability package" --ref main -f plugin=<id>
+```
+
+It must be `--ref main`: the `capability-signing` environment only accepts deployments from
+`main`, so a release from a branch waits for an approval that can never be given.
+
+The build matrix runs, then `sign` stops and waits. Approve it in the run's page under
+**Review deployments**, or:
+
+```bash
+RUN=$(gh run list --workflow "Release capability package" --limit 1 --json databaseId --jq '.[0].databaseId')
+ENV=$(gh api repos/{owner}/{repo}/actions/runs/$RUN/pending_deployments --jq '.[0].environment.id')
+gh api --method POST repos/{owner}/{repo}/actions/runs/$RUN/pending_deployments \
+  --input - <<< "{\"environment_ids\":[$ENV],\"state\":\"approved\",\"comment\":\"Release <id> <version>\"}"
+```
+
+**If any build fails, `sign` is skipped and nothing is published** — no tag, no release, no
+assets. Fix the cause and run the workflow again under the same version. That is safe
+precisely because nothing was published; it is the one case where re-running a release is
+correct.
+
+After it succeeds, record what was published and commit it:
+
+```bash
+gh release download <id>-v<version> --pattern 'release-manifest.*' --dir build --clobber
+node scripts/record-release-sizes.mjs <id>   # reads the manifest AND verifies its signature
+node scripts/build-catalog-v2.mjs
+```
+
+Both files are needed: the sizes are read from the signed manifest only after the signature
+verifies, so the catalog cannot come to describe something nobody signed. The same numbers
+are uploaded by the workflow as the `catalog-after-<id>` artifact if you would rather take
+them from there. Commit `catalog-v2.json` and `plugins/<id>/catalog.json` through a pull
+request like any other change.
+
+Then, in the Nodus repository, pin the release in `electron/capabilities/bootstrap.json` —
+release URL and every asset's name, size and SHA-256, taken from the same signed manifest —
+and prove it:
+
+```bash
+NODUS_REQUIRE_BOOTSTRAP=1 node scripts/prepare-capability-bootstrap.mjs
+node scripts/verify-cross-repo.mjs
+NODUS_MARKETPLACE_DIR=<checkout> node scripts/verify-capability-migration-e2e.mjs
+```
+
+The first downloads every pinned package and refuses any whose bytes do not match its
+digest; the second checks the pinned versions are the ones this repository publishes; the
+third runs the 5.3.1 migration from them with no network.
+
+#### What the signing secret has to contain
+
+`CAPABILITY_SIGNING_KEY` is an **Ed25519 private key in PKCS#8 PEM form** — the block that
+begins `-----BEGIN PRIVATE KEY-----`, header and footer included, exactly as
+`npm run capabilities:keygen` prints it.
+
+It is pasted into a web form, and three things happen to keys on that journey: the line
+breaks arrive as the two characters `\` and `n`, the value arrives wrapped in quotes, or
+only the base64 body is copied. All three used to reach OpenSSL as
+`DECODER routines::unsupported`, after a full build matrix had already run. They are now
+recovered, and what cannot be — the public half, a key that is not Ed25519, ssh-keygen's own
+`-----BEGIN OPENSSH PRIVATE KEY-----` container — is named in the failure so the next
+attempt is informed. An ssh-format key converts with `openssl pkey -in key -out key.pem`.
 
 The private key is stored only as the `CAPABILITY_SIGNING_KEY` secret of the protected
 `capability-signing` GitHub Environment. Its public half and `keyId` are committed to this
