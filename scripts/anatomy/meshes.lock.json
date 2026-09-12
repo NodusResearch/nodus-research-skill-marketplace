@@ -1,0 +1,4535 @@
+{
+  "sourceArchive": {
+    "file": "isa_BP3D_4.0_obj_99.zip",
+    "url": "https://dbarchive.biosciencedbc.jp/data/bodyparts3d/LATEST/isa_BP3D_4.0_obj_99.zip",
+    "revision": "BodyParts3D-4.0-2013-06-19; licence updated 2025-02-27",
+    "project": "BodyParts3D",
+    "bytes": 142903898,
+    "sha256": "40665852c49f218326590e204db91064a1ecfc3c6f8cbd7bbbcaac62c7cd409e",
+    "license": "CC-BY-4.0"
+  },
+  "meshes": [
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1312.obj",
+      "sha256": "4af03a35f39e75f07c43d63c0561d78f37e98b92381cd4d01a2c3fe53afd561c",
+      "bytes": 104567,
+      "vertices": 890,
+      "triangles": 1776
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1313.obj",
+      "sha256": "a20cd06d796575d9041a6b6e01724f70fb50f1807e324941f43dcdc3e8c51e40",
+      "bytes": 115439,
+      "vertices": 1027,
+      "triangles": 1860
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1330.obj",
+      "sha256": "0a849c085582d60aa2baf8a980498617ceb1c8f3c2ae9c8913cc1ee36b8a1d2c",
+      "bytes": 167022,
+      "vertices": 1399,
+      "triangles": 2720
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1363.obj",
+      "sha256": "05f71831dc54303ffc740a4e38f35475f60c72e4e7348b797acfeac4a1d6d29d",
+      "bytes": 105301,
+      "vertices": 890,
+      "triangles": 1776
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1364.obj",
+      "sha256": "e6a52be718612218521df5194422c0fe7b05fd2f94976ac8e5c526b1fb743b5c",
+      "bytes": 117132,
+      "vertices": 1041,
+      "triangles": 1858
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1381.obj",
+      "sha256": "6c1ec7f14af8bc9883e9f37363e299cbab82f4ecdeb68b1898670004ddf36632",
+      "bytes": 169927,
+      "vertices": 1405,
+      "triangles": 2758
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1431.obj",
+      "sha256": "b66009da13d6241d66de3c0242288abfe0c90ce1c76b38000f9a92b02e2f1e0f",
+      "bytes": 379043,
+      "vertices": 3632,
+      "triangles": 4900
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1431M.obj",
+      "sha256": "6ab42a645723e66a32b2c64e72be87e0a13fb497cbbf2ff29d26bc827fbaa0ce",
+      "bytes": 376391,
+      "vertices": 3634,
+      "triangles": 4900
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1433.obj",
+      "sha256": "a5f75907d784dd2a44d7efa96cb31009aba2afe43465336b105561751b19f8ef",
+      "bytes": 389745,
+      "vertices": 3326,
+      "triangles": 5688
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1433M.obj",
+      "sha256": "3871310f1c1f76ca55cfa4fe043d2e3a25488903fe695674a87c7c893cdc99ae",
+      "bytes": 386385,
+      "vertices": 3326,
+      "triangles": 5688
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1439.obj",
+      "sha256": "b03d2f54644969d153d3dfe4025ee629858e72c1e5ee3b0e7d5f16f54dc505b3",
+      "bytes": 213354,
+      "vertices": 2204,
+      "triangles": 2510
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1439M.obj",
+      "sha256": "948b094bcc119ddbfcfeec4cd27cf21125f27d2d3c25c5344091fbc05833e971",
+      "bytes": 211659,
+      "vertices": 2206,
+      "triangles": 2510
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1442.obj",
+      "sha256": "f67be78d7d0ddc6e78c0683ce4bd5be7492e4137f8661bc54039cbf535a88880",
+      "bytes": 464679,
+      "vertices": 3975,
+      "triangles": 6688
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1442M.obj",
+      "sha256": "507caa464730c508c2fd2f6958f9a5660fb6ca188bc38fafb5c9b5556ac6732b",
+      "bytes": 460942,
+      "vertices": 3974,
+      "triangles": 6688
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1443.obj",
+      "sha256": "5bdb79f52849241e20ff2280332f20efd38f1b4bda1fb1337e10a5c3e466002b",
+      "bytes": 317804,
+      "vertices": 2773,
+      "triangles": 4552
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1443M.obj",
+      "sha256": "8ca4d66734150402401722e8a82f52ada8af9d6973592e127431b742dfe46ad4",
+      "bytes": 315070,
+      "vertices": 2772,
+      "triangles": 4552
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1467.obj",
+      "sha256": "2f69f1a13c836539abca85d9b77f55f96319ad3fdd75c62f498eabe49b266bfe",
+      "bytes": 92591,
+      "vertices": 916,
+      "triangles": 1300
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1467M.obj",
+      "sha256": "a523b5f2ab862ad6505787f4936098fbcfe3f28a3742b57aac34307fe752f8eb",
+      "bytes": 91869,
+      "vertices": 918,
+      "triangles": 1300
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1468.obj",
+      "sha256": "09eebb4a8d72c91936b0bfde7f35829a58f56103ac158f559186698458bcc616",
+      "bytes": 223657,
+      "vertices": 2592,
+      "triangles": 2206
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1468M.obj",
+      "sha256": "75340ac9157ea6c64baaa74c0bbfd6173114dcff0d30ea814702c288b002f104",
+      "bytes": 222006,
+      "vertices": 2604,
+      "triangles": 2206
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1477.obj",
+      "sha256": "1d1c3b42eec0dffe696bd25cffa81784c87c15f16c9605050fdf1cb2f47698dd",
+      "bytes": 182250,
+      "vertices": 1678,
+      "triangles": 2606
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1477M.obj",
+      "sha256": "96d9859e983736f53864e53fa0579b8f6a18006067967df42e4fe7ea2d2b9e6f",
+      "bytes": 180451,
+      "vertices": 1676,
+      "triangles": 2606
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1478.obj",
+      "sha256": "2442d2b5ac30c5da42e72eeff83d143df51c7617001cbc6552096a504f29bc07",
+      "bytes": 105386,
+      "vertices": 1053,
+      "triangles": 1426
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1478M.obj",
+      "sha256": "10189f1d7b5220df3baef2b259ae9855ed301c1afaadfc2de25af3222c5a08fc",
+      "bytes": 103260,
+      "vertices": 1039,
+      "triangles": 1426
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1479.obj",
+      "sha256": "acc48f746bd07a117357a9c49a1a9850c96b85d7c63cf90a662a45717875a315",
+      "bytes": 113287,
+      "vertices": 1105,
+      "triangles": 1588
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1479M.obj",
+      "sha256": "4b8315f9134a213f45c3af830270f4526e705d0a149894516d3f5fba98878f15",
+      "bytes": 112468,
+      "vertices": 1109,
+      "triangles": 1588
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1480.obj",
+      "sha256": "1ea653667afa5ff0bf0e01d71ac648819655241c130e8dd1778ed2f9561c34c5",
+      "bytes": 61608,
+      "vertices": 620,
+      "triangles": 832
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1480M.obj",
+      "sha256": "fc35854102a057ca85a201eeff4c18f03722b1ceab52c311ce1b87abf4fa2ff8",
+      "bytes": 60584,
+      "vertices": 617,
+      "triangles": 832
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1500.obj",
+      "sha256": "28f61376a3a88a28d14c44e1c20e9b7a34129772c130afa003daceac801455b1",
+      "bytes": 69844,
+      "vertices": 743,
+      "triangles": 866
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1500M.obj",
+      "sha256": "9013158a3c598eb6dbf95dcaf72da439721dec4d3ebc37f660db9c2748f1e42e",
+      "bytes": 69046,
+      "vertices": 738,
+      "triangles": 866
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1506.obj",
+      "sha256": "793771eceb64385269ddeeb09245e8c53b67499194f6fa98049b5e17aafa8e0c",
+      "bytes": 76172,
+      "vertices": 843,
+      "triangles": 878
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1506M.obj",
+      "sha256": "6d6741ab840272a59d50c59cd87ccfa676e1f72fa9b600bba06bf9c24d1e01fe",
+      "bytes": 75068,
+      "vertices": 842,
+      "triangles": 878
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1512.obj",
+      "sha256": "2173b7cce29f11036907b80e068e9bd6c16f22359d6e7994af9684454b99b4d5",
+      "bytes": 161507,
+      "vertices": 1739,
+      "triangles": 1856
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1512M.obj",
+      "sha256": "6b0ed7b70973b3a2e08de4ea5ce59c05a4ddce2b90212ff734326be2726d1293",
+      "bytes": 159783,
+      "vertices": 1743,
+      "triangles": 1856
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1513.obj",
+      "sha256": "ef8308c92fd0d01d8c0d7ffd9238305eefc2f28710d7bb58f451512abdc08e99",
+      "bytes": 157136,
+      "vertices": 1665,
+      "triangles": 1900
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1513M.obj",
+      "sha256": "a806a9a20b68009f0071c22411b009f4baef3de118f00a37cc4a3be8cdf7ce2e",
+      "bytes": 156732,
+      "vertices": 1678,
+      "triangles": 1900
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1730.obj",
+      "sha256": "2a682d4918bb85c3bae087e7797ff8051f040cafbfb3c0c864ea3dc9301b629d",
+      "bytes": 245099,
+      "vertices": 1994,
+      "triangles": 3870
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1731.obj",
+      "sha256": "8280c135e11da7f08ef03414797d3b9447e6edcaaa7d60f835831045521b424e",
+      "bytes": 447538,
+      "vertices": 3567,
+      "triangles": 6940
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1732.obj",
+      "sha256": "d24f6c5647b751706d3f7c4dd4b62518fb3e9cd281ed7d2a2437fafbbcd0e1b3",
+      "bytes": 236788,
+      "vertices": 2048,
+      "triangles": 3588
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1733.obj",
+      "sha256": "a8e5d63d28890e42861f2b1c4c7b898dba84b169507315d77e9ebeb2433171e9",
+      "bytes": 239530,
+      "vertices": 2084,
+      "triangles": 3554
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1737.obj",
+      "sha256": "11380059bd0dd04099465800f850d5520c0f6ed911c97cd00262840e20f3825b",
+      "bytes": 46908,
+      "vertices": 427,
+      "triangles": 728
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1738.obj",
+      "sha256": "953032accd04cc408bfdb19ce0127c32043a795e402f5300aafd7259fdabef5b",
+      "bytes": 33446,
+      "vertices": 310,
+      "triangles": 518
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1739.obj",
+      "sha256": "0926a6839371b0179bbf7d0040b3925f338995be63d18fc1b176721db12c82d3",
+      "bytes": 154389,
+      "vertices": 1365,
+      "triangles": 2416
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1740.obj",
+      "sha256": "9e8c3b086c0cd15b9f85189b37529c6d044c153cbd3f16c678a5b79d02efb656",
+      "bytes": 151331,
+      "vertices": 1330,
+      "triangles": 2346
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1743.obj",
+      "sha256": "f7c54da9219af0df072a41ebf7d128f2f59535efc5cde6f7356616eddaebf41e",
+      "bytes": 27755,
+      "vertices": 283,
+      "triangles": 384
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1744.obj",
+      "sha256": "3de90fe338da50f60859e591089e5882cf8ce2df2d0e4acbfc5dae7364c184a5",
+      "bytes": 218647,
+      "vertices": 1927,
+      "triangles": 3290
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1745.obj",
+      "sha256": "b3eafbe2d1289be8c24dde82d8a5475f86a13cb6bcc7d5dbc0b4cfcb2d340132",
+      "bytes": 220234,
+      "vertices": 1928,
+      "triangles": 3292
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1746.obj",
+      "sha256": "aefe572e69d8b7687b29644b0a855ced4e64b255f1cb3ca0e6640cab7292d132",
+      "bytes": 177780,
+      "vertices": 1573,
+      "triangles": 2732
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1747.obj",
+      "sha256": "dd358cac91394ee511250be17f7a0184defecb23a19b921388fb267e23132195",
+      "bytes": 182921,
+      "vertices": 1610,
+      "triangles": 2768
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1748.obj",
+      "sha256": "b7553aaa8a282d5882d9d2809f5fedd7b35ef50710773ac103cfa82f9f184245",
+      "bytes": 148027,
+      "vertices": 1250,
+      "triangles": 2448
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1749.obj",
+      "sha256": "0c8e4e39ba935c4f5b24168b46c99782057ba73379844173de56c60210b45c72",
+      "bytes": 150490,
+      "vertices": 1261,
+      "triangles": 2448
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1750.obj",
+      "sha256": "2c6b332d19defed6c286e58573ee29278e94d1334ef83a2dc671cc063c2c41f1",
+      "bytes": 686435,
+      "vertices": 5375,
+      "triangles": 10740
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1751.obj",
+      "sha256": "2c96a2ee7fb953e36d1b9508a6a5ae91ced3cd8362ff85bcaed1be7ea6b36996",
+      "bytes": 693186,
+      "vertices": 5376,
+      "triangles": 10742
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1758.obj",
+      "sha256": "eb5e61b574f6962ad949427b11d97055553d6e1175ac926164f7f5402d43e5bc",
+      "bytes": 1837827,
+      "vertices": 15286,
+      "triangles": 25542
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1759.obj",
+      "sha256": "d841b56aabfe6785a3b2892de1af5f2f52d87d13b8928d3d2fdf028b9640994d",
+      "bytes": 57341,
+      "vertices": 492,
+      "triangles": 980
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1760.obj",
+      "sha256": "aec134edcffcaea082eaebc3a01fe84700893fcc8cba5868b1ade6a721f530bf",
+      "bytes": 132131,
+      "vertices": 1183,
+      "triangles": 2050
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1762.obj",
+      "sha256": "cdaf86887af5df7757baa33c54afcb440cf29fd206fe7595e88aa12015757ea5",
+      "bytes": 9042,
+      "vertices": 81,
+      "triangles": 156
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1767.obj",
+      "sha256": "8491961042556b62e2570c8e8dec8fe9269908abb34aa738ba7613489acd7838",
+      "bytes": 1158407,
+      "vertices": 8986,
+      "triangles": 17968
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1769.obj",
+      "sha256": "cc1cd37ef3f58fea9ffe8875efa3a33101ee6945dd13bdb28c973303a9986fbd",
+      "bytes": 392219,
+      "vertices": 3196,
+      "triangles": 6036
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1770.obj",
+      "sha256": "6e7eb027702dc4097aa0b2abe46efcffcd1f5e108b1665a649b45420b98229e9",
+      "bytes": 468005,
+      "vertices": 4157,
+      "triangles": 6468
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1772.obj",
+      "sha256": "314b4a735672c1ce6690d29199856569fa3db4864f2d94690e091432e085e057",
+      "bytes": 146521,
+      "vertices": 1251,
+      "triangles": 2376
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1775.obj",
+      "sha256": "d24253c225545078ce9c4420880dc5652e20fb2576a6305a9fadc18f95fba9dd",
+      "bytes": 697135,
+      "vertices": 5764,
+      "triangles": 10304
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1779.obj",
+      "sha256": "ea51306905e78a614e760f45fafae87c988f6e57fc9eeef6aa853b5490f39f14",
+      "bytes": 10340,
+      "vertices": 93,
+      "triangles": 180
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1780.obj",
+      "sha256": "4780787c4dcd06ea54fb8e486a563968b29e274069de01baa421cde17b19718c",
+      "bytes": 60641,
+      "vertices": 627,
+      "triangles": 804
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1781.obj",
+      "sha256": "47003d37cf123dc10b108bb79a2b12638a56f0f2616d0d1f58b727af88d1ec53",
+      "bytes": 1579646,
+      "vertices": 12098,
+      "triangles": 23818
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1783.obj",
+      "sha256": "f0cc5fbc23f9846e881e91cb2221e691694895c7584506d560aca48324d079b5",
+      "bytes": 96372,
+      "vertices": 869,
+      "triangles": 1550
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1784.obj",
+      "sha256": "ecfd67d495a6f5f3bf391f2455f124edf444122d79299fb8fa0b01493e450f29",
+      "bytes": 101913,
+      "vertices": 909,
+      "triangles": 1626
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1785.obj",
+      "sha256": "d328f96770816958f290e2461214dd52c38d3e7395d113eed55ba6065ec76c37",
+      "bytes": 47143,
+      "vertices": 435,
+      "triangles": 740
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1786.obj",
+      "sha256": "2453959db95754c9f3fe6dbe435bbcff98e79f6bbd77c12f1d063c30941fa05f",
+      "bytes": 54449,
+      "vertices": 482,
+      "triangles": 882
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1787.obj",
+      "sha256": "de3c1098d95fc81060b72603e72a4a2a55529b0fb82063dbd0dfc4f3955d720c",
+      "bytes": 226086,
+      "vertices": 1973,
+      "triangles": 3416
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1788.obj",
+      "sha256": "216015b568cc446ae3e7c2ad256f47a352479a6e36c0df025cde311e913fde0c",
+      "bytes": 224095,
+      "vertices": 1960,
+      "triangles": 3326
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1789.obj",
+      "sha256": "52396a1feaedfb7f8f1a334dd02acb35f2897362b0f1a37658edc4e69556db6d",
+      "bytes": 174631,
+      "vertices": 1528,
+      "triangles": 2710
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1790.obj",
+      "sha256": "f2c8ba988026b991559d5195a702675a0a222e9a03711dcb127a909f18ae0fb4",
+      "bytes": 179357,
+      "vertices": 1563,
+      "triangles": 2754
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1791.obj",
+      "sha256": "d504be1cf6f085be1b885b31ac3b1fb1a1fc475855aeda56baa142a600911fe5",
+      "bytes": 293610,
+      "vertices": 2538,
+      "triangles": 4390
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1792.obj",
+      "sha256": "e9e4bb82648576fbe6256992771f0ab0917cfea10d15325c86869283573a64ad",
+      "bytes": 307991,
+      "vertices": 2625,
+      "triangles": 4564
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1795.obj",
+      "sha256": "b424373c89b88a2916e4ec4ef9aef0b273606df7713f107ba8dcf7e5303f1768",
+      "bytes": 34031,
+      "vertices": 292,
+      "triangles": 580
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1796.obj",
+      "sha256": "e79b1a41d81d066e798dcda7f73f7ffd58741adfbd709d47baacccb2fabfcce0",
+      "bytes": 70119,
+      "vertices": 609,
+      "triangles": 1164
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1797.obj",
+      "sha256": "e05f6ec80fa902f5334cc5e8c029359674d39c39a90f86476a6d1d190ca1f30a",
+      "bytes": 236182,
+      "vertices": 2033,
+      "triangles": 3604
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1798.obj",
+      "sha256": "ce476b98e79e988bbf2efa1b8593019d0cc64114cf455d00347ed6e95ee5f037",
+      "bytes": 238993,
+      "vertices": 2045,
+      "triangles": 3604
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1800.obj",
+      "sha256": "9f375219acb0aed075860e5afe3562be19bde6061a007d3096d52f96aa59e944",
+      "bytes": 270175,
+      "vertices": 2336,
+      "triangles": 4042
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1801.obj",
+      "sha256": "89e9017a488f4854ef4daaa5488bbe0bada8aed4cd81352553305beda8caef85",
+      "bytes": 274741,
+      "vertices": 2382,
+      "triangles": 4042
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1806.obj",
+      "sha256": "89ef94f2f907f9da109e55c1a6a7a59ef7118555fa0d39e02ef37f1f69c26e98",
+      "bytes": 1922977,
+      "vertices": 15757,
+      "triangles": 26512
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1807.obj",
+      "sha256": "76ef76851cf014d1e090f63328963dad9041cf10f20066eb1e92e4619f700c30",
+      "bytes": 60478,
+      "vertices": 515,
+      "triangles": 1020
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1808.obj",
+      "sha256": "122de5cfac67f779f911876ea1faca1fb9546327b1a1654d395f571f711772f7",
+      "bytes": 131989,
+      "vertices": 1191,
+      "triangles": 2028
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1810.obj",
+      "sha256": "af734152040c2d046a83a3163b95cd996c7fd361cbe930088944c984fb0241f4",
+      "bytes": 11681,
+      "vertices": 104,
+      "triangles": 204
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1814.obj",
+      "sha256": "5a0c29cf5c573d35f225df3c96c66cc34eb166fde8e54323b3c22b6f2220248b",
+      "bytes": 1168390,
+      "vertices": 9011,
+      "triangles": 18016
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1817.obj",
+      "sha256": "b86a8f1ce035a5ec382122a210f86239c581a5478f2b1b5f377b021542981f2e",
+      "bytes": 461102,
+      "vertices": 4050,
+      "triangles": 6440
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1819.obj",
+      "sha256": "3fde0d489978522bb0c916db61287c42aedfb4c6660b6f8016a148ffccef89f4",
+      "bytes": 146608,
+      "vertices": 1242,
+      "triangles": 2378
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1822.obj",
+      "sha256": "474dffce10e8506b5f8a7aac5d6ccfc7ef6251490b36b5f04a7fa2676b7fb708",
+      "bytes": 727798,
+      "vertices": 6179,
+      "triangles": 10346
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1826.obj",
+      "sha256": "6698c53727491bdb63e7a474b201a8c6b8b504de7004567d76028ddec94a67c5",
+      "bytes": 10171,
+      "vertices": 91,
+      "triangles": 176
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1828.obj",
+      "sha256": "f3053705d7e2ef8a499890e13332163870f063f3908f4a148f070cc7b9c90051",
+      "bytes": 65789,
+      "vertices": 715,
+      "triangles": 802
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1830.obj",
+      "sha256": "585176d67d072ead00bab6b4d0ca42a151ace76bed1c20c1aeed22b8b4c57ac1",
+      "bytes": 1598659,
+      "vertices": 12226,
+      "triangles": 23882
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1831.obj",
+      "sha256": "7c19ec386aadaafdae3dab8aa99c08d5db47fa063f689e99ee7e9cdf0bdbeda9",
+      "bytes": 401304,
+      "vertices": 3281,
+      "triangles": 6060
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1833.obj",
+      "sha256": "b1705a60646438f5c1bd8d215c738f90e7aed9c9360a8ab94993a1e6b5649851",
+      "bytes": 432276,
+      "vertices": 3625,
+      "triangles": 6452
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1834.obj",
+      "sha256": "505aff0f5fba6160aa273af517d8ef9f9e4d7bd6ee904e2739ccf41f8d7af441",
+      "bytes": 437650,
+      "vertices": 3671,
+      "triangles": 6450
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1835.obj",
+      "sha256": "6d1cc1963191120c07eb557c728b4cd00ccf63467b3858a408a6b5ba4564719c",
+      "bytes": 366912,
+      "vertices": 3181,
+      "triangles": 5364
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1836.obj",
+      "sha256": "e3291cc04dcdc3743d8fe67951d2b1589294062d116873515194e0c6c979c770",
+      "bytes": 383555,
+      "vertices": 3241,
+      "triangles": 5640
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1841.obj",
+      "sha256": "895a1e9e5eaed7443d9fe9544fefede9db219aaf38d30a4674cde778e1bdfb8e",
+      "bytes": 149885,
+      "vertices": 1323,
+      "triangles": 2344
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1842.obj",
+      "sha256": "374934ec8c016aec1aae2cad47d80b1d2668354cc890b0227a0b102c9b3b4469",
+      "bytes": 152420,
+      "vertices": 1368,
+      "triangles": 2314
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1883.obj",
+      "sha256": "3f2550995fc2df1d1cd49e4a421d50f66b88dca0dbbdb7938174d4625bd95c7e",
+      "bytes": 29370,
+      "vertices": 283,
+      "triangles": 428
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1893.obj",
+      "sha256": "6feb8f567af7332f25a489990a4ae24ad92fc740d0d78a110b52954149a6d2fc",
+      "bytes": 86147,
+      "vertices": 786,
+      "triangles": 1354
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1895.obj",
+      "sha256": "ed9111890b410aebacb86ae06ce2f7e3010bac8a2db3f9b292b53359bbf18026",
+      "bytes": 307895,
+      "vertices": 2462,
+      "triangles": 4890
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1913.obj",
+      "sha256": "64e5a9bab9d7d720f64740afe2af45ddef2d6d4fd30bb588125bf65d00e5cd89",
+      "bytes": 219500,
+      "vertices": 1910,
+      "triangles": 3286
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1914.obj",
+      "sha256": "07b9c81f6ae022508c9eb109714eb9eb2cb319bb388e7320a93e4bf9c43568ef",
+      "bytes": 19612,
+      "vertices": 180,
+      "triangles": 316
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1916.obj",
+      "sha256": "bddea5b341bc0e4264040c98ea96b65e0971535f3031311e201ea4282b835c8b",
+      "bytes": 22945,
+      "vertices": 214,
+      "triangles": 362
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1931.obj",
+      "sha256": "b213c8178b48f9afae695254f7bcfb3e08d5781878a76724c353e7e6ea6269be",
+      "bytes": 142151,
+      "vertices": 1229,
+      "triangles": 2290
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ1932.obj",
+      "sha256": "c74d3742308c1f05ce9e85c4508d348e3debf57d4aab5bfbc42041d682d39e02",
+      "bytes": 141418,
+      "vertices": 1226,
+      "triangles": 2270
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2038.obj",
+      "sha256": "2bf3da140369524e15335694773718b4e83b254234bc3e8376a4708565276045",
+      "bytes": 13008,
+      "vertices": 124,
+      "triangles": 206
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2041.obj",
+      "sha256": "37f8aded042995628b9be6f00234767685850030820c95f76e27c187d8795057",
+      "bytes": 17500,
+      "vertices": 158,
+      "triangles": 290
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2044.obj",
+      "sha256": "38048313983bb2075e1556ae6610f32e93027d84f595125d073c3e086dd48713",
+      "bytes": 16919,
+      "vertices": 155,
+      "triangles": 276
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2046.obj",
+      "sha256": "b1a9ce8a37cd9c89fbf4c90a68a554184bf2919dbad391c552c0f4c8dd788845",
+      "bytes": 17690,
+      "vertices": 166,
+      "triangles": 288
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2386.obj",
+      "sha256": "6001dc21e4c922894507a1f4db097a00610b848778c8ad27de3f006f7ee19a9a",
+      "bytes": 22945,
+      "vertices": 214,
+      "triangles": 362
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2404.obj",
+      "sha256": "907b048e5f08e8f546427173996d76d7844d7b57fe3576d9ade854d8e5875534",
+      "bytes": 523744,
+      "vertices": 4965,
+      "triangles": 6706
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2405.obj",
+      "sha256": "b3e72f06d867b67fe7a4e1322293758709c00aa07e0a087b80ec273af6d8a128",
+      "bytes": 261163,
+      "vertices": 2605,
+      "triangles": 3230
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2409.obj",
+      "sha256": "6d7b0d3d2fc1f1e4255f8b665a61bbbf3ea6712cea85a95246851acbfda0c98f",
+      "bytes": 596944,
+      "vertices": 5091,
+      "triangles": 8534
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2415.obj",
+      "sha256": "dced2210d0b4b725e40c2e63791023fdcf7ee8aadd2f6718fd442c0e7654107f",
+      "bytes": 87845,
+      "vertices": 803,
+      "triangles": 1386
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2416.obj",
+      "sha256": "2d3c37d1811a909e5cfd016f9d5c700b433d5f55e4bcb5fb64494dbfcb839181",
+      "bytes": 264801,
+      "vertices": 2510,
+      "triangles": 3538
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2417.obj",
+      "sha256": "12d2dccc78efa7d21f6f4af53ae08603be473613ec4e04b0beb9c0239b96da56",
+      "bytes": 78664,
+      "vertices": 708,
+      "triangles": 1272
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2418.obj",
+      "sha256": "ad6dbf98d5afb2dd5010c42df9d707bf172b0ecc4f6e22c70716d022660aadc8",
+      "bytes": 54778,
+      "vertices": 532,
+      "triangles": 816
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2419.obj",
+      "sha256": "1169b9b927ff75aac2dc2406a700b962bb9f3c95b860c5271548414d9e1226da",
+      "bytes": 59575,
+      "vertices": 580,
+      "triangles": 882
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2420.obj",
+      "sha256": "f0294cbbd35096d1df5e8bdc92f17dbed5ebf981e62024a07e7ca18e31eb1a94",
+      "bytes": 495300,
+      "vertices": 4052,
+      "triangles": 7558
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2421.obj",
+      "sha256": "7303c55e6d9c2e294759f7f7e01d23fc120eba74bce9ade0a01cc4bdb2bd4200",
+      "bytes": 532771,
+      "vertices": 4282,
+      "triangles": 8160
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2422.obj",
+      "sha256": "8844c5fc464d23fdc785d1d254d666a4d3b70b14b73ec90ca0c77ba4aff3dd37",
+      "bytes": 102171,
+      "vertices": 879,
+      "triangles": 1722
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2423.obj",
+      "sha256": "f0d7cbf9e10c0fcefe96741700605e7080d4a627fe214b4c8d5647d970e085f7",
+      "bytes": 113621,
+      "vertices": 973,
+      "triangles": 1918
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2424.obj",
+      "sha256": "53739664c1d4a5bb635ca48c216b54deb16bb947d76a4ad75635adf69c8fa11c",
+      "bytes": 139097,
+      "vertices": 1193,
+      "triangles": 2244
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2425.obj",
+      "sha256": "d93197cc47f47d6d084de017917c88de039a4ab632b421893cede03264f43384",
+      "bytes": 65824,
+      "vertices": 587,
+      "triangles": 1064
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2426.obj",
+      "sha256": "86fa5ef6decf47a91d33f826e1b5579bbecd94795c206b2d797f52c36c3e1020",
+      "bytes": 57407,
+      "vertices": 526,
+      "triangles": 914
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2427.obj",
+      "sha256": "eb867fa648f3da04036d925e6a740d4e3a922b893d74a20dec40d8d763a18414",
+      "bytes": 62530,
+      "vertices": 573,
+      "triangles": 996
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2429.obj",
+      "sha256": "2f02411a806eedacfcb662b2dee47ca60f8448eb5243f48fb32083df66541ca4",
+      "bytes": 51282,
+      "vertices": 487,
+      "triangles": 780
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2430.obj",
+      "sha256": "971ab49fff2908862fc230653f5f0980424e2030ae7f29f7f96637e8b636c4e8",
+      "bytes": 48375,
+      "vertices": 484,
+      "triangles": 692
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2431.obj",
+      "sha256": "40ae6e23decbb5fe2ea3800d44d517302f219078266abd8dcbc7d86ebc246799",
+      "bytes": 21434,
+      "vertices": 215,
+      "triangles": 316
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2432.obj",
+      "sha256": "0b296151ecceff395da5c435bcf65cf6dfca390e72eb0be71d778fee84bc216b",
+      "bytes": 274620,
+      "vertices": 2560,
+      "triangles": 3820
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2433.obj",
+      "sha256": "6519afbf9aa2eb3c0dc25d8e332a0208fd2ad68956c1dfe1ef6b010f04984d55",
+      "bytes": 325359,
+      "vertices": 2729,
+      "triangles": 4926
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2434.obj",
+      "sha256": "ed432a90e8fbfe9742d524044c0bd20c165f2a9a820ee585f00635cc47c5b5c0",
+      "bytes": 85105,
+      "vertices": 769,
+      "triangles": 1370
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2435.obj",
+      "sha256": "b498ef286aa1ba0bfeaf2114298f43078007beab66fc81f422ff6017c309bd7a",
+      "bytes": 56513,
+      "vertices": 508,
+      "triangles": 920
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2436.obj",
+      "sha256": "f0572079c56ea2a00eff869b07c4910defd624c5bda3fddd2403e4f1831f6be1",
+      "bytes": 302591,
+      "vertices": 2591,
+      "triangles": 4526
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2437.obj",
+      "sha256": "8ac0c0aa95adc3f41e82f51bbd8e8a74681f4e58af7f7edd4bc9c5aafffa97c7",
+      "bytes": 56351,
+      "vertices": 539,
+      "triangles": 844
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2438.obj",
+      "sha256": "ad28c5925374c6648bafb77ac9a89163316c101559cb730906208c96266ae078",
+      "bytes": 510077,
+      "vertices": 4284,
+      "triangles": 7544
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2439.obj",
+      "sha256": "6e87510c607541b53b124f8224b6be74cb9b7351e29102246053b30a7260d8dd",
+      "bytes": 1211683,
+      "vertices": 9887,
+      "triangles": 17784
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2441.obj",
+      "sha256": "33123bb230f138819c9dc2ae54edece0bc1721d2866ef89811d078ca2271e796",
+      "bytes": 70213,
+      "vertices": 631,
+      "triangles": 1134
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2442.obj",
+      "sha256": "1e9bf00b2bf8f77c29a1157c5bba72485fb0ab8010fe44dff95107ef0fd36bcd",
+      "bytes": 45223,
+      "vertices": 409,
+      "triangles": 730
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2443.obj",
+      "sha256": "5762558ddb8849e4b153195d82ee5a5691f84d4f2df0e7c745eff8c8489409ea",
+      "bytes": 28509,
+      "vertices": 270,
+      "triangles": 440
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2444.obj",
+      "sha256": "856d6224036529a4a65e87c8f22ac7d33da8b68e0902d2c14ba3fa4701f91714",
+      "bytes": 35966,
+      "vertices": 332,
+      "triangles": 572
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2445.obj",
+      "sha256": "6e6c5a231e65b7bef20a7e53d8502c2f6ac6130274ddd5ec1bf14ac7505d46ea",
+      "bytes": 38917,
+      "vertices": 354,
+      "triangles": 626
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2446.obj",
+      "sha256": "7512a2599ad515e6da4bee78fcf6c733bfde4051e751dc7b244b22dabd62c0cb",
+      "bytes": 44818,
+      "vertices": 405,
+      "triangles": 722
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2447.obj",
+      "sha256": "69755241502c6303c50d6c81407817ce8d4157082023366bc40a2424b6d9d539",
+      "bytes": 18282,
+      "vertices": 175,
+      "triangles": 284
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2448.obj",
+      "sha256": "607a717c900545ef341f9277ecbe480df4c5cffaadad78c5c4faf4453f6e7ead",
+      "bytes": 28607,
+      "vertices": 270,
+      "triangles": 444
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2449.obj",
+      "sha256": "59f02bde361bda6a689041f06e62c85db982f03284ec890945afedd6a0430623",
+      "bytes": 53488,
+      "vertices": 477,
+      "triangles": 858
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2451.obj",
+      "sha256": "5b475f6a03ad628448180cd512a815f3c876cc04cd31df3de2956f8a75297dc0",
+      "bytes": 32323,
+      "vertices": 297,
+      "triangles": 514
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2452.obj",
+      "sha256": "28b277d4addaef997ad321f22f812cde53bdc51667207d681688e150f6d2e216",
+      "bytes": 33253,
+      "vertices": 303,
+      "triangles": 528
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2453.obj",
+      "sha256": "f33580f6a5cf34cae999fe9e7fb0c3b823f86fc79468bed83b796933af6d0aaf",
+      "bytes": 24910,
+      "vertices": 232,
+      "triangles": 390
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2454.obj",
+      "sha256": "0d1fe6020737f73d91fe7fab1b7f781816804805b582af796e1cee0bd69f7cfd",
+      "bytes": 24467,
+      "vertices": 226,
+      "triangles": 388
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2455.obj",
+      "sha256": "a7b73a3360384fd2e9eef7850baf8d93cc9c60a77e0be14d33e8a18670ccb384",
+      "bytes": 41444,
+      "vertices": 379,
+      "triangles": 650
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2456.obj",
+      "sha256": "9618558be1a7924aec93e7a2431c222fbe723112d3d7b01b80ae002f628ea679",
+      "bytes": 11587,
+      "vertices": 115,
+      "triangles": 170
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2457.obj",
+      "sha256": "e8cf29571a15240de5213324d5e8b581040e8b34df2dda533c69509614e0b485",
+      "bytes": 41052,
+      "vertices": 373,
+      "triangles": 654
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2458.obj",
+      "sha256": "a3ce34712a330f1f68a69844dd4ab3b6c5323b5b181ee12a26bcde37752c39da",
+      "bytes": 31978,
+      "vertices": 291,
+      "triangles": 510
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2459.obj",
+      "sha256": "e7a6e272ac39100057ce028da1e92ad9435f6c25a132f00eff7747f3b70e0895",
+      "bytes": 33798,
+      "vertices": 318,
+      "triangles": 516
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2460.obj",
+      "sha256": "d25137e40619d56cb76954ce0ccaf25f6d4465ae60765376f5d8848f6a6c8722",
+      "bytes": 14635,
+      "vertices": 147,
+      "triangles": 214
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2461.obj",
+      "sha256": "4d0b21c48c199c6abd066ecf4b8065d3518bd66f8e041276e55cb09634691daf",
+      "bytes": 9641,
+      "vertices": 99,
+      "triangles": 136
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2462.obj",
+      "sha256": "1e1d71a49a966d61b8c1283e443ee4830e42b9d81e2aba211521532375c87f54",
+      "bytes": 9883,
+      "vertices": 106,
+      "triangles": 126
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2463.obj",
+      "sha256": "59855819cb634d688980d726341777457851f8aea561bcec9ef8d5eb29b824dd",
+      "bytes": 8982,
+      "vertices": 97,
+      "triangles": 114
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2464.obj",
+      "sha256": "71d0f3ab8572a8f6ce16e2174ae225bd372f11e85551b248a3307e519df9389c",
+      "bytes": 6247,
+      "vertices": 70,
+      "triangles": 64
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2465.obj",
+      "sha256": "3291920d5a3d74747787ab887f2ee6488947c818d699144b8b31fbc29dc67ce0",
+      "bytes": 7550,
+      "vertices": 81,
+      "triangles": 92
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2466.obj",
+      "sha256": "0185a370daf6fd3fbfd735750fe381c0add29c872cda555d89db3eb618c97a0c",
+      "bytes": 6104,
+      "vertices": 68,
+      "triangles": 64
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2467.obj",
+      "sha256": "88b367329ff1f1fd1845547aba1e3d978c628b125b1a935ee353e001dc7feb95",
+      "bytes": 27153,
+      "vertices": 258,
+      "triangles": 418
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2468.obj",
+      "sha256": "d177dc0bf89f719b76543428dc453a731a4594a70c992a2cef77fe5e7f8005b2",
+      "bytes": 15200,
+      "vertices": 161,
+      "triangles": 208
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2469.obj",
+      "sha256": "b060a3b1f9b8ba09ca26cb08c6eb30711bfc19c7eff41d836fe4a51de6c9ec54",
+      "bytes": 7820,
+      "vertices": 89,
+      "triangles": 84
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2470.obj",
+      "sha256": "972a7ff1592d3af358d6f7017cc45d9ef0bc9594a36566b89247e014a6a79635",
+      "bytes": 53665,
+      "vertices": 484,
+      "triangles": 846
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2471.obj",
+      "sha256": "67d58b429e4f1fd56a4d77535424cb2a92a6b39296b60b55fd6bef27e25273bd",
+      "bytes": 7979,
+      "vertices": 82,
+      "triangles": 108
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2472.obj",
+      "sha256": "228829195b9f660b3bb0647fd7120f29da7798f39ac5e12660e1276b2fe990df",
+      "bytes": 9292,
+      "vertices": 101,
+      "triangles": 116
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2473.obj",
+      "sha256": "7deb3136fa167bf70077da2931261e60b21889b352a0d6f5da9af016d25f0fb3",
+      "bytes": 10229,
+      "vertices": 116,
+      "triangles": 116
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2474.obj",
+      "sha256": "4b84683d1a1cb4a2fd38f82bba550bb8b07a05d7bab9754299033556b9f85c29",
+      "bytes": 10854,
+      "vertices": 119,
+      "triangles": 136
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2475.obj",
+      "sha256": "157e0253e53bb5e7110835297ecba635ceeb3d1b554c00fd114a2f97972d2d6e",
+      "bytes": 13699,
+      "vertices": 133,
+      "triangles": 214
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2476.obj",
+      "sha256": "093444732d0ded4df52b20ae1f5b59eee696fd19b26216ac064a9eb8fe06b9d1",
+      "bytes": 10226,
+      "vertices": 108,
+      "triangles": 136
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2477.obj",
+      "sha256": "9798fe281f7c3275fcfae1a9437c3a6842dc9463bfd4db7b4773e73081d676c5",
+      "bytes": 7579,
+      "vertices": 89,
+      "triangles": 74
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2478.obj",
+      "sha256": "3d4ead8d959f7a39607ae6e5c808b103ba8911985f0bfa967316331d199d8311",
+      "bytes": 7824,
+      "vertices": 87,
+      "triangles": 88
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2479.obj",
+      "sha256": "3830cf13d55ef96f8e9fd91a52c48831849814b4a3bb02a74d72772531757dfc",
+      "bytes": 13556,
+      "vertices": 133,
+      "triangles": 208
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2480.obj",
+      "sha256": "5335cf43cc352a0c00f849c7c41580b2d9f19eefc82533cd7d0db2517c849098",
+      "bytes": 8652,
+      "vertices": 94,
+      "triangles": 108
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2481.obj",
+      "sha256": "d586ab09096adf98389c3234dc598eeb125fffac3a42b8413a09ec46cac7a477",
+      "bytes": 26001,
+      "vertices": 273,
+      "triangles": 344
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2482.obj",
+      "sha256": "6c5fa660f85db4a20327f1007e9ec448b86cf846a6ed92a95281eb5f1e4aba26",
+      "bytes": 8138,
+      "vertices": 87,
+      "triangles": 104
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2483.obj",
+      "sha256": "7df5738548239bdc4a24c483879ff27ea6b4327ffb1e42d4cd0034615f84a8e3",
+      "bytes": 7645,
+      "vertices": 83,
+      "triangles": 92
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2484.obj",
+      "sha256": "ba62da27a57b0d9d52886102053c36287d18a4ffd3d73fa52282503c78369ed1",
+      "bytes": 9355,
+      "vertices": 97,
+      "triangles": 128
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2485.obj",
+      "sha256": "312ff368cf3cccc5aab93a6b86dd6da01e13081230e185e8b08cb08a603d9466",
+      "bytes": 6455,
+      "vertices": 75,
+      "triangles": 60
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2486.obj",
+      "sha256": "040fa459564e5d96aae851e57a17d574c1e75690eb5fc6d8de652dec5ff0c67b",
+      "bytes": 16874,
+      "vertices": 167,
+      "triangles": 248
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2487.obj",
+      "sha256": "add56320754ae7c0bfc21d3ff390cc68826c8e579c8eeeb20962e3ddd8948a71",
+      "bytes": 92179,
+      "vertices": 830,
+      "triangles": 1448
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2488.obj",
+      "sha256": "7bf1a524bd107caf965ed7a8487701b536f36cad71974a161e2c19f402fbfd97",
+      "bytes": 49535,
+      "vertices": 477,
+      "triangles": 732
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2489.obj",
+      "sha256": "8a2869fee37d0aa7d3f3b476f825bd5695efae9bda96f39e145e7e07ef35fac3",
+      "bytes": 40296,
+      "vertices": 374,
+      "triangles": 618
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2490.obj",
+      "sha256": "acbdd4c2657ede0393dc77449cab92cdd1fc97514c4e8cd63b23748d2b50d460",
+      "bytes": 37021,
+      "vertices": 348,
+      "triangles": 566
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2491.obj",
+      "sha256": "e2f93d3cfedd5e452d45f3a7c5b0b3c3144b359f262e5b1e8cb16a7cbcff5e52",
+      "bytes": 92646,
+      "vertices": 839,
+      "triangles": 1440
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2492.obj",
+      "sha256": "0bd70830d691447cda85821a608d467606a8a0283cd2e26a9b7589e5d98495c2",
+      "bytes": 19869,
+      "vertices": 206,
+      "triangles": 272
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2493.obj",
+      "sha256": "4147ba8fbd0d5ceb70986415529640f4e2b9d24eabba8cdb5d04ccc9dde28479",
+      "bytes": 93222,
+      "vertices": 860,
+      "triangles": 1428
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2494.obj",
+      "sha256": "d9aa0ffe1e84e107c301afe37b7e9215f18f91263dab4457ec6fca6f08153dd6",
+      "bytes": 21163,
+      "vertices": 211,
+      "triangles": 304
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2495.obj",
+      "sha256": "f8c8b9b64fdafce2385f78ce5819763a9da937524875f2f5a36e3d0af29ed64f",
+      "bytes": 56785,
+      "vertices": 527,
+      "triangles": 866
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2496.obj",
+      "sha256": "fa0fb2f796560c290ca9658b65261bff5f6399012fe6114bebe9432a1dea027d",
+      "bytes": 174526,
+      "vertices": 1482,
+      "triangles": 2752
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2497.obj",
+      "sha256": "6000e5977e208a2dfcea7e890968cfdbd6920a34f0c3fda8125430fc9071510a",
+      "bytes": 21048,
+      "vertices": 214,
+      "triangles": 294
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2498.obj",
+      "sha256": "00f9ebe6fe2cda88e5ec768211c6b109b105d2aaffbd1f424b5e19a4b81f39d4",
+      "bytes": 42016,
+      "vertices": 385,
+      "triangles": 660
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2499.obj",
+      "sha256": "1c875ae0d690de3a1fbea0e6a3cfb42d46d8f0fa575d8ec258c707cae4a7d460",
+      "bytes": 91671,
+      "vertices": 822,
+      "triangles": 1456
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2500.obj",
+      "sha256": "17b4ad40ebf82d81350771f8adae1c87efd6d89fa49b3c998c53e401f3f80a3d",
+      "bytes": 17851,
+      "vertices": 174,
+      "triangles": 266
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2501.obj",
+      "sha256": "84f6d4b6fa39304482a677fde96c5729e7bc1877ffaa82ed1a9d1ebec8269c59",
+      "bytes": 35375,
+      "vertices": 325,
+      "triangles": 554
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2502.obj",
+      "sha256": "73c04388dca57d4ab313d00e49976590695e764ae53d858c5dfc039d32d343ca",
+      "bytes": 23997,
+      "vertices": 233,
+      "triangles": 352
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2503.obj",
+      "sha256": "1649d2ff3fcfa429f8e4c93e7de7468018e185ae68e17bde6d18cf33a4ed52b4",
+      "bytes": 50477,
+      "vertices": 488,
+      "triangles": 734
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2504.obj",
+      "sha256": "0b5660ca67c3ab38fa7ed9e2b8e633bbd858b7c67a95e025ca306a761bbd6f00",
+      "bytes": 160496,
+      "vertices": 1419,
+      "triangles": 2456
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2505.obj",
+      "sha256": "4ab14542922a1b8cf4afe2bc9c9f50da15757c1fd1db6ad59423530f31af8e3a",
+      "bytes": 33245,
+      "vertices": 331,
+      "triangles": 472
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2506.obj",
+      "sha256": "0292a9a81d98de56ccfdf6fb55b5563da138830e475137a5070a7cd5186b364a",
+      "bytes": 158003,
+      "vertices": 1364,
+      "triangles": 2482
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2507.obj",
+      "sha256": "0e580d73a8733ec4f3d76ca1fed549a4a201451ffafdd284947e232164f8b18f",
+      "bytes": 97328,
+      "vertices": 881,
+      "triangles": 1516
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2508.obj",
+      "sha256": "aa6f083c7aecc3c18e365efbe7a3eed94d39ec6053ee1a718649259a4ba3b749",
+      "bytes": 56008,
+      "vertices": 529,
+      "triangles": 834
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2509.obj",
+      "sha256": "bacf2f794a97e196c01eab6ca2eb3eddb01640ca22c85c377b765619dceda160",
+      "bytes": 150020,
+      "vertices": 1307,
+      "triangles": 2350
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2510.obj",
+      "sha256": "afcd6f7bd439449fe51749c3e5f7fd57e519d8f4bd342b70e177a53b7f7efc57",
+      "bytes": 53839,
+      "vertices": 494,
+      "triangles": 836
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2511.obj",
+      "sha256": "a2ece43ce172230ba8d1d78e23ef304f22440eab25ef8f9f3cda8607cedecc73",
+      "bytes": 19854,
+      "vertices": 198,
+      "triangles": 286
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2512.obj",
+      "sha256": "1bf44a6129d63171e64680f583ff1962bfe7356878068b862d9004f56207a11e",
+      "bytes": 23220,
+      "vertices": 227,
+      "triangles": 340
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2513.obj",
+      "sha256": "9edf192a51a7c8a278d0555a7363d4b15b024a7ee529b57387da7036130339c0",
+      "bytes": 49223,
+      "vertices": 449,
+      "triangles": 770
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2514.obj",
+      "sha256": "d8390e9d6f0cedb8662fdc4ff3c1d49da17126c10b95556134afdbe99a36f806",
+      "bytes": 41453,
+      "vertices": 385,
+      "triangles": 636
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2515.obj",
+      "sha256": "dba632e0eb00bef2c89c7717899e53f8ed8ac99a7b5c8e420c2a7ab2cbaf363d",
+      "bytes": 142644,
+      "vertices": 1269,
+      "triangles": 2204
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2516.obj",
+      "sha256": "3ff9c0e013483992cf79883aaf18744f98830fcba9efe3ca8be45897a92d3368",
+      "bytes": 58281,
+      "vertices": 544,
+      "triangles": 882
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2517.obj",
+      "sha256": "f3a209efb481ddc20c6552aabb36aeea2cf768ef0f64b79a52608ca80fedb6ba",
+      "bytes": 20366,
+      "vertices": 199,
+      "triangles": 302
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2518.obj",
+      "sha256": "e540808877aaa91b5be29864e9113f4b1253e3e6a5a6756d758c647fac4487fe",
+      "bytes": 14594,
+      "vertices": 147,
+      "triangles": 210
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2519.obj",
+      "sha256": "a2deb26fbdf267090068b4dec220501edf6979a06ac9aabe98a271f5357243de",
+      "bytes": 15771,
+      "vertices": 158,
+      "triangles": 228
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2520.obj",
+      "sha256": "f1f7b8cdfc733be149b2d4bf307089ef4d0596a4d84fca71078bb5e5cdd608eb",
+      "bytes": 113130,
+      "vertices": 1011,
+      "triangles": 1794
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2521.obj",
+      "sha256": "3166914d1ec86f13a5f587ef91be96d5f1d817997f2713df2722908b42ad43d8",
+      "bytes": 38743,
+      "vertices": 358,
+      "triangles": 600
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2522.obj",
+      "sha256": "9ad756f8db92cd610b012421d35b0d520c0112f45285132830c491adb84d3c6e",
+      "bytes": 57657,
+      "vertices": 533,
+      "triangles": 882
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2523.obj",
+      "sha256": "92f1efb0d1a32f3deb6aae7204f2b36aba8292cfb85a8e86f17b68cdb63e5fe2",
+      "bytes": 14322,
+      "vertices": 144,
+      "triangles": 208
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2524.obj",
+      "sha256": "304897c7aa101334d497be865fc9d5930022de58075e096894d078efab7d604f",
+      "bytes": 19993,
+      "vertices": 200,
+      "triangles": 286
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2525.obj",
+      "sha256": "621a6146014903a0fa47e07c7c78341e9d0c43ccbb9d02346c0466bfc38ca0fb",
+      "bytes": 12488,
+      "vertices": 127,
+      "triangles": 176
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2526.obj",
+      "sha256": "52f8d7514d3be35b979a1fd5a57802f8b438b127523cb5048577e95f75f6bd76",
+      "bytes": 12187,
+      "vertices": 125,
+      "triangles": 170
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2527.obj",
+      "sha256": "efdb7fda9b2d4b8db290546c8b9f4280c66c1f97e63fcb2d3f2e23554da58480",
+      "bytes": 13889,
+      "vertices": 138,
+      "triangles": 210
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2528.obj",
+      "sha256": "6abc4b824662648fa6e6736ab03d7e8efc56c2372b336de43eb7f731876b2b50",
+      "bytes": 16762,
+      "vertices": 164,
+      "triangles": 256
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2529.obj",
+      "sha256": "de05cf2dc656d4feb2dbd7193e5e01627ac0a03c4799acd04854d0cfaa636906",
+      "bytes": 9543,
+      "vertices": 109,
+      "triangles": 106
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2530.obj",
+      "sha256": "b5c8c78cca56b1a7aa1476e00fef9b4e197ee147dd48afd36898145bf1a95941",
+      "bytes": 8174,
+      "vertices": 86,
+      "triangles": 108
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2531.obj",
+      "sha256": "2bc3e9ce08886f320971cf60d3dd939a4451adac0b8db9d09a2631a483243927",
+      "bytes": 6576,
+      "vertices": 78,
+      "triangles": 58
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2532.obj",
+      "sha256": "953d6cc1918eff9461aee31efc25e76887172e12ec53a1f0d111d0cc8befd7d4",
+      "bytes": 17525,
+      "vertices": 166,
+      "triangles": 278
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2533.obj",
+      "sha256": "c43490eff32f90b562175cd0b4c8587578e848c4cdb6c56be09ad544532bd8d5",
+      "bytes": 12149,
+      "vertices": 133,
+      "triangles": 154
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2534.obj",
+      "sha256": "1fe46580953452be24eaa6d3299ffea73f08db8702521d3a94830bd33cba1755",
+      "bytes": 6326,
+      "vertices": 70,
+      "triangles": 68
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2535.obj",
+      "sha256": "c29863dca3c4bf7f3efd6ad45b441617cf60d22cdb95063d933a90589d0e0db3",
+      "bytes": 19239,
+      "vertices": 186,
+      "triangles": 296
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2536.obj",
+      "sha256": "70ae3a7660605d3cb646c3a0ff37eb70da749989b5b49a3aaebdad9469e8738a",
+      "bytes": 19364,
+      "vertices": 187,
+      "triangles": 298
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2537.obj",
+      "sha256": "9f279addba9096afd26134520ddda161fa0bf40e5819f56fbe69c6ef21d00ca6",
+      "bytes": 7242,
+      "vertices": 76,
+      "triangles": 92
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2538.obj",
+      "sha256": "177ba9e7fbdd87d32a628d67aba4bc1e6d79789e0c9df6e13b87c3971411d951",
+      "bytes": 10397,
+      "vertices": 110,
+      "triangles": 138
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2540.obj",
+      "sha256": "ca60a905794f9e55584b9e1f02e2c5f8c8d11b62a3874f809ff36aedffddbb5f",
+      "bytes": 23856,
+      "vertices": 230,
+      "triangles": 366
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2561.obj",
+      "sha256": "8dadb164d15392b61e0b08286625c9ea9f959a0f13d8f166b32d84abad4689bf",
+      "bytes": 79430,
+      "vertices": 689,
+      "triangles": 1330
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2564.obj",
+      "sha256": "b11689fa42e28706ddeecb6ccbf1e70769d8b91ad4158e51d77613870c049f6d",
+      "bytes": 106974,
+      "vertices": 914,
+      "triangles": 1810
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2566.obj",
+      "sha256": "d2aed7015dd89b459e729b369aee74225897040f657f32532451d6e86364c662",
+      "bytes": 214378,
+      "vertices": 1812,
+      "triangles": 3310
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2567.obj",
+      "sha256": "37f234799588e453631023d3614f35cbe0c6fd1ef7c368fbc777791ebad00196",
+      "bytes": 365589,
+      "vertices": 3039,
+      "triangles": 5588
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2571.obj",
+      "sha256": "aaedd56539179e2091b3217d11fd42c298ed01a971463725f6c32372289c6819",
+      "bytes": 129712,
+      "vertices": 1121,
+      "triangles": 2118
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2572.obj",
+      "sha256": "54042e8841ce0437a5f3c07cbbc466c1bdcc14721bedaf16629be24214456f97",
+      "bytes": 225548,
+      "vertices": 1923,
+      "triangles": 3472
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2573.obj",
+      "sha256": "7b076d8f2367cf837121ebaf340f38bed6d8683bfafc0fb809b5f597204ce706",
+      "bytes": 112674,
+      "vertices": 977,
+      "triangles": 1860
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2574.obj",
+      "sha256": "16ab3700aeac0a201b6848884e657c0c5f0dc4cc7a365814e856756356fc2d9e",
+      "bytes": 22513,
+      "vertices": 197,
+      "triangles": 380
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2575.obj",
+      "sha256": "0f3d2c2e478de930782ac8409822cc7bc77bcad24b0dc68f2c2d5f2b5058a821",
+      "bytes": 16098,
+      "vertices": 144,
+      "triangles": 276
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2576.obj",
+      "sha256": "ab8d6f11196edc0778a158c50f16338160f173e37bb2c63b57248f4b2c8d387e",
+      "bytes": 10155,
+      "vertices": 94,
+      "triangles": 172
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2577.obj",
+      "sha256": "19af9210c60c5dedac76d50f43103f6bfb1411f0ca34f50c251c2837f48edb3a",
+      "bytes": 19010,
+      "vertices": 174,
+      "triangles": 314
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2578.obj",
+      "sha256": "d23af268ff49dbe3e78c351e8a2c20347a890c7604553d6583f85e695c4458da",
+      "bytes": 17636,
+      "vertices": 161,
+      "triangles": 292
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2579.obj",
+      "sha256": "79670b6b97e83339ef31f2dd0fc9196623bca329e364c36cb23505cf8d4ce23f",
+      "bytes": 16651,
+      "vertices": 150,
+      "triangles": 280
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2580.obj",
+      "sha256": "093e09b1272803fea1ccfefdca36cd9a85ae7b0dc12d6053650159691184ca16",
+      "bytes": 20138,
+      "vertices": 176,
+      "triangles": 344
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2581.obj",
+      "sha256": "199d17856fcda30fbb79721399301be8c8e7f6525638a281fc15d98d39cc99b1",
+      "bytes": 12419,
+      "vertices": 118,
+      "triangles": 198
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2582.obj",
+      "sha256": "4b7542ce787e9a26b8d66e383e732dc151501591edaf773b2aff3810b5c8661d",
+      "bytes": 12520,
+      "vertices": 114,
+      "triangles": 212
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2583.obj",
+      "sha256": "ef929b2a4808e105095fbcb54f7a0efd9642c4bb2d4b3b008000d879f00b4dac",
+      "bytes": 11377,
+      "vertices": 102,
+      "triangles": 198
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2584.obj",
+      "sha256": "ae0c9db0a3aab546d23cb594520c9ec6df06018c1a405866ed96e8ddfd91344e",
+      "bytes": 13109,
+      "vertices": 116,
+      "triangles": 228
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2585.obj",
+      "sha256": "656837ad68f3fa13c92a185a0e7451bef5334313ec0e690b6498b8e657177d8d",
+      "bytes": 17446,
+      "vertices": 158,
+      "triangles": 288
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2586.obj",
+      "sha256": "f319923348088e0426bec6f23d8d0a680d509b39e9f464e447ff01537550945e",
+      "bytes": 15734,
+      "vertices": 143,
+      "triangles": 264
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2587.obj",
+      "sha256": "58c11233ec1c440955708129c27fcf6645200842f49f6108381e73499d10cd8a",
+      "bytes": 13065,
+      "vertices": 117,
+      "triangles": 228
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2588.obj",
+      "sha256": "5caf97246c79045ac5c4193bb0c6f49fcb0eb9c8313c89a5355b84269e538a73",
+      "bytes": 15688,
+      "vertices": 142,
+      "triangles": 266
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2589.obj",
+      "sha256": "c3c8d2aba92877028a005e4664aa1940e20675864c486ee4ed2fd58b9bd75b7f",
+      "bytes": 18966,
+      "vertices": 168,
+      "triangles": 326
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2590.obj",
+      "sha256": "9a95ff519a9c6fbcde3bd4d8e5c1fb176b09ac3655958435ec746972807ca395",
+      "bytes": 10651,
+      "vertices": 97,
+      "triangles": 184
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2591.obj",
+      "sha256": "602a553e5c8a719a35899756192a3dc0d38aa8331088366f932ce87522442dc3",
+      "bytes": 13161,
+      "vertices": 118,
+      "triangles": 226
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2592.obj",
+      "sha256": "c79336e332292d4309c28a50e5627d5cd230793d726e9a16ee332c05dcd9b47a",
+      "bytes": 14150,
+      "vertices": 129,
+      "triangles": 236
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2593.obj",
+      "sha256": "c15d373a7df5eff3d96956cb86a5483e9d851722c0227ca65705b84aaa0d0e78",
+      "bytes": 15166,
+      "vertices": 134,
+      "triangles": 262
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2594.obj",
+      "sha256": "aea6e45c051e63828e5858f310438b82c1f37127f0f9c476264d680d0cb686ea",
+      "bytes": 12692,
+      "vertices": 113,
+      "triangles": 220
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2595.obj",
+      "sha256": "12621062d9985278a6670f9ef530f702bdeaae0ed900fd9ef891619838eb924b",
+      "bytes": 15372,
+      "vertices": 139,
+      "triangles": 258
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2596.obj",
+      "sha256": "ddc92a29d13d62a0af8054b2ce1b29c8f5d5ad37d94749b9d16b37caa8e7cec6",
+      "bytes": 14164,
+      "vertices": 135,
+      "triangles": 226
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2597.obj",
+      "sha256": "0e58590c8efb5b315ee6e86b2db2f5c3b472b137b4dcbed5cc64af05b0efb85e",
+      "bytes": 11751,
+      "vertices": 106,
+      "triangles": 202
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2598.obj",
+      "sha256": "5577d053a9c4439136bc89c76a2b921e3744e238a663876b4d8986ccfd0952e9",
+      "bytes": 14437,
+      "vertices": 129,
+      "triangles": 246
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2599.obj",
+      "sha256": "7b759605d311999dcd8c3ff13f224f9a208f4856ddaf21057d8e31952ee8dff1",
+      "bytes": 17331,
+      "vertices": 156,
+      "triangles": 288
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2600.obj",
+      "sha256": "4b254fba367e214ea0ee50092ea889cb33d1ed16188c7cd42303ddc0b0e74d71",
+      "bytes": 15129,
+      "vertices": 136,
+      "triangles": 256
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2601.obj",
+      "sha256": "89a9deb9fbb973777151294539d6671ba3a60881ef039f961e48383c96afbb55",
+      "bytes": 13045,
+      "vertices": 125,
+      "triangles": 208
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2602.obj",
+      "sha256": "2c581b53ba3dfe752047a1b5ebe09aa09a9ee346318a32b9a49f4827887aee7c",
+      "bytes": 15569,
+      "vertices": 139,
+      "triangles": 270
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2603.obj",
+      "sha256": "e96ab7178c36f7f866011302b350826286e7f5ad0a1eaf1c8dee99ca432a1f84",
+      "bytes": 17212,
+      "vertices": 154,
+      "triangles": 294
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2604.obj",
+      "sha256": "92ab01ea520fc8d7e4b9b600561fb2b87326fe0862e8eada2a6006f180480f31",
+      "bytes": 12057,
+      "vertices": 114,
+      "triangles": 198
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2605.obj",
+      "sha256": "1179d3d42044f2fe0ba905e4309903d2b183917e7e3bddae4d4eb39bccda695d",
+      "bytes": 19703,
+      "vertices": 177,
+      "triangles": 332
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2606.obj",
+      "sha256": "ce76c8dcbc3bb0f680a2ef28d8189f83e5c592e9d47221748a5a76d64c75d3db",
+      "bytes": 21174,
+      "vertices": 207,
+      "triangles": 320
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2607.obj",
+      "sha256": "4b8ade8c084400f54235de2b7a07c1c00a55188e039d155cccfb4e0949de0317",
+      "bytes": 14008,
+      "vertices": 127,
+      "triangles": 240
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2608.obj",
+      "sha256": "513dc588198af60a4a485f377d0d41cbc4605af0d9f6de9f53feb731a68a8bac",
+      "bytes": 15007,
+      "vertices": 133,
+      "triangles": 262
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2609.obj",
+      "sha256": "f3ce3b6373f85a9f3363cd7b4455ec7e1e46bc5ea651054aa6830ff36f499f2f",
+      "bytes": 10881,
+      "vertices": 98,
+      "triangles": 192
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2610.obj",
+      "sha256": "cf50c596ed1456bf5347e8cc934917df432e2cbd6cbbaa24c071b3de515fd2e0",
+      "bytes": 17388,
+      "vertices": 156,
+      "triangles": 296
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2611.obj",
+      "sha256": "85c5a24cad7ce9cd0ece69684f03fcade57278a203ee57c286e67e2d8437b911",
+      "bytes": 13407,
+      "vertices": 123,
+      "triangles": 226
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2612.obj",
+      "sha256": "abd6543bf57c2ccb77cd8826f2b53d0a1aa3aa73dd25a90e22ce00d2c9438588",
+      "bytes": 14765,
+      "vertices": 134,
+      "triangles": 248
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2613.obj",
+      "sha256": "bc7cd56da2b75199443192ad7aedce2b6d5792b600e9cf0fea8d371299010826",
+      "bytes": 10129,
+      "vertices": 91,
+      "triangles": 176
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2614.obj",
+      "sha256": "72fc1c4d2cda7f96a973183de24ec71131837bf487062e6f5f8abc2968ac357e",
+      "bytes": 13427,
+      "vertices": 120,
+      "triangles": 232
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2615.obj",
+      "sha256": "d4e86afd7bd6ccec12e8aaee65778fc8e19e2ac121e09d3bb1e008e213ec2474",
+      "bytes": 16018,
+      "vertices": 147,
+      "triangles": 264
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2616.obj",
+      "sha256": "e1c395c49145967ae4a39c834742f0b8bbb35dc10892be5280b0d9830e8102fb",
+      "bytes": 26543,
+      "vertices": 233,
+      "triangles": 444
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2617.obj",
+      "sha256": "4d66c78e9cc7480ef9478b2f748ccc39bb1bb1eaaf71cef57f86fe91d26cf61c",
+      "bytes": 14286,
+      "vertices": 135,
+      "triangles": 234
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2618.obj",
+      "sha256": "5b801924e87bd3d10eb2b7105890a0510c5a16599691326ad837e5406ed1e66b",
+      "bytes": 13019,
+      "vertices": 117,
+      "triangles": 222
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2619.obj",
+      "sha256": "f7528c1c3848fdb1eb6a7825921a1cd88c0f9562e23b10fe185e2bfa29935af1",
+      "bytes": 15666,
+      "vertices": 142,
+      "triangles": 260
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2620.obj",
+      "sha256": "cdcff6f317156211ac22142bb810d92fbcb5b6126cfc766214a52b53cee74c7d",
+      "bytes": 17065,
+      "vertices": 154,
+      "triangles": 284
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2621.obj",
+      "sha256": "65e6e5bf1801d72384bf327c325f797bd352af572fff30304f0ae27ee6e7eb76",
+      "bytes": 30868,
+      "vertices": 278,
+      "triangles": 500
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2622.obj",
+      "sha256": "cc557657fa88c5f95e8d0bd20802e58a3ba4e4251ffb9eb24a082de80447c215",
+      "bytes": 10194,
+      "vertices": 99,
+      "triangles": 160
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2623.obj",
+      "sha256": "fe5e4ed69d2fb0ccae5131fd561ced20865eddf636b2006b3c2e74a962dad3e4",
+      "bytes": 22957,
+      "vertices": 206,
+      "triangles": 386
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2624.obj",
+      "sha256": "9effee9dd5939a095686d19da6843e955a931a8a824cadeb0ad62a3df42a0278",
+      "bytes": 10187,
+      "vertices": 94,
+      "triangles": 172
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2625.obj",
+      "sha256": "ccf2ebb17962096e76775a1623d1f92b1aeb10d7a1b416addfc36966829d4871",
+      "bytes": 8813,
+      "vertices": 79,
+      "triangles": 152
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2626.obj",
+      "sha256": "e94d9c72fd2ae2156d7eb75cad13b9c8f9ce90bdc11c2b1a7fe6d6f0d34698ba",
+      "bytes": 20247,
+      "vertices": 188,
+      "triangles": 330
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2627.obj",
+      "sha256": "026030df12b0633b8065f625c6a3aa74dc708f148d8418241a5e222f94b1f521",
+      "bytes": 10880,
+      "vertices": 99,
+      "triangles": 190
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2628.obj",
+      "sha256": "09917e2cc32ec1c345a677bb851a1ce000f9c445bfbec9e783d8a10c95b86c06",
+      "bytes": 13914,
+      "vertices": 128,
+      "triangles": 236
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2631.obj",
+      "sha256": "ca7d8c0c82982ef1c838cd2224650c810adc3e52aaf6b345f0cdb77d7b068c5e",
+      "bytes": 187038,
+      "vertices": 1549,
+      "triangles": 3032
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2632.obj",
+      "sha256": "74d743ebe7ccb06a69244bccb59789cbb094af1f3b279e24be5541b9d01d2f6c",
+      "bytes": 8543,
+      "vertices": 91,
+      "triangles": 108
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2633.obj",
+      "sha256": "ba9e2eca1abc7946b27b8adb9846f1b626c7cc3e942da1a2cd2301e0c02bcf1f",
+      "bytes": 32810,
+      "vertices": 318,
+      "triangles": 492
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2634.obj",
+      "sha256": "575eec8663acbae025b51ad8fa42dc6229f35d6f5d25673912c76cb59f117aec",
+      "bytes": 14842,
+      "vertices": 158,
+      "triangles": 196
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2635.obj",
+      "sha256": "bc02d461ae79073f21f350b3c9751d7ccb973ea3c74f8c58bc9a2aeafc533281",
+      "bytes": 51353,
+      "vertices": 495,
+      "triangles": 766
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2636.obj",
+      "sha256": "119cc81d1816f1db4c3d64add10efa63c9148e3177b74d10184f7a1e579581e5",
+      "bytes": 28744,
+      "vertices": 282,
+      "triangles": 420
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2637.obj",
+      "sha256": "d4fa7aa9a6e224a3c7fea1264f4d81ea076ec7baaa8b1c8b3da8e1053bbf4e4a",
+      "bytes": 13104,
+      "vertices": 144,
+      "triangles": 160
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2638.obj",
+      "sha256": "bad6520fcbcea112ca400ba5328e52f7b2ff680346b5b2591db2e97394f9b6e5",
+      "bytes": 22808,
+      "vertices": 246,
+      "triangles": 290
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2639.obj",
+      "sha256": "a80ec5085d0430fa9ae5b643042742bb9757cfd23d3f0280e162751b91acda5f",
+      "bytes": 11513,
+      "vertices": 122,
+      "triangles": 150
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2640.obj",
+      "sha256": "7391892f7c4a8ab6165bf17e6e5ba1367267f14b2cf845233456cb5945f31e14",
+      "bytes": 20309,
+      "vertices": 218,
+      "triangles": 260
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2641.obj",
+      "sha256": "0a9b2c86202434b7aa66c2499c680c40c5d3ebce6bc3ef73c927018ff2c81718",
+      "bytes": 31770,
+      "vertices": 322,
+      "triangles": 442
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2642.obj",
+      "sha256": "2f6dbb44742cd505762e3f24eb2ed3e9ed929f7a909ac28db4df68393e098888",
+      "bytes": 58861,
+      "vertices": 525,
+      "triangles": 964
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2643.obj",
+      "sha256": "3ee93d012a24f6fb93c92faa6eb35d918a3875b58cb0dd52ca5e3dc010ee55cf",
+      "bytes": 29632,
+      "vertices": 269,
+      "triangles": 478
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2644.obj",
+      "sha256": "91b7c72f9fd221c63dd14932b7e66a0331e96d1b0aff3bfbec21f12187530467",
+      "bytes": 20055,
+      "vertices": 193,
+      "triangles": 306
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2645.obj",
+      "sha256": "d6dcbc3294545f857df903393a6db47b268e3a97e8a0c87a0ab5bef056469eee",
+      "bytes": 22289,
+      "vertices": 224,
+      "triangles": 318
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2646.obj",
+      "sha256": "4549b2c6a0bf1d15057bd6185fdafbec846deecc464b6cbfb19f7cedb68b815c",
+      "bytes": 30477,
+      "vertices": 287,
+      "triangles": 470
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2647.obj",
+      "sha256": "18044f3caa4b23c89e8ce42555df29326c1ff1bdbf4b52559473dfb8368b040a",
+      "bytes": 21395,
+      "vertices": 216,
+      "triangles": 306
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2648.obj",
+      "sha256": "33bdf6f3048e9c940710c1cfc27e59af549f37c14b58ba24bd12f3bd5b284d73",
+      "bytes": 20026,
+      "vertices": 203,
+      "triangles": 286
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2649.obj",
+      "sha256": "d4833bb0b60ee79f526150ad7ba9124e326aba8cd48000711bf3a6b0997b0ce0",
+      "bytes": 81031,
+      "vertices": 692,
+      "triangles": 1380
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2650.obj",
+      "sha256": "dd2c38fdc784311c955fb8b0420d70dfbdf16f0ce6e236a086dc5f350faae04c",
+      "bytes": 29816,
+      "vertices": 316,
+      "triangles": 396
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2651.obj",
+      "sha256": "864567c4b15c3add5a8184edb142766538936e2ef17af4efa25acca67f4344d8",
+      "bytes": 37854,
+      "vertices": 395,
+      "triangles": 510
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2652.obj",
+      "sha256": "fd5ee304558da1d1ffebb01ca7f59b374087667e71d473fe5401f355a2ff161f",
+      "bytes": 22767,
+      "vertices": 240,
+      "triangles": 308
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2653.obj",
+      "sha256": "74fc42fbc783857619dccb5a753b06cbfce9abc6403f14e38f55bbb9fafdad80",
+      "bytes": 20958,
+      "vertices": 232,
+      "triangles": 252
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2654.obj",
+      "sha256": "4e8467b12ca3374d25807d5de058cfb8d147ad2decd99f6debe57847a83099a1",
+      "bytes": 13776,
+      "vertices": 150,
+      "triangles": 172
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2655.obj",
+      "sha256": "6095f578e12b9a85dcf978692793f775494086ab09b7eb44e6a069049640bd82",
+      "bytes": 37441,
+      "vertices": 331,
+      "triangles": 624
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2656.obj",
+      "sha256": "cb9c6b4e10e43c92c8ea4e2e1a66215d98cf58d72fcc60aeadc8a0f87f6724fc",
+      "bytes": 49555,
+      "vertices": 434,
+      "triangles": 826
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2667.obj",
+      "sha256": "4a43aa2911b4b1ee153d8948e5edfa99c078f374603a52c69100ab3ae2ef4362",
+      "bytes": 25908,
+      "vertices": 267,
+      "triangles": 360
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2668.obj",
+      "sha256": "512479cec370a4390d5f2f0555fbdfc7ba3c2e8fb7b78b242cb4382ede30287f",
+      "bytes": 16400,
+      "vertices": 176,
+      "triangles": 216
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2670.obj",
+      "sha256": "e734bab3fcf2ee2bfba0eb6f827f8894fd9ff86e261f4fff0cf1ec37c3f84073",
+      "bytes": 28943,
+      "vertices": 280,
+      "triangles": 442
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2671.obj",
+      "sha256": "9ca85be93a017bc2a8aa7d565b3ec320620e4b22e78936b0d6f52b7cf3015be5",
+      "bytes": 32032,
+      "vertices": 313,
+      "triangles": 478
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2672.obj",
+      "sha256": "032c1562f06b7c960e1524fd8259fa321d59426ba0a9e6df32b42eb2c79e8e11",
+      "bytes": 47950,
+      "vertices": 447,
+      "triangles": 742
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2673.obj",
+      "sha256": "9ffff6952448478f178b3a4debe89cc0cb28035cf392f992c119768406f1cf32",
+      "bytes": 23827,
+      "vertices": 243,
+      "triangles": 338
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2674.obj",
+      "sha256": "e4ff01e6ce03c7f0bfd28d099680623dd2e98829bde7efb9dbd9936029e3961d",
+      "bytes": 18806,
+      "vertices": 186,
+      "triangles": 284
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2675.obj",
+      "sha256": "18496992ff047cc1578789bb356e181e91fd0bc3f59332f392b64ef02a91cc45",
+      "bytes": 14381,
+      "vertices": 148,
+      "triangles": 200
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2676.obj",
+      "sha256": "5455ee32b46013949d56fbdbbe87d08988975d7e3504105b270ed942376a13f8",
+      "bytes": 22233,
+      "vertices": 233,
+      "triangles": 304
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2677.obj",
+      "sha256": "475b16a4d4a365a732fa8dbc1757f57b81ca99847ef2d36dd160656994dae474",
+      "bytes": 18719,
+      "vertices": 198,
+      "triangles": 252
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2692.obj",
+      "sha256": "c38882cfb2a4ff493aece22ced1f23c9e044bf9cc091f14d40c7256179d34ccf",
+      "bytes": 62836,
+      "vertices": 608,
+      "triangles": 930
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2693.obj",
+      "sha256": "2f089666f8301e52400250614677a5c824bfa37fee55bfeb545904c8acffc063",
+      "bytes": 50460,
+      "vertices": 480,
+      "triangles": 766
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2694.obj",
+      "sha256": "8579bbf2af9aa03a93604db0f05283334baf131b26ca17d9bbd9c1ff281ee048",
+      "bytes": 30018,
+      "vertices": 305,
+      "triangles": 424
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2695.obj",
+      "sha256": "8a50ff9ad16191e3fd6cadb480943d212796d9cba391659c186be731b8f68d6a",
+      "bytes": 15952,
+      "vertices": 163,
+      "triangles": 236
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2696.obj",
+      "sha256": "0d90aa40e3ac1a0d4423d19da7c8a9f4446063bdae1b7246f97669c6db3720df",
+      "bytes": 26375,
+      "vertices": 286,
+      "triangles": 336
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2697.obj",
+      "sha256": "da528958c3c9784dc6ed9c04cd0a8d1fe6678c66e3792e0c258b1b51c9a07874",
+      "bytes": 17355,
+      "vertices": 188,
+      "triangles": 220
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2698.obj",
+      "sha256": "d253c0270030d4f2845f99ec3658e0e0ac9a79bda8e6d2e3ec1cae9d1942c9bd",
+      "bytes": 17208,
+      "vertices": 195,
+      "triangles": 200
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2699.obj",
+      "sha256": "4434305060b28d0b294b33cc18cdeb62f7a525f1282500c24dfb558205ec54a5",
+      "bytes": 11081,
+      "vertices": 126,
+      "triangles": 126
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2700.obj",
+      "sha256": "2c4dacf7f7029de9075b4671085accefcf96200b4dbaba8a130ac1c3b177ebc6",
+      "bytes": 19411,
+      "vertices": 197,
+      "triangles": 280
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2714.obj",
+      "sha256": "d7d9ed93cb831b5beb98cdbbb814d2628e38efcc524028a4a291ee6144ea5c03",
+      "bytes": 51286,
+      "vertices": 482,
+      "triangles": 794
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2715.obj",
+      "sha256": "f18dda103cde54e3a21c811c33f2dc3cf25f000eaff460703c696e76cc6a0e3f",
+      "bytes": 17086,
+      "vertices": 185,
+      "triangles": 218
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2716.obj",
+      "sha256": "0efa7807739a27fd0fd8ee6fb043ebdc17c8c824b1d068ddcf8bc305a138ca19",
+      "bytes": 17573,
+      "vertices": 188,
+      "triangles": 232
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2717.obj",
+      "sha256": "3fb3cd79b66f9ec1be89382534eef8b9294328d6e7c17a7b48e87dd879316579",
+      "bytes": 24857,
+      "vertices": 259,
+      "triangles": 340
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2718.obj",
+      "sha256": "f08dbbc4cb90043b874b8483b378c0da44a573a6dccbb17530f8f07e8c32ba0c",
+      "bytes": 13359,
+      "vertices": 139,
+      "triangles": 186
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2719.obj",
+      "sha256": "56493dd7e056b7c7cb462293402c3fa42dbb82c572dc746dfee5685eb4afe94a",
+      "bytes": 28572,
+      "vertices": 299,
+      "triangles": 380
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2720.obj",
+      "sha256": "425ff09df45ea552c0d9a6d3cb57ec55a16ca5ca37e0736bf6ba5dea6cdf03a9",
+      "bytes": 22827,
+      "vertices": 233,
+      "triangles": 320
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2721.obj",
+      "sha256": "36858ad1fc4dd8f39de435eb42715c02b75976da212e9f322723e222d9862922",
+      "bytes": 18826,
+      "vertices": 198,
+      "triangles": 256
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2722.obj",
+      "sha256": "ba9b6f6885b2fa65dd32aa1799dd1d3c77f2a95baac9dcab816704ad74fcd0d3",
+      "bytes": 23583,
+      "vertices": 244,
+      "triangles": 320
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2723.obj",
+      "sha256": "cd008769cb9d565a75bf6b91b5ad3bd482932e37c4747837f6c9446cd23b73a2",
+      "bytes": 281611,
+      "vertices": 2255,
+      "triangles": 4502
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2724.obj",
+      "sha256": "1da253198ab9482187ad49300d2d8cc594a44ed4e805c01e027d1df481f3403c",
+      "bytes": 33909,
+      "vertices": 294,
+      "triangles": 570
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2727.obj",
+      "sha256": "d54aafb93539879b37513605156084a45d9161134ad4c64b16e6ceca2dff77e2",
+      "bytes": 65355,
+      "vertices": 627,
+      "triangles": 970
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2728.obj",
+      "sha256": "601bfbfb4d36b9a044995b8fddaecc8897fe7ff3f8e2d2b03ba8758de9318ba6",
+      "bytes": 19145,
+      "vertices": 190,
+      "triangles": 282
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2729.obj",
+      "sha256": "e69c55079d6a139103feb2117bf5c70599ccb28f0aaae75719b36e772a6cc9d8",
+      "bytes": 15250,
+      "vertices": 156,
+      "triangles": 222
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2731.obj",
+      "sha256": "69c00eaa21cf6e04da2b794ec4d56ec0900f502b59cbe616e129ee8099008296",
+      "bytes": 52845,
+      "vertices": 454,
+      "triangles": 892
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2737.obj",
+      "sha256": "22aa075132e33f9a3d3be135515362b03ab84f12a0d641edde35e260fb2cd65b",
+      "bytes": 12641,
+      "vertices": 121,
+      "triangles": 204
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2816.obj",
+      "sha256": "384a517622b5ae1106a811ee557deb1a1349d5cc94c230c283a1bab9d34f0a79",
+      "bytes": 317277,
+      "vertices": 2526,
+      "triangles": 5020
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2817.obj",
+      "sha256": "6ac50f710bc24344ce81bf63bcf2bb1250b2c765bd3d3feb6a893840c1434918",
+      "bytes": 144859,
+      "vertices": 1202,
+      "triangles": 2396
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2818.obj",
+      "sha256": "c1523e137e1466a66e9263161f6155e1bbcf263f74c4cafebec1a5993fd8fde0",
+      "bytes": 936395,
+      "vertices": 7482,
+      "triangles": 14326
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2819.obj",
+      "sha256": "d14abcca7dbd82529eedd830d9ed9c80edd4261b22c32d681b9cb14feffdfa46",
+      "bytes": 677762,
+      "vertices": 5487,
+      "triangles": 10326
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2820.obj",
+      "sha256": "bac2d30a479b0a7765f4a7fe4e25bd44fa7c01cd6a0b24bf4323d270bad75b35",
+      "bytes": 1296045,
+      "vertices": 11418,
+      "triangles": 17942
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2821.obj",
+      "sha256": "dcd7f4d1a09b3034cfe4b51a2efe766201ff09bcea53d8c2315219034b0aa3de",
+      "bytes": 793787,
+      "vertices": 6605,
+      "triangles": 11442
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2822.obj",
+      "sha256": "14b4e694857cea1de3897262a83d9aab0a8a05c39eef12e775a2adc58def97a8",
+      "bytes": 1282103,
+      "vertices": 9988,
+      "triangles": 19450
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2823.obj",
+      "sha256": "9c8659ff030e9e48504c0faccad1af0f45b865220e013fdaafb1ccd2c7168e79",
+      "bytes": 1284700,
+      "vertices": 10230,
+      "triangles": 19156
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2824.obj",
+      "sha256": "f91e3c89b4db356fa5e8b03dbbb38b2dbebe358788ba1eb01d2c6ecc2ac94c2d",
+      "bytes": 1456320,
+      "vertices": 11459,
+      "triangles": 21592
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2881.obj",
+      "sha256": "f9c321ef5cc8ca16e8dd90a9bcc1a1d670d29917aaff629643e467176e90fd50",
+      "bytes": 102857,
+      "vertices": 878,
+      "triangles": 1748
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2882.obj",
+      "sha256": "8203271e7c67da6542c3881abc0ddf7f60808eadb8875d073f47060ae09a7510",
+      "bytes": 5931,
+      "vertices": 66,
+      "triangles": 62
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2883.obj",
+      "sha256": "e163f96f5b5df180a760b28b267686152c6fa3144499feedccaa903afe78c15f",
+      "bytes": 149374,
+      "vertices": 1292,
+      "triangles": 2400
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2884.obj",
+      "sha256": "b0f98a13c28de3c1217af65efeae53b4a1df84d3b1a896c4b9a4fca89b44368b",
+      "bytes": 78353,
+      "vertices": 698,
+      "triangles": 1274
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2885.obj",
+      "sha256": "aed6a7aeaba62b88d61fe6497e18c18c728c2cd386439b4176cf8d843fe1c0f4",
+      "bytes": 29488,
+      "vertices": 276,
+      "triangles": 462
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2886.obj",
+      "sha256": "109c651c5fce50d2081978989fc25c6d1fb9bc700933e3d3a68f7b55afc1f4ca",
+      "bytes": 9840,
+      "vertices": 102,
+      "triangles": 138
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2887.obj",
+      "sha256": "1483b47673d6be5e26dc5ae55929aa233916bf6cfb7821888adfea643d309b86",
+      "bytes": 8240,
+      "vertices": 88,
+      "triangles": 104
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2888.obj",
+      "sha256": "8ae08f46a1be44ffa9b8075a9afa8cf2ba448003d4dc72dda25dd55aa2aae647",
+      "bytes": 36499,
+      "vertices": 332,
+      "triangles": 590
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2889.obj",
+      "sha256": "fd6d6faa9df54233469c4ea082068f9f651fd916b345d441bc2324d501b5fdb8",
+      "bytes": 7869,
+      "vertices": 85,
+      "triangles": 94
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2890.obj",
+      "sha256": "8d5d93f2f0189f7e486af335fd341de500e5ddb3b02aca1aa7f7826a7d6a57ae",
+      "bytes": 8668,
+      "vertices": 91,
+      "triangles": 114
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2891.obj",
+      "sha256": "700caac3fdac2767579857df0d77f7d65921c063a1ea38472fbd3b62777be024",
+      "bytes": 25038,
+      "vertices": 224,
+      "triangles": 418
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2892.obj",
+      "sha256": "08544cc4a2040afaa8739407e026c4c9ef99bf8f0f1aae520e54f641a5657217",
+      "bytes": 11006,
+      "vertices": 115,
+      "triangles": 150
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2893.obj",
+      "sha256": "8282c2ea0e117bb83d90959c61adf1b3f4a4a54e4527405bca9fbf86931e584d",
+      "bytes": 8673,
+      "vertices": 87,
+      "triangles": 126
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2894.obj",
+      "sha256": "7ff788628e889de1f555bff0e36cefb171a4ef19d79897048463fb5cc416177d",
+      "bytes": 26009,
+      "vertices": 242,
+      "triangles": 416
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2895.obj",
+      "sha256": "70695b6ccf228ca04be38c6ecc471a5fb3b1768516b41072b4146b347be30370",
+      "bytes": 9411,
+      "vertices": 96,
+      "triangles": 136
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2896.obj",
+      "sha256": "b7e73412c88c6476fa68e713cc08cb83954fb63fcfcf5fa440e40e57ca93b775",
+      "bytes": 128318,
+      "vertices": 1111,
+      "triangles": 2112
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2897.obj",
+      "sha256": "a1c2fedf328bc0d27ec63e5bbdbc3cca78b13e775ba0c7f80297c1e05522e2f8",
+      "bytes": 31980,
+      "vertices": 306,
+      "triangles": 486
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2898.obj",
+      "sha256": "11cec5ce29817ef1d6201253c45ba0280fd5e1318ce7df3877451a08a973d8ed",
+      "bytes": 67575,
+      "vertices": 609,
+      "triangles": 1084
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2899.obj",
+      "sha256": "e7f686d0ef6143b2066b93b97102d9830d8c1bff596aa9e361436a8fdcb72b6c",
+      "bytes": 7526,
+      "vertices": 85,
+      "triangles": 84
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2900.obj",
+      "sha256": "419deca072d7f392acf054c2c4475e2644ecd85a3969ca10c69175d2ac534600",
+      "bytes": 13488,
+      "vertices": 133,
+      "triangles": 210
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2901.obj",
+      "sha256": "8c1749c2f2c64a2216bb26972e9c02c30211402af74ea2da53eb782b60c4e4c6",
+      "bytes": 11522,
+      "vertices": 105,
+      "triangles": 200
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2902.obj",
+      "sha256": "b43b9c47321c75b5744ddbfbbecbc39f8abc18cf7dc12bb5b6eeb8e8bfc248e7",
+      "bytes": 43606,
+      "vertices": 400,
+      "triangles": 692
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2903.obj",
+      "sha256": "199ffd54e318a2eb9793b7136aaa407a8a8d39e57914a79e199301875ec5eef0",
+      "bytes": 38756,
+      "vertices": 354,
+      "triangles": 618
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2904.obj",
+      "sha256": "3f265018aaf8309b01876e3a717a8a66251ff2d9cceedfc9b2bbeff32f04e332",
+      "bytes": 13209,
+      "vertices": 127,
+      "triangles": 210
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2905.obj",
+      "sha256": "e21633bae193dc13bf1f742c3938c01a81ce06c230329e7de181c78905f35de9",
+      "bytes": 16339,
+      "vertices": 147,
+      "triangles": 280
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2906.obj",
+      "sha256": "c66de3eb5f5c00ed09faad4e7bc079fce375df704926bd815caf5432bd38a229",
+      "bytes": 61308,
+      "vertices": 543,
+      "triangles": 1006
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2907.obj",
+      "sha256": "aabe9bc48107ce09c42be5cb88a38f8eb41856b20b8d2cf5e0bce2c6f7a64edb",
+      "bytes": 11975,
+      "vertices": 131,
+      "triangles": 150
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2908.obj",
+      "sha256": "63dfaec57567c85de8cd8ef59ebc9ed236fea2565d18e60f0814696a4f96d410",
+      "bytes": 48511,
+      "vertices": 435,
+      "triangles": 786
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2909.obj",
+      "sha256": "b174112939006789e0af20af2d9034cad65d4a6d85502ecbd3a431f9010ffaf8",
+      "bytes": 9378,
+      "vertices": 101,
+      "triangles": 120
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2910.obj",
+      "sha256": "52d1ee3a307767ff8200b20145b01802d5abf9fdd414a8b1fd6c452a8f20f591",
+      "bytes": 14425,
+      "vertices": 146,
+      "triangles": 210
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2911.obj",
+      "sha256": "83ed216b3ab938b00acf9665538212fbd0d8f88a54a43b710c5d77510cef1661",
+      "bytes": 19735,
+      "vertices": 184,
+      "triangles": 318
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2912.obj",
+      "sha256": "6b00b1f3a7127a4b9ce816b73190bf4f87d783e30e2051517dc7649af4b60291",
+      "bytes": 11138,
+      "vertices": 118,
+      "triangles": 150
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2913.obj",
+      "sha256": "bcdfa7ffa523aaa14f999348e36ddf204542b42e28852286ab40a9553d246ad4",
+      "bytes": 12699,
+      "vertices": 125,
+      "triangles": 198
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2914.obj",
+      "sha256": "bc59b34c3e5affb8dc5d0c15070aa80b9a52cb885a11c14f1e1b1f3349e252ec",
+      "bytes": 7393,
+      "vertices": 79,
+      "triangles": 92
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2915.obj",
+      "sha256": "5c666d93c9bff5a6b2494e1f98dbcf6ee0438ab7f0383ac81f12b3a516d93352",
+      "bytes": 24791,
+      "vertices": 220,
+      "triangles": 418
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2916.obj",
+      "sha256": "ade81b65638b26353437f9dcfd87798c10f63287e50f418e72390a0f2787faa4",
+      "bytes": 11886,
+      "vertices": 121,
+      "triangles": 174
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2917.obj",
+      "sha256": "8048e45205ddb273662ccdac9becad6ea26d3a8955d6f7216b43ec752c294401",
+      "bytes": 13197,
+      "vertices": 133,
+      "triangles": 196
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2918.obj",
+      "sha256": "5c8b5d19ef17daff4e515e778f1e51a0430ff697b3dfb551dcd52d28af03b20b",
+      "bytes": 12354,
+      "vertices": 123,
+      "triangles": 188
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2919.obj",
+      "sha256": "b4704b555ff95b108701f15dbb2aeaf8240f31315b15212966717155bf0d56f1",
+      "bytes": 35553,
+      "vertices": 330,
+      "triangles": 560
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2920.obj",
+      "sha256": "fdd349303685f65e6e1e29542be6a5e381d3253a584fbf8062882ed56d7f021a",
+      "bytes": 16898,
+      "vertices": 164,
+      "triangles": 262
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2921.obj",
+      "sha256": "cd2b742a025c4de1025b91758eceffcb2f78f582689cf3ebfaa7e466837b7cca",
+      "bytes": 100625,
+      "vertices": 861,
+      "triangles": 1710
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2922.obj",
+      "sha256": "5d7330ed9a02448d0ab2e3d292109a65e704089e408e20da0221e78913e550cd",
+      "bytes": 42809,
+      "vertices": 397,
+      "triangles": 670
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2923.obj",
+      "sha256": "a1b4814fc4235b4782716cda558fc60b93da8f2e6a595bef39c1a89549bdd6f1",
+      "bytes": 15411,
+      "vertices": 151,
+      "triangles": 236
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2926.obj",
+      "sha256": "7bfa55e482bfee56f08d902428bc920b83dc7095b75a048a25baddf005740201",
+      "bytes": 15296,
+      "vertices": 144,
+      "triangles": 250
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2927.obj",
+      "sha256": "514e77725cc6f342d7f2bf45c949e658b01cbd7fdff6dcd2e5869ce6d7ae01af",
+      "bytes": 19750,
+      "vertices": 178,
+      "triangles": 332
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2928.obj",
+      "sha256": "042ff32101a0ac29d6b51db677cbd386344ddcfee4e38d2be2ee4912c1fbc072",
+      "bytes": 22002,
+      "vertices": 216,
+      "triangles": 334
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2929.obj",
+      "sha256": "1bf981dcd9c07e7dfeb66ac01016959484139a00c4e46487ddffd0f13acfd2a3",
+      "bytes": 9860,
+      "vertices": 98,
+      "triangles": 150
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2930.obj",
+      "sha256": "786e613f8f0b67da12d7688f1524953d272a9cd6f33d286d0817a7d6ccd1d456",
+      "bytes": 27309,
+      "vertices": 239,
+      "triangles": 468
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2931.obj",
+      "sha256": "c151a2d28fe03de12b19578d639f5706459dc7bceeeeb6e1b862af8b63f8d451",
+      "bytes": 15418,
+      "vertices": 150,
+      "triangles": 242
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2932.obj",
+      "sha256": "0ff9bb0ba49c1a9083d96a8425a55610ee31d6812d75615af52fb3781f19ec8e",
+      "bytes": 8780,
+      "vertices": 88,
+      "triangles": 128
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2934.obj",
+      "sha256": "3936c21d13a512cf28964a7a3f38ab19d1c2ca1caab36389a407b8e17080b4ca",
+      "bytes": 17146,
+      "vertices": 161,
+      "triangles": 278
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2935.obj",
+      "sha256": "d97b02e799f736d15e48e9f268bcfc9a7cec5da16248e317cacc79236c20f820",
+      "bytes": 10602,
+      "vertices": 115,
+      "triangles": 136
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2936.obj",
+      "sha256": "d328fa73b8a93627d1df695b20ddbaf3bcc60fb1f97cde9c3ea89f1fb46dcd88",
+      "bytes": 26124,
+      "vertices": 228,
+      "triangles": 448
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2937.obj",
+      "sha256": "2902e2d63ea4ac69be67bf93c9135fb50f8b8e3e398e0ea6cb581e372770a792",
+      "bytes": 24521,
+      "vertices": 218,
+      "triangles": 416
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2938.obj",
+      "sha256": "f5d265d7bf5719fd1aa5a03e25309d55d3282a3ef41bbb48d7694acc6f077e75",
+      "bytes": 12314,
+      "vertices": 125,
+      "triangles": 180
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2939.obj",
+      "sha256": "ca3231269393ec476fbbfa24a6ac006525f37b51b4ecb52244c44adcbfffdc8e",
+      "bytes": 32251,
+      "vertices": 293,
+      "triangles": 522
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2940.obj",
+      "sha256": "36e3d8ce0ed6fd8ce207ed4ff865fbfc758bd050457fee0bd024ba7757de32df",
+      "bytes": 8603,
+      "vertices": 90,
+      "triangles": 112
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2941.obj",
+      "sha256": "40d27a3f40585fccb59f9033c6de3a0b2eebf1c64556f559f8799901c4ceea27",
+      "bytes": 11327,
+      "vertices": 106,
+      "triangles": 190
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2942.obj",
+      "sha256": "9d6ab339e33ea676eb230d083eda73b9857b9da012a5a5eb5f5fc063c3c2cc5d",
+      "bytes": 10730,
+      "vertices": 105,
+      "triangles": 168
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2943.obj",
+      "sha256": "17e9dca28055ac7ca659a70e5939d7a0ab04396cca9f1847416e2e5843be48a5",
+      "bytes": 11171,
+      "vertices": 109,
+      "triangles": 176
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2945.obj",
+      "sha256": "62ea5e1fd30de308d6e6774e7061c3ad9c68708655d9f784a84cf12e0fa190ae",
+      "bytes": 22975,
+      "vertices": 209,
+      "triangles": 376
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2946.obj",
+      "sha256": "d3c11b5619b250ddf75339113667554ca02bb85091b8ba3b17e66e6122aece0a",
+      "bytes": 12293,
+      "vertices": 117,
+      "triangles": 200
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2947.obj",
+      "sha256": "697a4b50c249ad02b01188bc088704dd6223ef3103cde86e40d789ade63dc850",
+      "bytes": 9985,
+      "vertices": 90,
+      "triangles": 174
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2948.obj",
+      "sha256": "1569d54ecc10eafbc6dd9905af7c41be1782153a4ab46f875fcc416631c4ca17",
+      "bytes": 7922,
+      "vertices": 83,
+      "triangles": 104
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2949.obj",
+      "sha256": "0eaa7ad1aee290c8f56998c7894635d3f2d00736f13eae46614dd98047e8aeda",
+      "bytes": 12145,
+      "vertices": 119,
+      "triangles": 190
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2951.obj",
+      "sha256": "fd013d3c19ba6dc61e5af9caf24e474db2eba3bbac1b09fc70909503f5286632",
+      "bytes": 40355,
+      "vertices": 355,
+      "triangles": 678
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2952.obj",
+      "sha256": "e3aae8ee53cbdff4b3d745e73f6c3ac375b837ff07272b96bf43a80164eaf2d3",
+      "bytes": 8807,
+      "vertices": 82,
+      "triangles": 144
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2953.obj",
+      "sha256": "db9059cc30d4e04a324e8dc1cf1680eaa0dc97f4402214436359cf0bd36b9be0",
+      "bytes": 11245,
+      "vertices": 114,
+      "triangles": 168
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2954.obj",
+      "sha256": "9c3f2b265bf25ed9a44a15974445b5dea0b5cce8cdc57a386ef58a3f8203c938",
+      "bytes": 8564,
+      "vertices": 92,
+      "triangles": 110
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2956.obj",
+      "sha256": "6bc13f5a5b75626e2c7e313d9e8c70d4e8ffd84077a110759f3d9f300ba6ab58",
+      "bytes": 35280,
+      "vertices": 312,
+      "triangles": 590
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2957.obj",
+      "sha256": "06a90ade3b14b38f8690b77e162eeddaed711d64f74d9800a8488b6eb4dd563e",
+      "bytes": 9286,
+      "vertices": 93,
+      "triangles": 136
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2958.obj",
+      "sha256": "d2fed905961d2f8bfc7d493b6f52dccd5d6a3f0c90407b57d33cc900c6f4ad30",
+      "bytes": 19701,
+      "vertices": 186,
+      "triangles": 314
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2959.obj",
+      "sha256": "ca0baf96bd5caa7264709f22e048dda1c99dd7407274ffa523d56f7dd1684c29",
+      "bytes": 30547,
+      "vertices": 274,
+      "triangles": 504
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2960.obj",
+      "sha256": "7c1ef041e7de0b72eab0034ec801ba4b0e5bfc68d915346bd5cfe2895046af8d",
+      "bytes": 10359,
+      "vertices": 101,
+      "triangles": 162
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2961.obj",
+      "sha256": "0c15bc8bb2576a406cc192270fa7a5aa9c74a4f527efd5a0d0e3bad0d19114d1",
+      "bytes": 11093,
+      "vertices": 103,
+      "triangles": 188
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2962.obj",
+      "sha256": "77aa0b09678ccfaabb0926e172cecf57e8e089d7495cb040f745747b4b7ff1df",
+      "bytes": 12262,
+      "vertices": 117,
+      "triangles": 200
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2963.obj",
+      "sha256": "7045626a9b9f6e9554353272b5809d4e52d5e024b62e0b3f009d2b2e9e7b19a0",
+      "bytes": 7749,
+      "vertices": 76,
+      "triangles": 114
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2964.obj",
+      "sha256": "b8cf5bb314e521db71950dee4b2031727d114126c692c43f3254e15c660899d3",
+      "bytes": 10827,
+      "vertices": 104,
+      "triangles": 174
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2965.obj",
+      "sha256": "46b755148a9d0085dbc74050be72c256fce3d5698990318905ca40050f5ce896",
+      "bytes": 9818,
+      "vertices": 100,
+      "triangles": 142
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2967.obj",
+      "sha256": "9698a8ba3fd370fb0bfb44a106c585102da6dd0aa1e9b4d359e18340fcfa8379",
+      "bytes": 24188,
+      "vertices": 234,
+      "triangles": 360
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2968.obj",
+      "sha256": "68c9f7a9012ba053774450458301a048d1e34032ab281c43acb1d2abb36c60a4",
+      "bytes": 8012,
+      "vertices": 88,
+      "triangles": 90
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2969.obj",
+      "sha256": "d5c233227424c00065652159ed2bd2766b8d1d8bd734ba43c8822c94cab23eee",
+      "bytes": 9401,
+      "vertices": 100,
+      "triangles": 120
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2970.obj",
+      "sha256": "5e6f410dfdbc4139dbbecd22a8c531f1b31f34156059920bbbd3485640cb129e",
+      "bytes": 45411,
+      "vertices": 408,
+      "triangles": 726
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2971.obj",
+      "sha256": "9f1fc5d2a046ce06a1c1887d4f6816ef84279f7b0cab43becf90ac5a92e3a213",
+      "bytes": 11086,
+      "vertices": 121,
+      "triangles": 134
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2972.obj",
+      "sha256": "0292680d34ea0cdd5d2bd324f716d11b3d320f0e5ba6afb66b39e5c8ae769801",
+      "bytes": 16606,
+      "vertices": 167,
+      "triangles": 236
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2973.obj",
+      "sha256": "0e5f9b7f86626c89c6608efe14f0c1cae29cc33018caf1cc7647486cb3ed12fe",
+      "bytes": 33451,
+      "vertices": 325,
+      "triangles": 486
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2974.obj",
+      "sha256": "dcb530e06503a31a486df808e272a9b8aabbdef02ace311e90b0ab61e68cabf7",
+      "bytes": 18322,
+      "vertices": 165,
+      "triangles": 302
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2975.obj",
+      "sha256": "9c83a17e4c4f0dfbf129b7fc8e5ade8abe15909e04c50b6c2cda58a56f0c7ac9",
+      "bytes": 16335,
+      "vertices": 162,
+      "triangles": 240
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2976.obj",
+      "sha256": "ca58f5360c984d429da49160e973b917a4ad15a08763272c13601d1dfd96b5d8",
+      "bytes": 8416,
+      "vertices": 90,
+      "triangles": 102
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2977.obj",
+      "sha256": "69e147af86901751d83ded4b3f7d8a73fd901e6217ff0a2e0e84203fc11f53fe",
+      "bytes": 12400,
+      "vertices": 125,
+      "triangles": 178
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2978.obj",
+      "sha256": "674c071691b5b6ce68f8f2369ba3cc181ae63e3075c48cceb3b0660725491d35",
+      "bytes": 16970,
+      "vertices": 167,
+      "triangles": 250
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2979.obj",
+      "sha256": "f284a2d227813c59c95fffa787bb366b6f606b1b354728c1ff8baf3120d881dc",
+      "bytes": 10207,
+      "vertices": 109,
+      "triangles": 130
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2980.obj",
+      "sha256": "4474b2242decbe06fde4ab02b0a8352f89ff3dfeae90e2d034b656cc9a04e5ec",
+      "bytes": 9801,
+      "vertices": 102,
+      "triangles": 130
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2981.obj",
+      "sha256": "43bcc5c0721c81a27c96930eb7b45bd53c5c1cc9917ee45d31e5bc48737d4c5d",
+      "bytes": 27725,
+      "vertices": 263,
+      "triangles": 424
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2982.obj",
+      "sha256": "1825f6c357f7d1dbc2b7e91c0c994ae241dfd7323d67fbbac7490df62c63cb4e",
+      "bytes": 31718,
+      "vertices": 296,
+      "triangles": 490
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2983.obj",
+      "sha256": "12fc08f56a1712e10291dbc9c81954f6396c44a582232af82ace62fc05073804",
+      "bytes": 15348,
+      "vertices": 149,
+      "triangles": 232
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2984.obj",
+      "sha256": "f26300521a453e6e487019822b76ad4bccfc8868ab00e284b046711d6daeed9a",
+      "bytes": 6287,
+      "vertices": 68,
+      "triangles": 68
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2985.obj",
+      "sha256": "dbde1830586f43b80d1695fb9b584d4f0e625cb205a6fbab889c5f9f54a065b4",
+      "bytes": 7442,
+      "vertices": 83,
+      "triangles": 80
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2986.obj",
+      "sha256": "3152c310fb1e895449c5aa42d003ea0e5bebc91d2f396e4aa7ff1b769849d1b3",
+      "bytes": 6879,
+      "vertices": 76,
+      "triangles": 72
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2987.obj",
+      "sha256": "7457a2bfeee23f3c9f3f4bf4f61d7f4c544d4bea87ffdb161e3c1d10dadd2e59",
+      "bytes": 8468,
+      "vertices": 89,
+      "triangles": 108
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2988.obj",
+      "sha256": "04ecd536750a1d060f9fb49cf023682ebe325e76bd5c5bc09f741976bec395ca",
+      "bytes": 12750,
+      "vertices": 130,
+      "triangles": 180
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2989.obj",
+      "sha256": "85192e1a0d558d09bb5ddac4c56eeacabd108f218b6ab0c98c7bac5a6de505ee",
+      "bytes": 39953,
+      "vertices": 368,
+      "triangles": 620
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2990.obj",
+      "sha256": "180b2deb4d096320ade9a4a75234977bb9a823310d650f5ba68009062faf6aad",
+      "bytes": 36070,
+      "vertices": 313,
+      "triangles": 604
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2991.obj",
+      "sha256": "62051a8a7d3df4bddedc25345f8172a635a925bf6eaf5463b32d3b1dcf02417e",
+      "bytes": 39726,
+      "vertices": 366,
+      "triangles": 630
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2992.obj",
+      "sha256": "f792721a737597cacc1b29e6e992afdbc1a5ef4ee0eb910c09f2d14fa98d4342",
+      "bytes": 13384,
+      "vertices": 143,
+      "triangles": 172
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2993.obj",
+      "sha256": "f24e38a5bb75e5ada7ac2fd111c59583d3f80f42eaee77f0cd4a22557a9bba5d",
+      "bytes": 5561,
+      "vertices": 60,
+      "triangles": 56
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2994.obj",
+      "sha256": "b8c7506ca53724da1ebc735082f80e29952a20b0c0801f58cad083b00bdd9d85",
+      "bytes": 16619,
+      "vertices": 167,
+      "triangles": 236
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2995.obj",
+      "sha256": "6b30c9502bd19a978ca616e80076fade6e69833bcf249863b4cceb45d26dc6b8",
+      "bytes": 38526,
+      "vertices": 353,
+      "triangles": 604
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2996.obj",
+      "sha256": "90146a2e2fadd44ac0b75ae66fffc100673b79376b1e66954d49f1bf199a7e02",
+      "bytes": 20261,
+      "vertices": 200,
+      "triangles": 296
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2997.obj",
+      "sha256": "87cef45e6721f5166826c51453eb7e6fa8f2b3cc2ce677e3baec77b85c7e8f29",
+      "bytes": 18949,
+      "vertices": 178,
+      "triangles": 294
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2998.obj",
+      "sha256": "7db50ff82a6aa1d777a123631372b551108f1743995bcc6978b1ca1add3ee260",
+      "bytes": 17438,
+      "vertices": 173,
+      "triangles": 254
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ2999.obj",
+      "sha256": "5321987b67dbe219e15b0f7bc2c1c247183e6787bfab4a36267b9b5daec3289f",
+      "bytes": 55407,
+      "vertices": 511,
+      "triangles": 854
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3000.obj",
+      "sha256": "f1018ea6b72ef8cf578075c3e4d2937702630e8a56539ae06e055610d0c670b0",
+      "bytes": 13628,
+      "vertices": 134,
+      "triangles": 202
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3001.obj",
+      "sha256": "e5fc8bba5762be8ccd7cb867f7b2e5b89605188681ac3252cecee3bfddb3e088",
+      "bytes": 26146,
+      "vertices": 241,
+      "triangles": 414
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3002.obj",
+      "sha256": "49e9088baf45d8c3507d8c5a36cf91d9d3dc9b3d764600212019972394562220",
+      "bytes": 10543,
+      "vertices": 109,
+      "triangles": 144
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3003.obj",
+      "sha256": "e46f6919b9ea22bd1795cced41ffa9c6fda169dad5e6bf680e02c088bd3210cb",
+      "bytes": 22805,
+      "vertices": 232,
+      "triangles": 316
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3004.obj",
+      "sha256": "470b12c7c39e0fd220d5d4cca5dffc33a6a533fa805bc990f1ed4e5c0ee49fd8",
+      "bytes": 11782,
+      "vertices": 111,
+      "triangles": 190
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3005.obj",
+      "sha256": "8dbe128ff8ef13d0f3971b8770cab42d0813d740035babb2be97bcd2be0a0adb",
+      "bytes": 25991,
+      "vertices": 237,
+      "triangles": 416
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3006.obj",
+      "sha256": "06de428db377e10a4565313be5fe362ee39c248770248bac6ffea8d4335a4551",
+      "bytes": 86384,
+      "vertices": 730,
+      "triangles": 1456
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3007.obj",
+      "sha256": "c21451fa048d64c01e31c468555a10d8baf06432c7b9f3f6a0581cb1082a6d61",
+      "bytes": 22038,
+      "vertices": 222,
+      "triangles": 310
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3008.obj",
+      "sha256": "5bed00427e4931800669eaf5e1ff1eae7a6fc9c62236a6e09b714860801f66b3",
+      "bytes": 51246,
+      "vertices": 466,
+      "triangles": 806
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3009.obj",
+      "sha256": "7f7e84b96378e64f6c763c6149d10560d8269bdf058268fbc6283f8e0dff7cc5",
+      "bytes": 11407,
+      "vertices": 118,
+      "triangles": 154
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3010.obj",
+      "sha256": "9e335ad2d777c7f3af3b5a7784d526417ef80e5cab96c011b1d93487c7744a01",
+      "bytes": 6701,
+      "vertices": 75,
+      "triangles": 68
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3011.obj",
+      "sha256": "f813d0ae0a939a66a4d9ab68119fc940191afe41a6c16c27eebf3db656f82198",
+      "bytes": 12628,
+      "vertices": 130,
+      "triangles": 174
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3012.obj",
+      "sha256": "2015ba305f633f5162acb2f9f22139e05328548cfdd0112ae4f0c337869e6c99",
+      "bytes": 6529,
+      "vertices": 71,
+      "triangles": 70
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3013.obj",
+      "sha256": "e455ad1784dd5081216b73a77ca2cbf8b13404f2685b2c2c1e0842f96fbc16cc",
+      "bytes": 94538,
+      "vertices": 841,
+      "triangles": 1506
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3014.obj",
+      "sha256": "9a097f2f2cc56cbcba1c6f8ebd17d90d27c8ef827b6ed4cabcfc255d1e6df0e8",
+      "bytes": 41129,
+      "vertices": 376,
+      "triangles": 642
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3015.obj",
+      "sha256": "0658500b76f06484cb3a3d63774b4e2db3867dc3de80d4cd7bfb2ea1f8dd212c",
+      "bytes": 9241,
+      "vertices": 101,
+      "triangles": 112
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3016.obj",
+      "sha256": "3e551e2de2a52d528f1d5288041a96f9d88c048a0d828391141e50cf68d934d7",
+      "bytes": 55972,
+      "vertices": 517,
+      "triangles": 856
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3017.obj",
+      "sha256": "6047525cbae74f42ef9fdf844f61b3032543adc158a1da1a9b3657b0ef3d5955",
+      "bytes": 14693,
+      "vertices": 148,
+      "triangles": 212
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3018.obj",
+      "sha256": "e736a24709e25b552c2a18df2e4043c1316c4a1b92eb2095ab93527da3abdd8d",
+      "bytes": 56302,
+      "vertices": 498,
+      "triangles": 912
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3021.obj",
+      "sha256": "a8ab822edc8babf7ebfb8864b7fba59f72c3ceae88b7e1bd34c7b05e278915d3",
+      "bytes": 16396,
+      "vertices": 158,
+      "triangles": 254
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3022.obj",
+      "sha256": "35448be4539883502a92516bd7fc36dc23b6b350fce1b28de9d8b84529f0cfb6",
+      "bytes": 14699,
+      "vertices": 141,
+      "triangles": 228
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3023.obj",
+      "sha256": "09784f553ac16c3f459d95ead2af36ff959c2b0b40cb6730437c3901f40591c4",
+      "bytes": 11106,
+      "vertices": 109,
+      "triangles": 168
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3024.obj",
+      "sha256": "b53508ad25474dc2c522886b618dfdde2b43a7d816067582903bbf2611a3a002",
+      "bytes": 7789,
+      "vertices": 77,
+      "triangles": 110
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3025.obj",
+      "sha256": "9bc106a7d816179fdbfb2c8eb2b595ca91050e004dd2b3fac3787613461be402",
+      "bytes": 10432,
+      "vertices": 100,
+      "triangles": 164
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3026.obj",
+      "sha256": "5ae910aaee9cd6830b7f7a9376fb997df65296821ef8ac6cabaf11566f13a75b",
+      "bytes": 11375,
+      "vertices": 106,
+      "triangles": 188
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3027.obj",
+      "sha256": "38695d2fa9fe0ca0e1375718540bdb3839c59534f176f3d8c1ce8d209272dee7",
+      "bytes": 18548,
+      "vertices": 171,
+      "triangles": 298
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3028.obj",
+      "sha256": "31fba2b58f5e31b40189a5577104145bb265e9e99eeee44fe73f127a948e9dec",
+      "bytes": 12083,
+      "vertices": 111,
+      "triangles": 202
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3029.obj",
+      "sha256": "e15cd0911159007adfaaf983f69b7bbddbdab789603c9b6d3fe5cb4cc22127ca",
+      "bytes": 8692,
+      "vertices": 86,
+      "triangles": 124
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3030.obj",
+      "sha256": "1de110aed89e394028f16c8065a20bfe9dc0627ab80347a5720f0f1646d5b0b1",
+      "bytes": 31963,
+      "vertices": 282,
+      "triangles": 526
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3031.obj",
+      "sha256": "82dbc8c63ce39466ac4d3b386246f9d9817e66c4df672c62c1d4a85560a8962d",
+      "bytes": 15658,
+      "vertices": 140,
+      "triangles": 266
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3032.obj",
+      "sha256": "d7f07d914c607538585cec772c4473a6f6771bd7777166e8b27f6225b5db9544",
+      "bytes": 29293,
+      "vertices": 258,
+      "triangles": 486
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3033.obj",
+      "sha256": "12c2c804970691c82039ef0c7318ae6fec331ba0a37db2e9154da40124a07d5b",
+      "bytes": 7591,
+      "vertices": 75,
+      "triangles": 106
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3034.obj",
+      "sha256": "318555aeb06744dac1d9fbaab2eda5e594cbc29d25e2862247a340c49ce62765",
+      "bytes": 22772,
+      "vertices": 197,
+      "triangles": 390
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3035.obj",
+      "sha256": "0f79acd14c61b5dc23b643f2a1df8dae9ae7387d8b4b787b1c02636b045496dc",
+      "bytes": 13145,
+      "vertices": 117,
+      "triangles": 226
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3036.obj",
+      "sha256": "054d5c08922f6590adc2c7f98686eb61934880c4e2f7edb38b4da2a8679336df",
+      "bytes": 18162,
+      "vertices": 161,
+      "triangles": 308
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3037.obj",
+      "sha256": "550f9af73cde3b0234f719d2b62db4ea60cbd8d1d74ef7402f7d533667df968b",
+      "bytes": 24417,
+      "vertices": 212,
+      "triangles": 416
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3038.obj",
+      "sha256": "1cec5ef0c2a0f6a3202fa6596137e6d118b9add7b41400ffb7cb540e5d5c1e01",
+      "bytes": 15109,
+      "vertices": 137,
+      "triangles": 250
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3039.obj",
+      "sha256": "db324061a5f6dc3ff5ee20eb8b0e8ad25cc40ed508bd0163c0728f376b619dfa",
+      "bytes": 13461,
+      "vertices": 123,
+      "triangles": 224
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3041.obj",
+      "sha256": "5ecd6a4a05fe60950dfda747b877059adc09d54d7d22f5a437962f66fda738c0",
+      "bytes": 34498,
+      "vertices": 297,
+      "triangles": 586
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3042.obj",
+      "sha256": "d3854cd05be99103b6abd6c272251530b9214f2c0fe647ee03d91111a3c17d52",
+      "bytes": 13210,
+      "vertices": 134,
+      "triangles": 188
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3043.obj",
+      "sha256": "0691747e575d3f3ba78b461693a3ef4ba7f3d30f3bd000ca647b00d36a0939d5",
+      "bytes": 16612,
+      "vertices": 159,
+      "triangles": 254
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3044.obj",
+      "sha256": "6958ba49504255fb1260dcb015fc6cbddd718ea7b105b9f4063642adf48fb80c",
+      "bytes": 9436,
+      "vertices": 98,
+      "triangles": 126
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3045.obj",
+      "sha256": "faa750632da93a98f019384fc78f84b5977b21aa0c88ccf407cab04024feaa4d",
+      "bytes": 13216,
+      "vertices": 127,
+      "triangles": 206
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3046.obj",
+      "sha256": "810666e877cb3956a0d8e9946bcfc75ca9a86ba1a70d37a3e25b08863da7e67c",
+      "bytes": 12104,
+      "vertices": 121,
+      "triangles": 178
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3047.obj",
+      "sha256": "840b99f4ee139466b03fbf7e31b5e731c3b7e06966e06ff3b828a213b03c6b84",
+      "bytes": 14012,
+      "vertices": 131,
+      "triangles": 226
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3048.obj",
+      "sha256": "1d9e9abcac438fe3df4bd57c4cf9771056202376caac7cf48619ba02ad1a005f",
+      "bytes": 10649,
+      "vertices": 101,
+      "triangles": 170
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3049.obj",
+      "sha256": "3176335a4a908b958d0b855957f7a17d570ea016127e4127e4400a66b338bc91",
+      "bytes": 19212,
+      "vertices": 171,
+      "triangles": 322
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3050.obj",
+      "sha256": "2166bbd348165e93e18cf482de514a81f8e9edbc7eb445f817749d610379d367",
+      "bytes": 32742,
+      "vertices": 284,
+      "triangles": 548
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3051.obj",
+      "sha256": "990861c88751b28089c904d6981318b09701b21faf5076bcdec2fc1e34497f62",
+      "bytes": 21752,
+      "vertices": 205,
+      "triangles": 338
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3052.obj",
+      "sha256": "b802e5d62a5e6e6129123f981b35603e83084f2d5d15c0e8ad85ac3d25176146",
+      "bytes": 7085,
+      "vertices": 68,
+      "triangles": 102
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3053.obj",
+      "sha256": "4da8b5d00c8d4357f1af97fb10efcb33df218b59459126404d9ce8fe5ed33b77",
+      "bytes": 11017,
+      "vertices": 103,
+      "triangles": 178
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3054.obj",
+      "sha256": "5c86f911247e5493b5f42e03921bb69f4fe0d01439bfc285bca2470383918f5f",
+      "bytes": 14229,
+      "vertices": 143,
+      "triangles": 206
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3055.obj",
+      "sha256": "8bf15a66932f7d5a753e50dd4fca570528c973291ca08152f98d65ba5588bcb3",
+      "bytes": 6824,
+      "vertices": 73,
+      "triangles": 80
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3056.obj",
+      "sha256": "08cfb312dcc3d096bf2a744fe4397636699b22542a7cf138b2f61ee85278ad4b",
+      "bytes": 15391,
+      "vertices": 136,
+      "triangles": 264
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3057.obj",
+      "sha256": "260be0659a5955e8e312dbddfc27462b2e534c5746f5ab8ebbd5e8da98622d3a",
+      "bytes": 8851,
+      "vertices": 89,
+      "triangles": 122
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3058.obj",
+      "sha256": "331f377e7be2e8d9a773d53e0a87afcb80f3b6b7dd0ecf2531a5edfabe454465",
+      "bytes": 10680,
+      "vertices": 100,
+      "triangles": 174
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3059.obj",
+      "sha256": "b363d8a152a2f87978dddacf20f972a874cd87fba1078584b980c8ad07ac2608",
+      "bytes": 25861,
+      "vertices": 231,
+      "triangles": 424
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3060.obj",
+      "sha256": "e767020d3cf25b3dc116cd2884093efa45d367b54858b9db559f2ec7decdb56b",
+      "bytes": 13230,
+      "vertices": 123,
+      "triangles": 216
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3061.obj",
+      "sha256": "35b3697000d81d3ce2adccfec5c96f3aa3827cf9f9fa9301efb2085266225b64",
+      "bytes": 9261,
+      "vertices": 85,
+      "triangles": 152
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3062.obj",
+      "sha256": "9aeff70ec3f72defca8e7d3a7dd81aa07763cb5159117ddaa08c7a4ff5500f0f",
+      "bytes": 13101,
+      "vertices": 120,
+      "triangles": 218
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3063.obj",
+      "sha256": "34945ee12bd7e4954de7fbbcea6a4628a68cbf1cc73cc05f98b8422504c4af28",
+      "bytes": 9518,
+      "vertices": 97,
+      "triangles": 134
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3064.obj",
+      "sha256": "49c522eb3b8fee1811fec12c627bccc00fa65b18679c21c4c5b768d4da935625",
+      "bytes": 14204,
+      "vertices": 132,
+      "triangles": 230
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3065.obj",
+      "sha256": "a41027c2fe9cb7e40b13c59dac85a462a66ccff8055d6bd7ed5aaf9a1daf0f79",
+      "bytes": 9721,
+      "vertices": 95,
+      "triangles": 146
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3066.obj",
+      "sha256": "0346decaa2ef6cd0cba1b8996c10d555759f3dd54ae6624aad1040630d1b67f7",
+      "bytes": 9815,
+      "vertices": 100,
+      "triangles": 136
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3067.obj",
+      "sha256": "b11fe0f3c14f88e29113ce5099294c530432a7bccd7c4e5ff95b49645c1d79f9",
+      "bytes": 11914,
+      "vertices": 107,
+      "triangles": 204
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3068.obj",
+      "sha256": "4f939adcc64ac5dc25600ba32da6d68131bb2c89198c19710cfe334204fc9cc2",
+      "bytes": 7801,
+      "vertices": 81,
+      "triangles": 102
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3069.obj",
+      "sha256": "b9b476cc4b796d3c17d4e8bf3462faceca2650f975f6c7e3dcdca922b742cfce",
+      "bytes": 21040,
+      "vertices": 185,
+      "triangles": 356
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3070.obj",
+      "sha256": "d4fb7babf2c326b61e07931eea9779a00f66550778fade5864ebc25b58384c11",
+      "bytes": 14174,
+      "vertices": 132,
+      "triangles": 230
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3071.obj",
+      "sha256": "c2c9e8156274a487a51c0613a2e91dcffe764e1b673a62d7a56266811ccc6321",
+      "bytes": 43607,
+      "vertices": 395,
+      "triangles": 686
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3072.obj",
+      "sha256": "f9a417445e9a3cea161f7952f8dcfea4e2cfca24f397a0a35696087a20d079b4",
+      "bytes": 126892,
+      "vertices": 1265,
+      "triangles": 1708
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3073.obj",
+      "sha256": "37c7a8d6706d168cbb856da3cbf23370e5b5a2e291869cb16510e18d77f8e29b",
+      "bytes": 46494,
+      "vertices": 404,
+      "triangles": 770
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3074.obj",
+      "sha256": "0ba9fba44b08ccd8046a52dc358ff7cd81e0401a530de0d27fedd468febdd423",
+      "bytes": 183734,
+      "vertices": 1582,
+      "triangles": 2832
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3075.obj",
+      "sha256": "796d8ed0c0958a34b6eecd55ce698604caacbf39839e6e83a421407d72c7d6cc",
+      "bytes": 124239,
+      "vertices": 1244,
+      "triangles": 1666
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3076.obj",
+      "sha256": "4748142fb6d678b785e582321ee628fc204b43123ded97a1f7af56a364cbabcd",
+      "bytes": 53421,
+      "vertices": 459,
+      "triangles": 892
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3077.obj",
+      "sha256": "fd4de5d5d5799a9ad0a4a4caad0e2a49eb5926706c0c8eefe2cd174d60863f51",
+      "bytes": 27267,
+      "vertices": 250,
+      "triangles": 430
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3081.obj",
+      "sha256": "bd4cff9e5fc6feb0d0f742a91d8a67e1fa4cda96e455e5a21a638b064d195da6",
+      "bytes": 20836,
+      "vertices": 181,
+      "triangles": 358
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3083.obj",
+      "sha256": "81429abe63ecf1557b9ab5187782e6a78ddca971583dad7f46e38f57ddc54e23",
+      "bytes": 171755,
+      "vertices": 1409,
+      "triangles": 2806
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3086.obj",
+      "sha256": "bd8d6f683c6e501e62e895d98859e6b7591df32f5fbcde80c6de87ba46239647",
+      "bytes": 58822,
+      "vertices": 502,
+      "triangles": 990
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3088.obj",
+      "sha256": "efd9fc5309a68bd0b8b7c7fd016e2b871adcfe8d7df8d1a1b127017b700a3b50",
+      "bytes": 38988,
+      "vertices": 368,
+      "triangles": 608
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3089.obj",
+      "sha256": "7f78fc38fd1aab29e44c3287ae58c7636a9c2c50aae69e32ca1098e0befa2b91",
+      "bytes": 45141,
+      "vertices": 443,
+      "triangles": 664
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3090.obj",
+      "sha256": "664f4c51268e477bda417b4cb35adf48a716973399005d574692ad79ec9c1ef1",
+      "bytes": 52971,
+      "vertices": 503,
+      "triangles": 808
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3091.obj",
+      "sha256": "9e741671cffe043f2c51a4474bc672d9053bce70a01a1e9d81238e35b226860a",
+      "bytes": 37203,
+      "vertices": 341,
+      "triangles": 598
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3092.obj",
+      "sha256": "2e10af454a1ec0dbb14218951d287d5408aa29a4f4db9169b5888756482d1b8d",
+      "bytes": 39204,
+      "vertices": 364,
+      "triangles": 618
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3093.obj",
+      "sha256": "2d863da0b8be2e5d6e6023110cdba26acb9778422429c87bef1a6f425ede58aa",
+      "bytes": 46113,
+      "vertices": 460,
+      "triangles": 658
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3095.obj",
+      "sha256": "373d94e12329224b9707b3ccb357994169a49405f68b257e0e278669c6fa1c9d",
+      "bytes": 78499,
+      "vertices": 666,
+      "triangles": 1328
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3096.obj",
+      "sha256": "11a5891a14162d16c8f919d5a8da6d1e7ca243f7c0d8697f6f10aceed587e97a",
+      "bytes": 49991,
+      "vertices": 428,
+      "triangles": 848
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3102.obj",
+      "sha256": "10a59163098dd1896bd60a0893e4084f4b37660b9443bad284489999b3763749",
+      "bytes": 42870,
+      "vertices": 367,
+      "triangles": 730
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3103.obj",
+      "sha256": "61bd543e1626e4856094b4aec94af8457094a2b9bf20186fd96bd88bce05001a",
+      "bytes": 45773,
+      "vertices": 432,
+      "triangles": 698
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3104.obj",
+      "sha256": "7da92c0c19f9e66a23155524581cc26b280e0c9f78cb0b7e8cfe1b41b2848e30",
+      "bytes": 37050,
+      "vertices": 344,
+      "triangles": 570
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3105.obj",
+      "sha256": "3580eed66acd48da39fc321d2fe491daed3edc6be6bfb6da8338de234d27eb26",
+      "bytes": 36411,
+      "vertices": 371,
+      "triangles": 494
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3106.obj",
+      "sha256": "f17498768ea407af624833b72f31cdbfa5cfe6c5649bd2f4fe511a78e1155855",
+      "bytes": 47184,
+      "vertices": 425,
+      "triangles": 754
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3107.obj",
+      "sha256": "42235fa9aaac3881dc36fbb138ff308b57d5da006d2cdf8f1b5ba8b1c6c3a106",
+      "bytes": 47334,
+      "vertices": 496,
+      "triangles": 612
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3108.obj",
+      "sha256": "cd9efbda9ba24249ad662d6f6c48e5d6bd0ae8121076d49648ed368d437544cb",
+      "bytes": 55397,
+      "vertices": 503,
+      "triangles": 870
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3109.obj",
+      "sha256": "57e08b2162780c4cdc25221810eb0abfe5f2971d891d25768823673e53aaff14",
+      "bytes": 42484,
+      "vertices": 404,
+      "triangles": 628
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3110.obj",
+      "sha256": "0cacd86a71659ba81507207d5dbc17d34b38678c3feede81eeef1284827dca06",
+      "bytes": 88647,
+      "vertices": 896,
+      "triangles": 1196
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3111.obj",
+      "sha256": "d316e56f40acbffaf8aa0b81a7617838cf8f507ffe9123e61bdbabbe2e283a2d",
+      "bytes": 131494,
+      "vertices": 1100,
+      "triangles": 2194
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3112.obj",
+      "sha256": "0bda131695894a61a7f7c68b217204673667c5560db9b12010fa3f110c571979",
+      "bytes": 65241,
+      "vertices": 554,
+      "triangles": 1100
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3113.obj",
+      "sha256": "3f81cbcaa89e260367f026d8e0fc387b6760ef34e6a46f8d80bac1622b4100a5",
+      "bytes": 112043,
+      "vertices": 1031,
+      "triangles": 1712
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3114.obj",
+      "sha256": "d6fbd37db3996fbe87ebf8471e6fc53e30563bb9e0db5da3570e340607a97f1b",
+      "bytes": 50942,
+      "vertices": 479,
+      "triangles": 772
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3115.obj",
+      "sha256": "83e41f08d853a73d831209f67db2484b5b479e59622f8498a9e79479b8ef411d",
+      "bytes": 109701,
+      "vertices": 1037,
+      "triangles": 1616
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3116.obj",
+      "sha256": "6a1eb63f8c4faa5f696eaf5ac59315e754c8fefe97063d3a189dc2737e520b94",
+      "bytes": 61664,
+      "vertices": 631,
+      "triangles": 814
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3117.obj",
+      "sha256": "e7858acd2c635e83f72ebe948b482bf3a8b51c50791457f9c4190273b76d492c",
+      "bytes": 25867,
+      "vertices": 223,
+      "triangles": 442
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3122.obj",
+      "sha256": "0396415a16fc85e933ca43ca30fd55289cbb7fd412f1a33a004dc5b2f485acd3",
+      "bytes": 11789,
+      "vertices": 105,
+      "triangles": 206
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3123.obj",
+      "sha256": "5a14237d388e8c716a56c54e51dcccc3f89d187f1cf0d4eb4e0e04c1a7aac405",
+      "bytes": 12973,
+      "vertices": 115,
+      "triangles": 226
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3124.obj",
+      "sha256": "b7a1c20e756b9c247542a68e6a281de1df72dae2143a8daf635efe32cbc3ff4c",
+      "bytes": 33165,
+      "vertices": 319,
+      "triangles": 494
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3125.obj",
+      "sha256": "10b5e566e4d431fbd5c6d2f66a5633fb399a550f3c69c41a2be9dd95de4910db",
+      "bytes": 137337,
+      "vertices": 1161,
+      "triangles": 2284
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3126.obj",
+      "sha256": "9f0e54615639750955d2c6278dc73c1d18c6723ddb5c709dc8b4f313a7a74270",
+      "bytes": 143427,
+      "vertices": 1217,
+      "triangles": 2364
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3127.obj",
+      "sha256": "b723ba5592823c4608ccef1ab0cd82ce03254af789166b1c5fc0ca5a66aab790",
+      "bytes": 73472,
+      "vertices": 662,
+      "triangles": 1162
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3128.obj",
+      "sha256": "5ce863ef62729e554edc8e68c036cd5c6f526c18e403a1864c3f772452be49da",
+      "bytes": 98504,
+      "vertices": 838,
+      "triangles": 1660
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3129.obj",
+      "sha256": "bff9553c5d66c854bb54577136eb734dfd004075323013456f1e995ac8f8e545",
+      "bytes": 247431,
+      "vertices": 2000,
+      "triangles": 3996
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3130.obj",
+      "sha256": "c4d17a1accdd2e684d919582c36c1d51c7b6d382e221525c87e04c2575ccc3c6",
+      "bytes": 137872,
+      "vertices": 1149,
+      "triangles": 2294
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3138.obj",
+      "sha256": "bb9e548f7059fb21370b8c9612ce10fe70aa9b96945c1faea33d7cc9ed113639",
+      "bytes": 11909,
+      "vertices": 107,
+      "triangles": 210
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3139.obj",
+      "sha256": "3e610f288874927fdc17ef73c6f8f30d42230a651341e867c93bff54694c3233",
+      "bytes": 25762,
+      "vertices": 223,
+      "triangles": 442
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3142.obj",
+      "sha256": "1dc84c4d16139902662f08c97bc2581cb698cf8411855bcca5474e154f4ad86e",
+      "bytes": 12153,
+      "vertices": 108,
+      "triangles": 212
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3145.obj",
+      "sha256": "7d60d27da6d4d5d3e9fd78dde04a8401cb55d998a31f05cc9c8968955d83add9",
+      "bytes": 182275,
+      "vertices": 1497,
+      "triangles": 2982
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3147.obj",
+      "sha256": "0b75658b1af56974cc70f7f805784b40630debdfa76e196c51ee91422af99e8f",
+      "bytes": 139395,
+      "vertices": 1163,
+      "triangles": 2310
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3149.obj",
+      "sha256": "d0940ffe991c3421964e44beb37ea258b47df797f099a1734169ae14d09426ed",
+      "bytes": 13697,
+      "vertices": 127,
+      "triangles": 226
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3153.obj",
+      "sha256": "371573a43e28506d674bf4999ee4c50c0497014aa8d69865f450a078d493a495",
+      "bytes": 56262,
+      "vertices": 495,
+      "triangles": 922
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3178.obj",
+      "sha256": "ec90f03f2ce1edebc8793a9e9973229b198d6367eb5eab1dff6e238110e94d9d",
+      "bytes": 374292,
+      "vertices": 3691,
+      "triangles": 4646
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3225.obj",
+      "sha256": "40680b5a3556b5984a5006e01649ff20cb4c88d9d3a7fef79cbad0648a972d54",
+      "bytes": 432176,
+      "vertices": 3419,
+      "triangles": 6826
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3226.obj",
+      "sha256": "24a27d42732af55ad1e7142179f2dd4f906de78b701fbe5c459d8884a026f250",
+      "bytes": 304274,
+      "vertices": 2435,
+      "triangles": 4866
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3227.obj",
+      "sha256": "3b7e5d6673a1be5bc14d72a4ea659d361b143f3fda5bca3ec758c176daba16c5",
+      "bytes": 170991,
+      "vertices": 1411,
+      "triangles": 2818
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3228.obj",
+      "sha256": "803a7134c1e69f640b87f9c6c4a846c869379446e771a1a7c9d18914c331a603",
+      "bytes": 200847,
+      "vertices": 1641,
+      "triangles": 3276
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3229.obj",
+      "sha256": "631b4f63625fa6cc89ad83961b2156abe5878d1baf4a8cb2b2acbaa06bc97f58",
+      "bytes": 355230,
+      "vertices": 2862,
+      "triangles": 5594
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3230.obj",
+      "sha256": "8c097e93d79c610bed49d6c027d25c8439447c20bfb94fa64009b9c4db4d8f5b",
+      "bytes": 460032,
+      "vertices": 3637,
+      "triangles": 7254
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3231.obj",
+      "sha256": "c1259fcdaf463bdecfc0868a3acc964edd4901ab03eb539b28e40462671be1fb",
+      "bytes": 564534,
+      "vertices": 4445,
+      "triangles": 8850
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3232.obj",
+      "sha256": "c40bbcd5c2b98bb94161819a2cf824296289ce68eb62b37f3b175af4aadfd351",
+      "bytes": 622387,
+      "vertices": 4912,
+      "triangles": 9710
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3233.obj",
+      "sha256": "8160b28fd649aadd705a05cc3e6e9cfd7035c44d8258b5a50977ec89fe8e7414",
+      "bytes": 657309,
+      "vertices": 5172,
+      "triangles": 10264
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3234.obj",
+      "sha256": "372c650b2b7bc3f6767aa50a0f5b7e5dac6a15a17aeea5f5017166ba5d328757",
+      "bytes": 642407,
+      "vertices": 5054,
+      "triangles": 10032
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3235.obj",
+      "sha256": "7d9525200958a9545391a2e135649580282108d77f7ae88a34003a56f48f4c8b",
+      "bytes": 532783,
+      "vertices": 4211,
+      "triangles": 8336
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3236.obj",
+      "sha256": "ec09e201beaaa70c24a41eedcef4671118b453361f827be02fb73fc361208db8",
+      "bytes": 481787,
+      "vertices": 3805,
+      "triangles": 7576
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3237.obj",
+      "sha256": "2491009d53eaed99ccb2a802b29402eec715eb8d207fb819fad67b0720195cf2",
+      "bytes": 69709,
+      "vertices": 602,
+      "triangles": 1176
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3259.obj",
+      "sha256": "d291cc3619c32c68edb9d29e0b755634c2cb85e3db89f0d0b63a316f879ef86d",
+      "bytes": 197175,
+      "vertices": 1623,
+      "triangles": 3204
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3260.obj",
+      "sha256": "b5fbb694e1d881033ec8318b97c41e9d9bedc89a8df9845573b1aac528829331",
+      "bytes": 67079,
+      "vertices": 577,
+      "triangles": 1124
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3262.obj",
+      "sha256": "4a07066d7c7f17dfeb61797dc31c529d0d6fd3fda8136912ebd8a92ccc1ac6fc",
+      "bytes": 247429,
+      "vertices": 2073,
+      "triangles": 3844
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3279.obj",
+      "sha256": "e63a5675c6cdbe942322305920241b4a63762d7a65879572400f444fa3d42739",
+      "bytes": 1865738,
+      "vertices": 14068,
+      "triangles": 28106
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3282.obj",
+      "sha256": "40e55d7d28f060be61815603ee5eb1c0ba4c2e93af6fed6b5db7ca88d4ed82ef",
+      "bytes": 101389,
+      "vertices": 880,
+      "triangles": 1692
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3290.obj",
+      "sha256": "e94f731d044131260947146ab79fa7c4712865e1aac36a1410003358b96e0692",
+      "bytes": 164755,
+      "vertices": 1446,
+      "triangles": 2546
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3330.obj",
+      "sha256": "9e62a17a2ea9dc16797beec97bd0925c9692c2a4764391cbc1e289b0120e7aa4",
+      "bytes": 434806,
+      "vertices": 3415,
+      "triangles": 6820
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3331.obj",
+      "sha256": "1fdce776ea65919bf9aa418ec91c872b3eb835daca57dc69a7caa40bb02707d7",
+      "bytes": 306720,
+      "vertices": 2437,
+      "triangles": 4866
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3332.obj",
+      "sha256": "50dd4dac4ebb45fa245d700f7ceac89edd7503cb4caab154b644b0a808da2ecc",
+      "bytes": 172391,
+      "vertices": 1412,
+      "triangles": 2818
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3334.obj",
+      "sha256": "3831c5c578d45fc491e7e72417cc436e04a1a3a1916138e51528ad0b0b212a54",
+      "bytes": 202343,
+      "vertices": 1642,
+      "triangles": 3276
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3336.obj",
+      "sha256": "57084a626a91aa88782f2e836c75450cd90bf19717dfd3f31602b4c674b70c0c",
+      "bytes": 358347,
+      "vertices": 2861,
+      "triangles": 5594
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3338.obj",
+      "sha256": "b239419743f7320b8b1d4f4d96ab41c1ff7fccdc921fa3a99c700a9d6dbd2a6c",
+      "bytes": 463525,
+      "vertices": 3634,
+      "triangles": 7254
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3340.obj",
+      "sha256": "ffca17251de4f457c4952e9d913070eb7a6f767493925ac3d8c3c744941b5dbd",
+      "bytes": 567435,
+      "vertices": 4435,
+      "triangles": 8832
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3342.obj",
+      "sha256": "b2d1f3bc9478c51524628f4e79524290add55800ae85b06ff657f17f4c0c6f1f",
+      "bytes": 627173,
+      "vertices": 4910,
+      "triangles": 9710
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3344.obj",
+      "sha256": "5e45ea5a527d3b7df56c508213020265ed1c8a0d9a99f31454b92059f4f1a95f",
+      "bytes": 661844,
+      "vertices": 5168,
+      "triangles": 10246
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3346.obj",
+      "sha256": "86cc62c1a0a754f2e01a30b5d7179c745f3c2404ef4031ae43568667c4041996",
+      "bytes": 647429,
+      "vertices": 5058,
+      "triangles": 10032
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3347.obj",
+      "sha256": "388e8f3dd5c308fe1454daed2aa3a2fced280d4ec60f97b547b476ca6b0da930",
+      "bytes": 535781,
+      "vertices": 4199,
+      "triangles": 8336
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3348.obj",
+      "sha256": "4ef4af4eb8a7ea76479b2d4a1b2973c7d950f6e3aa5593eca4377258222bdaf6",
+      "bytes": 485199,
+      "vertices": 3808,
+      "triangles": 7576
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3362.obj",
+      "sha256": "9a111cac8351e79dd1315aea90108fe56f78e4bf0159473e6ad727ba91b60e6d",
+      "bytes": 68321,
+      "vertices": 583,
+      "triangles": 1146
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3365.obj",
+      "sha256": "5eff0f92905dd45bd0e79b1de0144dc15988c73c683468163255ba1452d58037",
+      "bytes": 192114,
+      "vertices": 1574,
+      "triangles": 3102
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3366.obj",
+      "sha256": "d03fee02cf8eefad1ecfcb9246e3f43ad3c4615c21ce08dc5e2b6901c6395a86",
+      "bytes": 69197,
+      "vertices": 593,
+      "triangles": 1142
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3368.obj",
+      "sha256": "85f5445a11ecb029b027db0b9b34933982836d442b19ff531d1ca35a3bc3a237",
+      "bytes": 256564,
+      "vertices": 2233,
+      "triangles": 3784
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3384.obj",
+      "sha256": "1641b04e55f9d75bdd6f1f4f07ea596e5dea0a8cb6b348bff47281b8a0bc6e5d",
+      "bytes": 1743768,
+      "vertices": 13118,
+      "triangles": 26172
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3387.obj",
+      "sha256": "01879d7310938e82eecc02e1115332497e94085ff5cc1fa8eeee47ad1f5d3578",
+      "bytes": 100137,
+      "vertices": 857,
+      "triangles": 1664
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3411.obj",
+      "sha256": "9eeb5e5a627e8145f03961c661c9c66d8fdc55ed1234d04b84212b87a21d902c",
+      "bytes": 41743,
+      "vertices": 381,
+      "triangles": 670
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3413.obj",
+      "sha256": "764f23e432a9308e0780c586f9d1638db1fbcc52a5019ae61817b4b1de323870",
+      "bytes": 24686,
+      "vertices": 229,
+      "triangles": 396
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3427.obj",
+      "sha256": "386a80f191338beee23e83c33800ba17d4990123b41c648b9919764578505f7a",
+      "bytes": 289230,
+      "vertices": 2351,
+      "triangles": 4562
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3477.obj",
+      "sha256": "3299a1375f6f86c5d523d7f3abd1bce371f13d0b4b586e53bf95600b6ed17adf",
+      "bytes": 38504,
+      "vertices": 334,
+      "triangles": 652
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3478.obj",
+      "sha256": "06a4b0b274aac5458aeb7ff33881f05afcd2a15e776ddfb9af59e61a06b4b2a1",
+      "bytes": 356390,
+      "vertices": 3657,
+      "triangles": 4260
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3483.obj",
+      "sha256": "19f38e57365867279705090994fff228177163c1920ad0f8f9b15f830a42bc1d",
+      "bytes": 12124,
+      "vertices": 126,
+      "triangles": 170
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3564.obj",
+      "sha256": "423585ec439b07b0f64878f904afca52d4866e1e0dc54c2ace31953d9b6156cf",
+      "bytes": 52438,
+      "vertices": 448,
+      "triangles": 884
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3577.obj",
+      "sha256": "36125db169fc547f88860a3f8ea873742437d8be55b6f5f1a7f877219b759449",
+      "bytes": 19476,
+      "vertices": 172,
+      "triangles": 332
+    },
+    {
+      "file": "isa_BP3D_4.0_obj_99/FJ3578.obj",
+      "sha256": "ccb15ddc46ef6b11ef62fa8dd6923b6fdeedb9b3371ab80513ff11a0fc120734",
+      "bytes": 388327,
+      "vertices": 3865,
+      "triangles": 4682
+    }
+  ]
+}

@@ -2,148 +2,146 @@
 
 ## 1. Purpose, intended use and non-goals
 
-Use this skill when a request needs a reproducible anatomical figure that highlights named
-structures: anatomy research, teaching material preparation, scientific communication,
-literature-related anatomical explanation, terminology lookup, and non-patient-specific
-anatomical visualisation. Example requests: "Highlight the deltoid and pectoralis major",
-"Show the liver and both kidneys", "Show the main anatomical structures in this explanation".
+Create reference-backed anatomical figures and interactive atlases for research, teaching
+material preparation, scientific communication and terminology browsing. The model interprets
+intent; deterministic code resolves structures and selects verified source geometry. Never
+invent anatomy, ontology mappings, relationships, translations or anatomical SVG paths/meshes.
 
-The model interprets intent. Deterministic code decides whether a structure exists in the
-supported catalog and how the figure is produced. The model must never draw anatomical SVG
-paths, invent a structure, or claim coverage that is not in the verified catalog.
-
-Non-goals and medical boundaries. This is a research and education skill. Do not use it to
-diagnose or interpret symptoms for a person, recommend treatment or medication, predict an
-individual clinical outcome, analyse patient records or real patient images, interpret MRI,
-CT, X-ray, ultrasound or pathology images for clinical purposes, or make patient-specific
-decisions. Do not accept personal or potentially re-identifiable health data. Never place
-personal data, patient data or identifying details in a `title` or structure name. A field
-of study may be discussed at the level of general anatomy only; individual clinical guidance
-is refused regardless of the wording of the request. A disclaimer alone is not sufficient:
-refuse the request and offer a generic anatomical figure instead.
-
-This version is English-only by design. Do not translate structure names or offer
-multilingual aliases, localisation tables or automatic translation.
+Research and education only. Refuse patient-specific diagnosis, symptom interpretation,
+treatment, prognosis, clinical image interpretation and individual clinical decisions.
+Do not request or process personal, patient or real student data, submissions or grades.
+Do not grade, rank or evaluate real students. A quiz here is a generic study figure, never
+an assessment of a real person. No clinical validity, precision or comprehensive coverage
+is claimed. Do not use generated images or meshes as anatomical evidence.
 
 ## 2. Required inputs and permitted data
 
-- The user's requested structures, expressed as common English anatomical terms.
-- Optional view, body sex, label/legend flags and a short figure title.
-- Permitted data is limited to generic anatomical terminology. Never include names, record
-  numbers, dates of birth, biological material identifiers, or any potentially
-  re-identifiable information in a structure name or title.
-- If the request mixes anatomy with a specific person or patient, stop: refuse the clinical
-  part, keep only the general anatomical question, and do not forward any personal data.
+Use generic anatomical terminology, one structure per array item, at most 12 requests.
+English and Spanish use curated aliases: kidney / riñón, kidneys / riñones, liver / hígado,
+deltoid / deltoides. Preserve the user's terminology. Unlisted translations are unsupported;
+never translate an unsupported term into a guessed accepted alias.
+
+Optional language is `en` or `es`. A missing reviewed Spanish label remains in canonical
+English with an explicit limitation. Output names may change language; canonical identities
+and ontology namespaces never change. Titles must be generic, without personal information.
+Input must already be non-personal before model access. Never ask for raw records or use a
+model to anonymize them. If personal data is encountered, stop without repeating it or
+forwarding it to tools; continue only with a separately supplied generic question.
 
 ## 3. Required capabilities, configuration and prerequisites
 
-The skill declares one capability, `self:anatomy`, supplied by this plugin. It has no
-configuration, no secrets and `"permissions": {}`. It never uses the network, so it works
-offline and is charged to the ordinary sandboxed call budget. Two tools are available:
+`self:anatomy` supplies four tools. Native generic `nodus:3d` validates and displays models;
+there is no native anatomy capability and no plugin viewer. Keep both enabled for atlas use.
 
-- `render-anatomy` — resolves structures, validates support, selects provider and view, and
-  returns one SVG figure. This is the principal tool. Call it with every requested structure
-  in a single call.
-- `list-supported-structures` — returns JSON with the verified catalog, aliases, categories,
-  ontology identifiers and limitations. Use it when a term is unfamiliar, when the user asks
-  what is available, or to recover from an unsupported-term error.
+- `render-anatomy`: mandatory for every SVG figure, preserving the legacy renderer.
+- `render-anatomy-3d`: mandatory for interactive reference models. Returns packaged asset
+  references, stable node selections and provenance to the native viewer.
+- `list-supported-structures`: geometry metadata. Default `dimension: "svg"` preserves the
+  legacy catalog. `dimension: "model"` returns paginated verified 3D coverage. Use `search`,
+  `limit` (1–50) and `offset`; a non-null `nextOffset` means more results exist.
+- `query-anatomy`: mandatory for structural/ontology claims. Queries only curated PART-OF
+  and IS-A assertions. HAS-PART is the inverse of PART-OF, not model inference.
 
-Do not declare or rely on any native `nodus:*` capability for this skill.
+Version 1.1.0 requires the Nodus packaged-asset integration described in the plugin README,
+integrated by Nodus PR #765. Use the compatible source build documented in the README
+or a later release containing that change; an unmodified released 5.3.2 is incompatible.
 
-## 4. Input validation and privacy checks before tool access
+No secrets, endpoints, network or writable storage are configured. Permissions remain `{}`.
+The only new host operation reads this installed capability's declared, hash-verified JSON
+assets. Geometry stays in packaged GLB assets and the native pipeline, outside model input.
+If an endpoint is unreachable or a secret is unconfigured, neither should affect this
+plugin: it has no such dependency and no remote fallback. Missing packaged assets or missing
+host support are explicit failures. Use a saved conversation for model attachments.
 
-Before calling a tool:
+## 4. Input validation and privacy checks before model or tool access
 
-1. Confirm the request is general, research or educational, not patient-specific.
-2. Remove any personal or re-identifiable data from the request and from the tool input.
-3. Express each structure as one English term per array item; never join two structures in
-   one string.
-4. Request no more than 12 structures per call.
-5. Do not invent identifiers, ontology codes, providers or aliases. Send only what the user
-   asked for; the capability resolves it against the verified catalog.
-6. Do not request patient images or ask the capability to analyse them; it only renders
-   schematic anatomy from its own pinned resources.
+1. Ensure the workflow uses only generic non-personal reference anatomy. Refuse clinical or
+   real-student assessment requests before requesting any records.
+2. Keep structure requests separate and within 12 items. Do not accept user paths, external
+   models, remote URLs, geometry, HTML, SVG markup or executable content.
+3. Use only the requested structures. Capability code decides exact, generalised, ambiguous
+   or unsupported resolution. Never silently substitute a broader region.
+4. Infer sex or view only from explicit wording; otherwise use `auto`. For comparisons use
+   explicit `sex: "both"`. Do not infer anatomical side from screen position or coordinates.
+5. Preserve the user's language using `language`; terminology and side aliases must exist in
+   the registry. An unsupported term is not permission to invent a translation.
 
-The capability independently re-validates every input (structure count, string length,
-supported view, supported sex, label/legend flags, unknown fields) and refuses anything
-invalid. Never bypass those checks by editing or truncating input.
+Runtime and application schemas independently validate inputs. Package manifests and hashes
+validate assets; native `nodus:3d` validates containers before storage and display. Do not
+bypass failures or claim a completed figure before successful tool execution.
 
 ## 5. Numbered execution steps and tool-selection rules
 
-1. Classify the request as permitted general anatomy. If it is patient-specific or clinical,
-   refuse that part and continue only with a general anatomical figure if the user still
-   wants one.
-2. Extract the anatomical structures the user named. Keep the user's English terms.
-3. Infer `view` only from explicit wording: front, back, both, or leave it as `auto`.
-   Infer `sex` only when the user explicitly asks for a male or female body; otherwise use
-   `auto`. Do not guess.
-4. Call `render-anatomy` once with all structures, plus `view`, `sex`, `labels`, `legend`
-   and `title` when the request calls for them. Do not call it once per
-   structure: the call budget is limited and the figure must combine the structures.
-5. If the capability returns an error, read it literally:
-   - unsupported term: report that the structure is outside the verified catalog, and offer
-     `list-supported-structures` or a supported alternative; never substitute silently;
-   - ambiguous term: ask the user to choose between the listed candidates;
-   - laterality request (`left kidney`, `right deltoid`): explain that per-side selection is
-     not available and that paired structures are shown on both sides;
-   - unavailable view: report which views the requested structure does have;
-   - unsupported sex: report which body drawings contain the structure;
-   - disabled capability: tell the user the Anatomy Visualization skill or its `self:anatomy`
-     capability is not enabled on this surface and cannot run;
-   - resource-integrity or payload error: report that the embedded catalog could not be
-     decoded and ask the user to reinstall the plugin; do not invent a figure.
-6. Never author anatomy SVG yourself and never instruct the model to draw paths. Only the
-   capability returns the figure.
-7. Summarise the figure in prose: which structures are highlighted, the provider drawings
-   used, and every limitation the figure states. Keep source attribution visible.
-
-Tool-selection summary: use `render-anatomy` for any figure; use
-`list-supported-structures` only to answer catalog questions or recover from errors.
+1. Determine whether the user wants a figure, model, metadata or relationship query.
+2. For a figure, call `render-anatomy` once with `structures`, optional `view`
+   (`auto`, `front`, `back`, `both`), `sex` (`auto`, `male`, `female`, `both`), `language`,
+   `labelMode` (`names`, `numbers`, `none`), `legend` and `title`.
+   Legacy `labels` remains accepted; do not combine it with `labelMode`. A visible legend
+   requires callouts. For a quiz, use `labelMode: "numbers", legend: false`; omit an
+   answer-revealing title. Use names with callouts for explanatory teaching figures.
+3. For 3D, call `render-anatomy-3d` once with `structures`, optional `sex`, `language` and
+   `title`. Examples: `["left kidney", "right kidney"]`, `["left deltoid"]`,
+   `["sistema digestivo"]`, or `["uterus", "ovaries", "prostate", "testes"]` with
+   `sex: "both"`. The native viewer handles interaction. Never author, fetch or embed a
+   replacement model. Source-local models remain separate; no shared registration is assumed.
+4. For semantic questions, call `query-anatomy` with one exact `structure`, `relation`
+   (`part-of`, `has-part`, `is-a`), optional `depth` (1–8), `limit` (1–200) and `language`.
+   Examples: parts of kidney → `has-part`; what a structure belongs to → `part-of`;
+   classification → `is-a`; urinary-system browsing → `has-part` with a bounded depth.
+   Edges preserve their original predicate and source; HAS-PART reverses traversal only.
+   `no-curated-assertions` means the snapshot has no answer, not that no biological relation
+   exists. Report `truncated: true` and narrow the query; never present it as complete.
+5. Use `list-supported-structures` for unfamiliar terms and coverage. Semantic-query
+   coverage and renderable geometry are distinct. An ontology entry alone is not a mesh.
+6. Handle errors literally: unsupported term → report unavailable coverage; ambiguous term →
+   ask the user to choose; unsupported laterality/view/sex → report the precise source
+   limitation; disabled capability → enable it on this surface; resource-integrity or
+   missing assets → reinstall the compatible verified package. Never draw a fallback.
+7. Explain results with their source credits, granularity, generalised matches and every
+   material limitation. Retain source attribution. For a quiz do not include an answer key
+   in the accompanying prose unless requested. Do not multiply calls per structure. Calls
+   share the application's reply budget; no retry loop may evade it.
 
 ## 6. Expected outputs, evidence, attribution and provenance
 
-`render-anatomy` returns one sanitized SVG result containing:
+SVG results preserve the deterministic provider panels, safe SVG allowlist, numbered
+callouts and leader lines. Colour is never the sole identifier when callouts are enabled;
+`none` deliberately produces an unlabelled illustration and cannot carry a legend.
+`numbers` without a legend omits answer names from the accessible description as well.
+`sex: "both"` uses separate male/female panels, not one impossible body drawing.
 
-- a title and an accessible description;
-- one panel per drawing (muscle front/back, organ body, brain regions), each labelled;
-- highlighted structures, each in its own colour, with a numbered callout in the side margin
-  connected to the structure by a leader line and a legend mapping numbers and colours to
-  names (identification never relies on colour alone);
-- provider and licence attribution beneath the relevant panel;
-- explicit notices for generalised matches, bilateral drawing and mixed coordinate systems;
-- a footer stating that the figure is schematic, research/teaching material, not to scale and
-  not for clinical use.
+3D results contain one native model reference per source frame, selected stable node IDs,
+canonical source names and ontology identifiers where supported. System groups are explicit
+source-derived subsets. Mesh nodes retain source file identities, source hashes and group
+membership in glTF extras. HRA source node identities and source hierarchy survive. Future
+native isolate/show/hide/fade controls can use those nodes; do not claim controls the viewer
+has not implemented. The plugin supplies no anatomy-specific UI.
 
-`list-supported-structures` returns JSON with canonical names, aliases (generalised aliases
-are marked), category, granularity, provider, provider id, UBERON namespace where present,
-reviewed FMA cross-references, available views, sexes, laterality and notes.
-
-Provenance is preserved end to end: figures come from pinned revisions of
-react-native-body-highlighter (MIT) distributed through Anatome (Apache-2.0 repository,
-MIT path data), the EMBL-EBI Expression Atlas anatomograms (CC BY 4.0), and reviewed FMA
-cross-references (CC BY 4.0). The capability never relabels a UBERON identifier as FMA, and
-the figure keeps the provider attribution that the underlying licence requires.
+Metadata preserves English/Spanish aliases, generalisation flags, laterality, 2D/3D
+availability, supported views/sexes, granularity, source files/revisions, SHA-256 hashes,
+licences, provenance and limitations. Sources include the existing MIT muscle paths and
+CC BY 4.0 Expression Atlas SVGs, BodyParts3D release 4.0 meshes and relationship tables,
+asset-specific CC BY 4.0 HuBMAP HRA female objects, and a pinned CC BY 3.0 Uberon renal
+subset. Unqualified renal queries prefer the canonical UBERON identity; explicitly sided
+queries use FMA. No cross-species descendants are imported wholesale. Keep UBERON, FMA and HRA source
+identities distinct; HRA scene names do not constitute an invented FMA mapping.
 
 ## 7. Limitations, uncertainty, errors, cancellation and refusal conditions
 
-- Coverage is exactly what `list-supported-structures` returns. It is not "all human
-  anatomy": muscles and body regions come from the Anatome path set, organs and brain
-  regions from the EMBL-EBI anatomograms. Bones, most vessels, nerves, most tissues and
-  many muscles (for example supraspinatus, psoas or diaphragm details) are not covered.
-- Figures are schematic, not to scale, and not spatially registered between drawings.
-  Muscle and organ panels use different coordinate systems and are shown separately.
-- Paired structures are highlighted bilaterally. Per-side (left/right) selection is a
-  documented limitation, not an error to work around.
-- Generalised matches are permitted only where the registry marks them and are reported in
-  a figure notice. Never present a generalised match as the exact requested structure.
-- Drawings show a male and a female body. Structures present in only one body drawing are
-  reported; male-specific and female-specific structures cannot share one figure.
-- If the capability is disabled, the figure cannot be produced; do not fall back to drawing
-  anatomy or to image generation for unsupported anatomy.
-- The capability does not use the network; an unavailable network never affects it, and
-  there is no remote fallback.
-- Cancellation is handled by the application: if the turn is cancelled, stop and do not
-  present a partial figure as complete.
-- Refuse: clinical or patient-specific use, personal health data, image interpretation,
-  requests to fabricate structures or ontology mappings, and any attempt to bypass the
-  capability contract.
+- The SVG catalog remains bilateral. Its sources do not carry reviewed anatomical side
+  mappings. Per-side SVG requests fail rather than silently showing both sides. 3D side
+  requests resolve explicit source labels; unsupported laterality fails.
+- BodyParts3D is male-only. HRA female kidneys, uterus and ovaries remain separate source
+  frames. A both-sex request reports missing coverage per entity. Sex-specific structures
+  can be compared in separate panels without implying they coexist or are registered.
+- Deltoid 3D requests are a disclosed collection of source-labelled clavicular, acromial
+  and spinal portions. Do not represent this source granularity as a whole-muscle mesh.
+- Systems are partial curated reference subsets, not complete systems. Read the returned
+  availability and omitted-members notice. Lymphatic-system meshes are not packaged.
+- Geometry has source resolution/simplification limits. It is not to scale with SVG panels
+  and is not clinically validated. Coordinates may not be mixed across providers.
+- Unsupported detail, arbitrary translations, invented mappings, model-authored anatomy,
+  external fetching, personal health data and clinical interpretation are refusal conditions.
+- Missing/disabled capabilities, unavailable services, corrupted assets and hash mismatches
+  never trigger guessed results. Cancellation is controlled by Nodus; stop immediately and
+  do not present a partial operation as successful. No network is needed after installation.

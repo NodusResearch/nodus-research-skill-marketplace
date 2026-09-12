@@ -18,3 +18,6 @@
 *.zip binary
 *.nodus-plugin binary
 *.sig binary
+
+# Native 3D model containers retain exact source-derived bytes.
+*.glb binary

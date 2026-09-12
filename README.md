@@ -158,7 +158,7 @@ is the starting point for a new one.
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th></tr></thead>
 <tbody>
-<tr><td><a href="anatomy-visualization/">Anatomy Visualization</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Render deterministic, attributed anatomy figures that highlight verified muscles, organs and brain regions without the model drawing paths.</td></tr>
+<tr><td><a href="anatomy-visualization/">Anatomy Visualization</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Deterministic SVG and verified 3D anatomy with curated English/Spanish terminology and semantic queries. Requires a Nodus build containing PR #765; unmodified released 5.3.2 is incompatible.</td></tr>
 <tr><td><a href="unit-converter/">Unit Converter</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Convert lengths, masses and temperatures exactly and in batches, without the model doing the arithmetic.</td></tr>
 </tbody>
 </table>

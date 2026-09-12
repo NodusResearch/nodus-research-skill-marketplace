@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateManifest, validatePluginPackage, validateSkillPackage } from './contract.mjs';
@@ -11,13 +12,13 @@ const plugins = [];
 // Only regular files inside the package directory are publishable content: no symlinks,
 // no executables, nothing reached through a traversal.
 function reader(directory) {
-  return file => {
+  return (file, encoding = 'utf8') => {
     const full = path.join(directory, file);
     const stat = fs.lstatSync(full);
     if (!stat.isFile()) throw new Error(`Not a regular package file: ${full}`);
     if ((stat.mode & 0o111) !== 0) throw new Error(`Package files must not be executable: ${full}`);
     if (!fs.realpathSync(full).startsWith(fs.realpathSync(directory) + path.sep)) throw new Error(`Not a regular package file: ${full}`);
-    return fs.readFileSync(full, 'utf8');
+    return fs.readFileSync(full, encoding);
   };
 }
 
@@ -60,6 +61,12 @@ for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
       const base = path.posix.dirname(file);
       files[file] = read(file);
       files[`${base}/${capability.entry}`] = read(`${base}/${capability.entry}`);
+      for (const asset of capability.assets ?? []) {
+        const text = read(`${base}/${asset.path}`, asset.mimeType === 'model/gltf-binary' ? 'base64' : 'utf8');
+        const bytes=Buffer.from(text,asset.mimeType==='model/gltf-binary'?'base64':'utf8');
+        if(bytes.length!==asset.bytes || createHash('sha256').update(bytes).digest('hex')!==asset.sha256)throw new Error('Plugin asset SHA-256 mismatch: '+asset.path);
+        files[`${base}/${asset.path}`] = text;
+      }
     }
     declaredOnly(directory, Object.keys(files));
     const validated = validatePluginPackage({ manifest, files });

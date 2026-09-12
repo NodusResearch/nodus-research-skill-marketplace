@@ -8,12 +8,14 @@
   "scripts": {
     "validate": "node scripts/catalog.mjs --check && node scripts/validate-templates.mjs && node scripts/validate-workflows.mjs && node scripts/validate-plugins.mjs && npm run typecheck",
     "build:plugins": "node scripts/build-plugins.mjs",
-    "test:plugins": "node --test plugins/*/test/*.test.mjs && node --test scripts/test-licence-file.mjs scripts/test-signing-key-shapes.mjs scripts/test-archive-determinism.mjs",
+    "test:plugins": "node --test plugins/*/test/*.test.mjs && node --test scripts/test-licence-file.mjs scripts/test-signing-key-shapes.mjs scripts/test-archive-determinism.mjs && npm run test:anatomy",
     "catalog:v2": "node scripts/build-catalog-v2.mjs",
-    "typecheck": "tsc --noEmit -p plugins/chemistry-studio/tsconfig.json"
+    "typecheck": "tsc --noEmit -p plugins/chemistry-studio/tsconfig.json",
+    "test:anatomy": "node --test scripts/test-anatomy-visualization.mjs scripts/test-anatomy-gltf.mjs"
   },
   "devDependencies": {
     "esbuild": "0.25.0",
+    "gltf-validator": "2.0.0-dev.3.10",
     "typescript": "^5.9.3"
   },
   "dependencies": {
