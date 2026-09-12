@@ -3,6 +3,25 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
+  # The packages are built for four targets, and until now every one of their tests ran on
+  # Linux alone. A path bug that only exists on Windows therefore could not fail until the
+  # release workflow's build matrix reached it — after a merge, with a publication waiting
+  # on it. This job is those same tests on the platforms the packages are released for.
+  package-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - name: Capability package tests
+        run: npm run test:plugins
+
   validate:
     runs-on: ubuntu-latest
     steps:
