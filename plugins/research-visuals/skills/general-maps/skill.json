@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "general-maps",
+  "name": "General Maps",
+  "version": "1.0.0",
+  "author": "Drakonis96",
+  "description": "Create attributed maps with administrative polygons, colored regions, exact coordinates, labels and routes.",
+  "category": "Design and visual communication",
+  "license": "AGPL-3.0-only",
+  "instructions": "SKILL.md",
+  "capabilities": [
+    "self:cartography"
+  ],
+  "tools": []
+}

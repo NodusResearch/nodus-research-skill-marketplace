@@ -258,7 +258,7 @@ overlay that can be reset to the author's version, and skills added by an update
 A v2 package lives under `plugins/<id>` and is published as a signed release rather than
 read from the repository. Only NodusResearch may publish one, and only NodusResearch may
 provide the reserved capability ids (`nodus:chemistry`, `nodus:legal`, `nodus:genomics`).
-`nodus:svg` and `nodus:image` belong to the application and can only ever be depended on.
+`nodus:svg`, `nodus:image`, `nodus:3d`, `nodus:maps` and `nodus:vision` belong to the application and can only ever be depended on.
 
 ## Layout
 
@@ -414,3 +414,9 @@ ambiguous nodes and animated/skinned subsets fail. There is no native anatomy ca
 This extension requires a Nodus build containing upstream PR #765; the previously released,
 unmodified 5.3.2 does not support it. The anatomy README pins a compatible source-build
 commit. Exported contracts are generated from Nodus, never hand-edited here.
+
+## Native maps and controlled public-image review (API 2.2)
+
+`permissions.maps` declares a call ceiling and approved native providers; `host.maps.render` returns attributed SVG and structured geometry/provenance. Historical geometry may be supplied with an evidence URL and date range; do not imply that a provider supports former boundaries when it does not.
+
+`permissions.vision.maxRounds` is 1–3. Every tool in that capability must declare `metered: true` and `billing: per-call`. Trusted workers call `host.vision.prepareImages` with public declared endpoint/path sources, then `host.vision.reviewImages` with returned handles and the original `invocation.chat.question`. At most five images per round; no arbitrary prompt, private file, recursive model tool or model switch. The selected model must support vision or return `vision_unavailable`. The host enforces paid-call limits, cancellation, thumbnail bounds and authentic receipts. Only its receipts can establish actual inspection. See [Research Visuals](plugins/research-visuals/) for the first reusable source adapters and checked-source settings.

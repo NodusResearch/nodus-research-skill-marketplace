@@ -330,3 +330,7 @@ A published release is immutable, so recovery is forward, never backwards.
   it is trusted — an entry that lies about a version, a size or an asset fails verification
   rather than installing something — so a wrong catalog is a broken download, not a
   security incident.
+
+### Controlled public-image review
+
+The repository-owner exception in [POLICY.md](POLICY.md#narrow-exception-controlled-public-image-relevance-review) permits approved public thumbnails and safe attribution metadata only through native `nodus:vision` relevance review. It does not authorize private/student data or a general model-call API. New image sources require documented licence review, strict endpoint declarations and deterministic negative tests; see [Research Visuals](plugins/research-visuals/README.md).

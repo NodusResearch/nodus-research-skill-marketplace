@@ -18,7 +18,7 @@ These rules apply to instructions, manifests, tool code, examples, dependencies,
 
 - **Skill:** an installable workflow containing instructions, metadata, and declarations of required capabilities or optional sandboxed tools.
 - **Tool:** a concrete operation the assistant requests through a defined interface and the application executes.
-- **Native capability:** specialized or privileged functionality implemented and controlled by Nodus, potentially exposing several tools. Nodus registers `nodus:svg`, `nodus:image`, `nodus:chemistry`, `nodus:genomics`, and `nodus:legal`; the bare names normalize to those identifiers.
+- **Native capability:** specialized or privileged functionality implemented and controlled by Nodus, potentially exposing several tools. The core registers `nodus:svg`, `nodus:image`, `nodus:3d`, `nodus:maps` and `nodus:vision`; signed disciplinary packages provide `nodus:chemistry`, `nodus:genomics` and `nodus:legal`. The bare core names normalize to those identifiers.
 - **Plugin:** one versioned unit bundling one or more skills, and optionally its own **plugin capability** — a `runtime.js` the application executes in an ephemeral Chromium sandbox on the plugin's behalf.
 
 A skill describes a workflow; it does not itself provide every underlying integration. Declaring a capability MUST NOT be treated as granting arbitrary application privileges.
@@ -95,6 +95,13 @@ When an otherwise permitted research workflow necessarily handles personal data:
 A tool that redacts data after the initial chat message has reached a model is too late. Warnings and user consent do not override this marketplace rule. If the application cannot enforce the required boundary, block publication.
 
 Use synthetic or demonstrably non-personal fixtures. Never request confidential research records merely to test a contribution.
+
+
+### Narrow exception: controlled public-image relevance review
+
+The repository owner explicitly authorized this exception on 2026-09-12. Public tool-retrieved images, including public photographs depicting people, and safe source metadata/attribution may be sent to the user's selected vision model **only** through the application-controlled `nodus:vision` relevance-review service. Trusted capability-generated imagery is also eligible. This exception takes precedence over the blanket model-access/consent language for this specific operation; it does not declare public personal information anonymous.
+
+The host must enforce approved public endpoints, bounded decoded thumbnails, per-turn review/cost/time limits, cancellation, verified model support and non-forgeable host results. Private files, student records, credentials, identity matching, sensitive personal inferences and unrelated application data remain excluded. Generated provenance must not disguise private inputs. Source-specific licensing and attribution still require review. This grants neither arbitrary network access nor a general model-call API. Tests must continue to use synthetic/non-personal fixtures.
 
 ## 7. Restrict medical and psychiatric skills to research
 

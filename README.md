@@ -31,6 +31,12 @@ Catalog updates do not change installed **skill packages**: installing a replace
 
 AlphaGenome and Legalize use Nodus's `nodus:genomics` and `nodus:legal` capabilities. Both are registered capabilities in current builds; older builds without them refuse installation. See each package’s compatibility notes.
 
+## Research Visuals: maps and open images
+
+[Research Visuals](plugins/research-visuals/) bundles three independently enabled Skills: **General Maps**, **Historical Maps** and **Open Image Finder**. Maps use native cartography and preserve editable SVG, geometry and provenance. Historical maps require supplied dated evidence; automatic historical border retrieval is not included. Image search defaults to Wikimedia Commons, with independently checked Met and Art Institute of Chicago sources in capability settings, visible attribution and bounded native visual review.
+
+Requires the companion Nodus build with Capability API 2.2 and native `nodus:maps` / `nodus:vision`; **unmodified released 5.3.2 is incompatible**. The signed release is published through the protected maintainer workflow. See the package README for source licences, permissions, limits and tests.
+
 ## Skills, tools and native capabilities
 
 A skill is an installable package: metadata, instructions, expected behavior and a declaration of what the assistant may use. A tool is one concrete operation the assistant can invoke. A native capability is functionality implemented and controlled by Nodus itself, which exposes one or more privileged or specialized tools to compatible skills.
