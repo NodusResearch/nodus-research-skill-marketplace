@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-12T06:27:52.464Z",
+  "updatedAt": "2026-09-12T08:07:36.763Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -67,7 +67,7 @@
         "it": "Disegna strutture, proiezioni, meccanismi e reazioni bilanciate da identità verificate, con le fonti usate.",
         "tr": "Doğrulanmış kimliklerden yapılar, projeksiyonlar, mekanizmalar ve denkleştirilmiş tepkimeler çizer; kontrol edildikleri kaynaklarla birlikte."
       },
-      "version": "2.0.1",
+      "version": "2.1.0",
       "path": "plugins/chemistry-studio",
       "replaces": [
         "builtin-chemistry"
@@ -76,13 +76,13 @@
         "any"
       ],
       "release": {
-        "tag": "chemistry-studio-v2.0.1",
+        "tag": "chemistry-studio-v2.1.0",
         "manifest": "release-manifest.json",
         "signature": "release-manifest.sig",
         "assets": [
           {
             "target": "any",
-            "asset": "chemistry-studio-2.0.1-any.nodus-plugin",
+            "asset": "chemistry-studio-2.1.0-any.nodus-plugin",
             "bytes": 21412941
           }
         ]

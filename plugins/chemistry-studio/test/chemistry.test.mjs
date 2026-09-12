@@ -36,6 +36,8 @@ await build({
       export { validateChemicalReferences } from './src/engine/chemistryValidationCore';
       export { splitFences } from './src/engine/fences';
       export { documentView, summarize } from './src/view';
+      export { assignLonePairs, forceTetrahedralPerspective } from './src/engine/chemistryScene';
+      export { parseChemistryIntent } from './src/engine/chemistryIdentity';
     `,
     resolveDir: root, loader: 'ts',
   },
@@ -296,4 +298,68 @@ test('a drawing and a warning saved by the built-in still render', async () => {
   assert.match(JSON.stringify(unknown), /older version/, 'a code this package never had is shown as an older format, not looked up blindly');
 
   await assert.rejects(worker.renderLegacyResult({ fence: 'chemistry-document', payload: 'nope', locale: 'en' }), /UNREADABLE/);
+});
+
+// ---------------------------------------------------------------- explicit hydrogens
+
+/** A scene built by hand, so what is being tested is the counting rule and not RDKit. */
+const scene = (atoms, bonds) => ({
+  atoms: atoms.map(([element, charge], index) => ({ id: `a${index}`, element, charge, isotope: 0, label: element, x: index, y: 0 })),
+  bonds: bonds.map(([a, b, order], index) => ({ id: `b${index}`, a, b, order, stereo: 0 })),
+});
+
+test('a lone pair is counted, never supplied', () => {
+  // Valence electrons, less the formal charge, less the bonds already drawn. Every one of
+  // these is a number a model would otherwise be asked for, and would sometimes get wrong.
+  const cases = [
+    ['water', scene([['O', 0], ['H', 0], ['H', 0]], [[0, 1, 1], [0, 2, 1]]), [2, 0, 0]],
+    ['ammonia', scene([['N', 0], ['H', 0], ['H', 0], ['H', 0]], [[0, 1, 1], [0, 2, 1], [0, 3, 1]]), [1, 0, 0, 0]],
+    ['methane', scene([['C', 0], ['H', 0], ['H', 0], ['H', 0], ['H', 0]], [[0, 1, 1], [0, 2, 1], [0, 3, 1], [0, 4, 1]]), [0, 0, 0, 0, 0]],
+    ['hydroxide', scene([['O', -1], ['H', 0]], [[0, 1, 1]]), [3, 0]],
+    ['ammonium', scene([['N', 1], ['H', 0], ['H', 0], ['H', 0], ['H', 0]], [[0, 1, 1], [0, 2, 1], [0, 3, 1], [0, 4, 1]]), [0, 0, 0, 0, 0]],
+    ['carbon dioxide', scene([['O', 0], ['C', 0], ['O', 0]], [[0, 1, 2], [1, 2, 2]]), [2, 0, 2]],
+    ['hydrogen cyanide', scene([['H', 0], ['C', 0], ['N', 0]], [[0, 1, 1], [1, 2, 3]]), [0, 0, 1]],
+  ];
+  for (const [name, molecule, expected] of cases) {
+    lib.assignLonePairs(molecule);
+    assert.deepEqual(molecule.atoms.map(atom => atom.lonePairs), expected, name);
+  }
+});
+
+test('a tetrahedral centre that wedges nothing is given a perspective', () => {
+  // Chloroform has one four-coordinate carbon and no stereocentre, so nothing in the graph
+  // asks for a wedge — and a flat drawing of it teaches the wrong shape.
+  const chloroform = scene([['C', 0], ['Cl', 0], ['Cl', 0], ['Cl', 0], ['H', 0]], [[0, 1, 1], [0, 2, 1], [0, 3, 1], [0, 4, 1]]);
+  chloroform.atoms[1].x = 1; chloroform.atoms[1].y = 0;
+  chloroform.atoms[2].x = 0; chloroform.atoms[2].y = 1;
+  chloroform.atoms[3].x = -1; chloroform.atoms[3].y = 0;
+  chloroform.atoms[4].x = 0; chloroform.atoms[4].y = -1;
+  assert.equal(lib.forceTetrahedralPerspective(chloroform), true);
+  const stereo = chloroform.bonds.map(bond => bond.stereo);
+  assert.equal(stereo.filter(value => value === 1).length, 1, 'exactly one solid wedge');
+  assert.equal(stereo.filter(value => value === 6).length, 1, 'exactly one hashed bond');
+  // The renderer draws the narrow end at a bond's first atom, so the centre has to be it.
+  for (const bond of chloroform.bonds.filter(b => b.stereo)) assert.equal(bond.a, 0, 'the wedge starts at the centre');
+
+  // Ethane has two such carbons: which one would the perspective be about? Left alone.
+  const ethane = scene([['C', 0], ['C', 0], ['H', 0], ['H', 0], ['H', 0], ['H', 0], ['H', 0], ['H', 0]],
+    [[0, 1, 1], [0, 2, 1], [0, 3, 1], [0, 4, 1], [1, 5, 1], [1, 6, 1], [1, 7, 1]]);
+  assert.equal(lib.forceTetrahedralPerspective(ethane), false);
+  assert.deepEqual(ethane.bonds.map(bond => bond.stereo), ethane.bonds.map(() => 0));
+});
+
+test('a depiction that was asked for is the one that is drawn', () => {
+  // The identity has to appear in the request verbatim, so each case names what it asks for.
+  const intent = (depiction, value) => JSON.stringify({ version: 2, kind: 'structure', depiction, species: [{ id: 's1', input: { kind: 'name', value } }] });
+
+  // Both were refused outright before they could be derived. Now the refusal is the
+  // opposite one: answering with a drawing that leaves out what was asked for.
+  assert.throws(() => lib.parseChemistryIntent(intent('skeletal', 'water'), 'draw water with lone pairs'), /lone-pair depiction must not be replaced/);
+  assert.throws(() => lib.parseChemistryIntent(intent('skeletal', 'chloroform'), 'show chloroform with explicit hydrogens'), /must not be replaced with a skeletal drawing/);
+  assert.throws(() => lib.parseChemistryIntent(intent('skeletal', 'chloroform'), 'draw chloroform with a solid wedge and a hashed bond'), /must not be replaced with a skeletal drawing/);
+
+  assert.equal(lib.parseChemistryIntent(intent('lone-pairs', 'water'), 'draw water with lone pairs').depiction, 'lone-pairs');
+  assert.equal(lib.parseChemistryIntent(intent('wedge-dash', 'chloroform'), 'show chloroform with explicit hydrogens').depiction, 'wedge-dash');
+  // And a plain request still gets a plain drawing.
+  assert.equal(lib.parseChemistryIntent(intent('skeletal', 'water'), 'draw water').depiction, 'skeletal');
 });
