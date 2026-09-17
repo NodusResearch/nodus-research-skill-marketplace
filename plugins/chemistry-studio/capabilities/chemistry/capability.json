@@ -25,6 +25,45 @@
       "maxPerReply": 1,
       "answerMode": "replace-block",
       "metered": true
+    },
+    {
+      "id": "inspect",
+      "description": "Parse a batch of SMILES with RDKit and return their verified graphs without drawing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 24 }
+        },
+        "required": ["smiles"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["molecule-dossier"],
+      "timeoutMs": 120000,
+      "concurrency": 2,
+      "maxPerReply": 4,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
+      "id": "verify-route",
+      "description": "Parse every step of a synthesis route with RDKit, check each equation, and confirm each intermediate is carried over unchanged.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "minItems": 1, "maxItems": 16 },
+          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 16 }
+        },
+        "required": ["steps"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["route-audit"],
+      "timeoutMs": 180000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
     }
   ],
   "chat": {
@@ -46,6 +85,18 @@
       "label": { "en": "Chemistry document", "es": "Documento de química", "fr": "Document de chimie", "de": "Chemie-Dokument", "pt": "Documento de química", "pt-BR": "Documento de química", "it": "Documento di chimica", "tr": "Kimya belgesi" },
       "modelVisibility": "projection",
       "decodes": ["chemfig", "smiles", "lewis"]
+    },
+    {
+      "type": "molecule-dossier",
+      "version": 1,
+      "label": { "en": "Molecule dossier", "es": "Ficha molecular", "fr": "Fiche moléculaire", "de": "Molekül-Dossier", "pt": "Ficha molecular", "pt-BR": "Ficha molecular", "it": "Scheda molecolare", "tr": "Molekül dosyası" },
+      "modelVisibility": "projection"
+    },
+    {
+      "type": "route-audit",
+      "version": 1,
+      "label": { "en": "Route audit", "es": "Auditoría de ruta", "fr": "Audit de voie", "de": "Routenprüfung", "pt": "Auditoria de rota", "pt-BR": "Auditoria de rota", "it": "Audit di via", "tr": "Rota denetimi" },
+      "modelVisibility": "projection"
     }
   ],
   "permissions": {

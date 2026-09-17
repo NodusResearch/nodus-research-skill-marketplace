@@ -39,6 +39,7 @@ await build({
       export { assignLonePairs, forceTetrahedralPerspective } from './src/engine/chemistryScene';
       export { balanceReaction } from './src/engine/chemistryReaction';
       export { parseChemistryIntent } from './src/engine/chemistryIdentity';
+      export { auditRoute } from './src/engine/chemistryRouteAudit';
     `,
     resolveDir: root, loader: 'ts',
   },
@@ -85,6 +86,22 @@ function stubHost(options = {}) {
       async run(request) {
         calls.push(`subworker:${request.entry}`);
         assert.equal(request.entry, 'validator.js', 'validation runs in the killable subworker');
+        // The route checker sends the whole route in the same call and gets one audit back.
+        if (request.input?.route) return lib.auditRoute(request.input.route);
+        // The read-only inspector sends a batch in the same call, exactly as src/validator.ts
+        // dispatches it: one parse per species, a failure staying local to its entry.
+        if (Array.isArray(request.input?.batch)) {
+          const results = [];
+          for (const smiles of request.input.batch) {
+            try {
+              const checked = await lib.validateChemicalReferences({ references: [smiles], inspect: true });
+              results.push({ smiles, ok: true, graph: checked.graph });
+            } catch (error) {
+              results.push({ smiles, ok: false, error: error instanceof Error ? error.message : 'Chemical validation failed.' });
+            }
+          }
+          return { results };
+        }
         // The real validator, in-process for the test: the chemistry is not stubbed.
         return lib.validateChemicalReferences(request.input);
       },
@@ -145,6 +162,325 @@ test('a named species is resolved against references and drawn as a verified doc
   assert.equal(view.schemaVersion, 1);
   assert.ok(view.nodes.some(node => node.kind === 'svg'), 'the document carries a drawing');
   assert.ok(view.nodes.some(node => node.kind === 'download'), 'and the verified document can be downloaded');
+});
+
+test('the read-only inspector returns a verified graph, never a drawing', async () => {
+  const host = ethanolHost();
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({
+    invocationId: 'i5', toolId: 'inspect', locale: 'en',
+    input: { smiles: ['C[C@H](N)C(=O)O', 'C1CC'] },
+  });
+
+  const dossier = result.artifacts.find(artifact => artifact.data.inputSmiles === 'C[C@H](N)C(=O)O');
+  assert.ok(dossier, 'the parseable species comes back as a dossier');
+  assert.equal(dossier.artifactType, 'molecule-dossier');
+  assert.equal(dossier.artifactVersion, 1);
+  assert.ok(dossier.data.atoms.length > 0, 'with an atom table');
+  assert.ok(dossier.data.bonds.length > 0, 'and a bond table');
+  assert.ok(dossier.data.atoms.some(atom => atom.cip === 'S'), 'including the CIP descriptor');
+  assert.equal(dossier.data.atoms.find(atom => atom.cip === 'S').element, 'C');
+
+  // A species that cannot be parsed is dropped rather than failing the batch, and the
+  // inspector draws nothing: there is no artifact or view carrying an SVG.
+  assert.ok(!result.artifacts.some(artifact => artifact.data.inputSmiles === 'C1CC'));
+  assert.ok(!result.view, 'inspection produces no drawing view');
+  assert.doesNotMatch(JSON.stringify(result), /<svg/, 'and no SVG anywhere in the result');
+  assert.deepEqual(result.notices, []);
+});
+
+// ---------------------------------------------------------------- synthesis routes
+
+test('a stored drawing is a view-ready <svg> fragment, not a full XML document', () => {
+  const document = {
+    version: 2, status: 'verified', scope: 'reference-graph-and-molfile-roundtrip',
+    engine: { name: 'RDKit', version: 'test' },
+    species: [{
+      id: 'target', input: { kind: 'smiles', value: 'CCO' }, references: [],
+      graph: { canonicalSmiles: 'CCO', molfile: '', atoms: [], bonds: [] },
+      svg: "<?xml version='1.0' encoding='iso-8859-1'?>\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+    }],
+    limitations: [],
+  };
+  const view = lib.documentView(document, 'en');
+  const node = view.nodes.find(entry => entry.kind === 'svg');
+  assert.ok(node, 'a drawing node is present');
+  assert.ok(node.svg.startsWith('<svg'), JSON.stringify(node.svg.slice(0, 40)));
+});
+
+test('the route checker balances every step and confirms the intermediate is carried over', async () => {
+  const host = stubHost();
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({
+    invocationId: 'r1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO>>CC=O.[H][H]', 'CC=O.[H][H]>>CCO'] },
+  });
+  const audit = result.artifacts.find(artifact => artifact.artifactType === 'route-audit')?.data;
+  assert.ok(audit, 'a route audit is produced');
+  assert.equal(result.artifacts[0].artifactVersion, 1);
+  assert.equal(audit.continuous, true, JSON.stringify(audit.blocked));
+  assert.equal(audit.steps.length, 2);
+  assert.ok(audit.steps.every(step => step.ok && step.balanced), 'every step parsed and balanced');
+  assert.equal(audit.links[0].ok, true);
+  assert.equal(audit.links[0].reason, 'carried');
+  assert.ok(audit.links[0].carried.some(entry => entry.canonicalSmiles === 'CC=O'), JSON.stringify(audit.links[0].carried));
+  assert.ok(host.calls.some(call => call.startsWith('subworker:')), 'the whole route ran in the killable subprocess');
+});
+
+test('the route checker names an unbalanced step and a disconnected step', async () => {
+  const worker = lib.createWorker(stubHost());
+  const unbalanced = await worker.invoke({ invocationId: 'r2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCO>>CC=O'] } });
+  const step = unbalanced.artifacts[0].data;
+  assert.equal(step.continuous, false);
+  assert.equal(step.steps[0].balanced, false);
+  assert.ok(step.steps[0].differences.length, 'and says which element is off');
+  assert.match(step.blocked.join(' '), /Step 1 is not balanced/);
+
+  // Step 2 neither is fed by an earlier step nor feeds a later one. Step 1 feeds step 3.
+  const broken = await worker.invoke({
+    invocationId: 'r3', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO>>CC=O.[H][H]', 'CC(=O)O.CCO>>CC(=O)OCC.O', 'CC=O.[H][H]>>CCO'] },
+  });
+  const audit = broken.artifacts[0].data;
+  assert.equal(audit.continuous, false);
+  assert.ok(audit.blocked.some(entry => /Step 2 is disconnected/.test(entry)), JSON.stringify(audit.blocked));
+  assert.ok(audit.links.some(link => link.from === 0 && link.to === 2 && link.reason === 'carried'), 'step 1 carries into step 3 across the gap');
+});
+
+test('a merged step is accepted when it survives balance and refused when it does not', async () => {
+  const worker = lib.createWorker(stubHost());
+  // Two alkylations collapsed into one line: the species are listed once and the solver
+  // infers the coefficients (2 NaNH2, 2 CCBr), so merging is not itself a failure.
+  const merged = await worker.invoke({
+    invocationId: 'rm1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['C#C.[Na+].[NH2-].CCBr>>CCC#CCC.[Na+].[Br-].N', 'CCC#CCC.[H][H]>>CC/C=C\\CC'] },
+  });
+  const mergedAudit = merged.artifacts[0].data;
+  assert.equal(mergedAudit.steps[0].balanced, true, JSON.stringify(mergedAudit.steps[0].differences));
+  assert.equal(mergedAudit.continuous, true, JSON.stringify(mergedAudit.blocked));
+
+  // A merged esterification that dropped the water cannot balance and is refused.
+  const unbalanced = await worker.invoke({
+    invocationId: 'rm2', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO.CC(=O)O>>CC(=O)OCC'] },
+  });
+  const audit = unbalanced.artifacts[0].data;
+  assert.equal(audit.steps[0].balanced, false);
+  assert.equal(audit.continuous, false);
+  assert.match(audit.blocked.join(' '), /Step 1 is not balanced/);
+});
+
+test('charge balance is enforced even when the element totals match', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'rc1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['[Na]>>[Na+]'] },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.steps[0].balanced, false, 'same atoms, different charge is not balanced');
+  assert.ok(audit.steps[0].differences.some(entry => /charge/.test(entry)), JSON.stringify(audit.steps[0].differences));
+});
+
+test('a species that takes no part is named, and removing it balances the step', async () => {
+  const worker = lib.createWorker(stubHost());
+  // Saponification written with an extra water. Water has coefficient 0 in the only balance —
+  // it is neither consumed nor produced — so the step is refused and the idle molecule named.
+  const withWater = 'CCOC(=O)C(C)(CC)C(=O)OCC.[Na+].[OH-].O>>[Na+].CC(C(=O)[O-])(CC)C(=O)[O-].CCO';
+  const refused = await worker.invoke({ invocationId: 'idle1', toolId: 'verify-route', locale: 'en', input: { steps: [withWater] } });
+  const audit = refused.artifacts[0].data;
+  assert.equal(audit.steps[0].balanced, false);
+  assert.match(audit.steps[0].differences.join(' '), /take\(s\) no part/);
+
+  // The same step without the water balances.
+  const without = 'CCOC(=O)C(C)(CC)C(=O)OCC.[Na+].[OH-]>>[Na+].CC(C(=O)[O-])(CC)C(=O)[O-].CCO';
+  const ok = await worker.invoke({ invocationId: 'idle2', toolId: 'verify-route', locale: 'en', input: { steps: [without] } });
+  assert.equal(ok.artifacts[0].data.steps[0].balanced, true, JSON.stringify(ok.artifacts[0].data.steps[0].differences));
+});
+
+test('a step that cannot be parsed names the offending species', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'r8', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['C#C.CCBr>[NaNH2]>CC#C'] },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.continuous, false);
+  assert.ok(audit.blocked.some(entry => entry.includes('[NaNH2]')), JSON.stringify(audit.blocked));
+});
+
+test('an empty extra field in a reaction SMILES is tolerated, not rejected', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'r9', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCC#CCC.[H][H]>[Pd]>>CC/C=C\\CC'] },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.continuous, true, JSON.stringify(audit.blocked));
+  assert.equal(audit.steps[0].ok, true);
+  assert.equal(audit.steps[0].balanced, true);
+  assert.equal(audit.steps[0].agents.length, 1, 'the agent is still read as an agent');
+});
+
+test('a reaction written with one separator is read as having no agents', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'r11', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO>CC=O.[H][H]'] },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.continuous, true, JSON.stringify(audit.blocked));
+  assert.equal(audit.steps[0].ok, true);
+  assert.equal(audit.steps[0].balanced, true);
+  assert.equal(audit.steps[0].agents.length, 0);
+});
+
+test('catalysts and solvents are drawn above the arrow', async () => {
+  const worker = lib.createWorker(stubHost());
+  const smiles = 'O=Cc1ccccc1.[H][H]>[Pd]>OCc1ccccc1';
+  const result = await worker.invoke({
+    invocationId: 'r10', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles }), question: smiles },
+  });
+  const document = result.artifacts?.[0]?.data;
+  assert.ok(document, JSON.stringify(result.notices ?? result.view));
+  const source = document.reaction?.chemfig?.source ?? '';
+  assert.match(source, /\\arrow\{->\[/, 'the agent is an arrow label');
+  assert.doesNotMatch(source, /\\vbox|not in balance/, 'and not a line beneath the equation');
+});
+
+test('carbon-free reagents are written as formula text, organic species stay drawn', async () => {
+  const worker = lib.createWorker(stubHost());
+  const smiles = 'CC=O.[H][H]>[Pd]>CCO';
+  const result = await worker.invoke({
+    invocationId: 'r12', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles }), question: smiles },
+  });
+  const document = result.artifacts?.[0]?.data;
+  assert.ok(document, JSON.stringify(result.notices ?? result.view));
+  const source = document.reaction?.chemfig?.source ?? '';
+  assert.match(source, /\\mathrm\{H_\{2\}\}/, 'hydrogen is written H2, not drawn');
+  assert.match(source, /\\mathrm\{Pd\}/, 'the palladium catalyst is written as text');
+  assert.match(source, /\\chemfig/, 'the organic species are still drawn');
+});
+
+test('a declared racemic step is drawn with its open centre instead of refused', async () => {
+  const worker = lib.createWorker(stubHost());
+  // The reduction product has one unspecified stereocentre: a single enantiomer is implied
+  // by the SMILES, so drawing is refused by default.
+  const smiles = 'CC(=O)CC.[H][H]>>CCC(C)O';
+  const refused = await worker.invoke({
+    invocationId: 'rr1', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles }), question: smiles },
+  });
+  assert.ok(!refused.artifacts?.length, 'an unspecified stereocentre is refused without a racemic declaration');
+
+  // Declared racemic: the open centre is a stated outcome, so the scheme is drawn.
+  const drawn = await worker.invoke({
+    invocationId: 'rr2', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles, racemic: true }), question: smiles },
+  });
+  const document = drawn.artifacts?.[0]?.data;
+  assert.ok(document, JSON.stringify(drawn.notices ?? drawn.view));
+  assert.ok(document.reaction, 'the racemic scheme is produced');
+});
+
+test('step conditions are written beneath the arrow, and dropped rather than fail the drawing', async () => {
+  const worker = lib.createWorker(stubHost());
+  const smiles = 'O=Cc1ccccc1.[H][H]>[Pd]>OCc1ccccc1';
+  const result = await worker.invoke({
+    invocationId: 'r14', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles, conditions: 'H2 (1 atm), 25 °C, 4 h' }), question: smiles },
+  });
+  const document = result.artifacts?.[0]?.data;
+  assert.ok(document, JSON.stringify(result.notices ?? result.view));
+  const source = document.reaction?.chemfig?.source ?? '';
+  assert.match(source, /\\arrow\{->\[[^\]]*\]\[[^\]]*\]\}/, 'conditions are a second arrow label below the agents');
+  assert.match(source, /\$\^\\circ\$/, 'the degree sign is set in math');
+  assert.match(source, /\\shortstack\{/, 'a longer label is stacked into rows');
+  assert.match(source, /\\arrow\{->\[[^\]]*\]\[[^\]]*\]\}\[[^\]]+\]/, 'the arrow is given a length that matches the label');
+  assert.equal(document.reaction?.conditions, 'H2 (1 atm), 25 °C, 4 h');
+
+  // An annotation that sanitizes to nothing must not produce an empty second label.
+  const blank = await worker.invoke({
+    invocationId: 'r15', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles, conditions: '$$ ^^ && %% ##' }), question: smiles },
+  });
+  const blankDocument = blank.artifacts?.[0]?.data;
+  assert.ok(blankDocument, 'the scheme is still drawn');
+  assert.equal(blankDocument.reaction?.conditions, undefined);
+});
+
+test('a common inorganic reagent is labelled in the formula a chemist writes', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'r13', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO>OS(=O)(=O)O>C=C.O'] },
+  });
+  const step = result.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, true, JSON.stringify(step.differences));
+  assert.equal(step.agents[0].formula, 'H2SO4');
+});
+
+test('a declared racemate is reported, not refused, when a centre is left open on purpose', async () => {
+  const worker = lib.createWorker(stubHost());
+  const steps = ['CC(=O)CC.[H][H]>>CCC(C)O'];
+  const plain = await worker.invoke({ invocationId: 'r16', toolId: 'verify-route', locale: 'en', input: { steps } });
+  assert.equal(plain.artifacts[0].data.continuous, false);
+  assert.match(plain.artifacts[0].data.blocked.join(' '), /unspecified/);
+
+  const racemic = await worker.invoke({ invocationId: 'r17', toolId: 'verify-route', locale: 'en', input: { steps, racemic: true } });
+  const audit = racemic.artifacts[0].data;
+  assert.equal(audit.steps[0].racemic, true);
+  assert.equal(audit.continuous, true, JSON.stringify(audit.blocked));
+});
+
+test('a convergent route is continuous when independent branches feed one step', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'r4', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO>>CC=O.[H][H]', 'CC(=O)O.CCO>>CC(=O)OCC.O', 'CC=O.O>>CC(O)O'] },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.continuous, true, JSON.stringify(audit.blocked));
+  assert.ok(audit.links.some(link => link.from === 0 && link.to === 2 && link.reason === 'carried'), 'the first branch carries into the final step');
+  assert.ok(audit.links.some(link => link.from === 1 && link.to === 2 && link.reason === 'carried'), 'the second branch carries into the final step');
+});
+
+test('the same constitution with different stereochemistry is not the same intermediate', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'r4', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['C/C=C\\C>>C/C=C/C', 'C/C=C\\C.[H][H]>>CCCC'] },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.links[0].reason, 'constitution-only', JSON.stringify(audit.links[0]));
+  assert.equal(audit.links[0].ok, false);
+  assert.ok(audit.links[0].skeletonOnly.length, 'and reports the two forms');
+  assert.match(audit.blocked.join(' '), /same constitution but different stereochemistry/);
+});
+
+test('a declared carrier is checked by identity, and unspecified stereochemistry is reported', async () => {
+  const worker = lib.createWorker(stubHost());
+  const carried = await worker.invoke({
+    invocationId: 'r5', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO>>CC=O.[H][H]', 'CC=O.[H][H]>>CCO'], carriers: ['', 'O=CC'] },
+  });
+  const link = carried.artifacts[0].data.links[0];
+  assert.equal(link.declaredCarrier.inProduct, true, 'the declared intermediate is in the products');
+  assert.equal(link.declaredCarrier.inReactant, true, 'and unchanged in the reactants');
+  assert.equal(link.ok, true);
+
+  const mismatch = await worker.invoke({
+    invocationId: 'r6', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO>>CC=O.[H][H]', 'CC=O.[H][H]>>CCO'], carriers: ['', 'CC(=O)O'] },
+  });
+  assert.equal(mismatch.artifacts[0].data.links[0].reason, 'declared-mismatch');
+
+  const unspecified = await worker.invoke({ invocationId: 'r7', toolId: 'verify-route', locale: 'en', input: { steps: ['CC=CC.[H][H]>>CCCC'] } });
+  const audit = unspecified.artifacts[0].data;
+  assert.equal(audit.steps[0].unspecifiedStereocentres, 1, 'the unspecified double bond is counted');
+  assert.equal(audit.continuous, false);
+  assert.match(audit.blocked.join(' '), /unspecified/);
 });
 
 test('an identity that no reference supports is not drawn from the model instead', async () => {
@@ -238,7 +574,11 @@ test('what the model may see later is the identities, never the picture', async 
 test('the worker satisfies the capability contract it declares', async () => {
   const host = ethanolHost();
   const findings = await runConformanceSuite(manifest, lib.createWorker(host), {
-    invocations: [{ toolId: 'compile', input: { plan: plan(), question: 'Draw ethanol.' } }],
+    invocations: [
+      { toolId: 'compile', input: { plan: plan(), question: 'Draw ethanol.' } },
+      { toolId: 'inspect', input: { smiles: [ETHANOL_SMILES] } },
+      { toolId: 'verify-route', input: { steps: ['CCO>>CC=O.[H][H]', 'CC=O.[H][H]>>CCO'] } },
+    ],
     chatNodes: [
       { id: 'n0', kind: 'prose', content: 'Draw ethanol.', complete: true },
       { id: 'n1', kind: 'fence', fence: 'chemistry-plan', content: plan(), complete: true },
@@ -406,6 +746,21 @@ test('an agent takes no part in the balance', () => {
     [2, 1, 1, 2]);
 });
 
+test('a counterion carried on both sides cancels instead of making the equation ambiguous', () => {
+  // Acetylene dialkylation with sodium amide: the Na+ enters in [Na+].[NH2-] and leaves in
+  // [Na+].[Br-]. It is a spectator, so it must not add a free coefficient; the rest solves to
+  // 1 acetylene, 2 amide, 2 bromoethane, 1 hexyne, 2 ammonia, 2 bromide.
+  const Na = comp({ '11:0': 1 }, 1), NH2 = comp({ '7:0': 1, '1:0': 2 }, -1), Br = comp({ '35:0': 1 }, -1);
+  const acetylene = comp({ '6:0': 2, '1:0': 2 }), EtBr = comp({ '6:0': 2, '1:0': 5, '35:0': 1 });
+  const hexyne = comp({ '6:0': 6, '1:0': 10 }), ammonia = comp({ '7:0': 1, '1:0': 3 });
+  assert.deepEqual(
+    lib.balanceReaction(
+      [acetylene, EtBr, Na, NH2, hexyne, ammonia, Na, Br],
+      ['reactant', 'reactant', 'reactant', 'reactant', 'product', 'product', 'product', 'product'],
+      [1, 1, 1, 1, 1, 1, 1, 1]),
+    [1, 2, 1, 2, 1, 2, 1, 2]);
+});
+
 test('what cannot be balanced says what is missing', () => {
   // Chlorine vanishing between the sides is the commonest failure in a proposed route: a
   // byproduct nobody wrote down. The message has to name it, or the next attempt is a guess.
@@ -424,3 +779,4 @@ test('what cannot be balanced says what is missing', () => {
   // One side missing entirely is not an equation.
   assert.throws(() => lib.balanceReaction([H2, O2], ['reactant', 'reactant'], [1, 1]), /at least one reactant and one product/);
 });
+

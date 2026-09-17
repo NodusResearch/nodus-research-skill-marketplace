@@ -78,7 +78,15 @@ export function documentView(document: ChemistryDocument, locale: string, attach
   };
 }
 
-const svgNode = (svg: string, title: string, alt: string): Node => ({ kind: 'svg', svg, title: title.slice(0, 200), alt: alt.slice(0, 1000) });
+const svgNode = (svg: string, title: string, alt: string): Node => ({
+  // RDKit returns a complete XML document (`<?xml …?>` then `<svg …>`), but a view svg node
+  // must be an `<svg>` fragment: the core validator rejects anything that does not start with
+  // `<svg>`. Drop the declaration and any doctype so a stored drawing still renders on demand.
+  kind: 'svg',
+  svg: svg.replace(/^\s*<\?xml[^>]*\?>\s*/i, '').replace(/^\s*<!DOCTYPE[^>]*>\s*/i, '').trim(),
+  title: title.slice(0, 200),
+  alt: alt.slice(0, 1000),
+});
 
 const download = (attachment: Attachment, label: string, name: string, mimeType: string): Node =>
   ({ kind: 'download', attachmentId: attachment.attachmentId, label, name, mimeType, bytes: attachment.bytes });

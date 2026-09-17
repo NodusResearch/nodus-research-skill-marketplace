@@ -6,7 +6,7 @@ import { chemistrySvgAuditSystem, chemistrySvgMode, isChemistrySvgRequest } from
 import { CHEMISTRY_INSTRUCTIONS } from './engine/instructions';
 import { documentView, noticeView, summarize, unverifiedSvgView, type ChemistryAttachments } from './view';
 import { text } from './messages';
-import type { ChemistryDocument } from './engine/chemistryDocument';
+import type { ChemistryDocument, ChemistryGraph, ChemistryInspectionResult } from './engine/chemistryDocument';
 
 /** The notice codes the built-in could write. A code outside this list is shown as the
  *  generic "older format" warning rather than looked up blindly. */
@@ -79,13 +79,15 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale }: { toolId: string; input: { plan: string; question?: string }; locale: string }) {
+    async invoke({ toolId, input, locale }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null> }; locale: string }) {
+      if (toolId === 'inspect') return inspectMolecule(input);
+      if (toolId === 'verify-route') return verifySynthesisRoute(input);
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
       const deps = chemistryDependencies();
 
-      let source = input.plan;
+      let source = input.plan ?? '';
       for (let attempt = 0; ; attempt++) {
         host().signal.throwIfAborted();
         const document = await resolveChemistryIntent(source, question, deps, host().signal);
@@ -219,6 +221,76 @@ async function storeAttachments(document: ChemistryDocument): Promise<ChemistryA
     // the downloads are missing, which is better than failing the whole result.
   }
   return attachments;
+}
+
+const ATOMIC_SYMBOLS: Record<number, string> = { 1: 'H', 3: 'Li', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 19: 'K', 35: 'Br', 53: 'I' };
+const atomIndex = (id: string) => Number(id.replace(/^a/, ''));
+
+/** The verified graph as a compact dossier the model can reason over. No SVG, no network,
+ *  no model call: the read-only counterpart to `compile`. */
+function dossierArtifact(graph: ChemistryGraph, smiles: string) {
+  const caveats: string[] = [];
+  const atoms = graph.atoms.map(atom => {
+    const index = atomIndex(atom.id);
+    const cip = typeof atom.cip === 'string' ? atom.cip : '';
+    if (cip === '?') caveats.push(`stereocentre at atom ${index} is unspecified`);
+    return {
+      index,
+      element: ATOMIC_SYMBOLS[atom.atomicNumber] ?? String(atom.atomicNumber),
+      ...(atom.charge ? { charge: atom.charge } : {}),
+      ...(atom.isotope ? { isotope: atom.isotope } : {}),
+      ...(typeof atom.hydrogens === 'number' ? { hydrogens: atom.hydrogens } : {}),
+      ...(cip && cip !== '?' ? { cip } : {}),
+    };
+  });
+  const bonds = graph.bonds.map(bond => ({
+    a: atomIndex(bond.atoms[0]),
+    b: atomIndex(bond.atoms[1]),
+    order: bond.order ?? 1,
+    ...(bond.cip ? { stereo: bond.cip } : {}),
+  }));
+  const uniqueCaveats = [...new Set(caveats)];
+  return {
+    artifactType: 'molecule-dossier', artifactVersion: 1,
+    summary: `${atoms.length} atoms, ${bonds.length} bonds`,
+    data: {
+      canonicalSmiles: graph.canonicalSmiles, inputSmiles: smiles,
+      atomCount: atoms.length, bondCount: bonds.length, atoms, bonds,
+      ...(uniqueCaveats.length ? { caveats: uniqueCaveats.slice(0, 12) } : {}),
+    },
+  };
+}
+
+async function inspectMolecule(input: { smiles?: string[] }) {
+  const list = Array.isArray(input?.smiles) ? input.smiles : [];
+  const cleaned = [...new Set(list.filter(entry => typeof entry === 'string' && entry.trim() && entry.length <= 2000).map(entry => entry.trim()))].slice(0, 24);
+  if (!cleaned.length) throw new Error('Provide at least one SMILES string (max 2000 characters each).');
+  const results = await chemistryDependencies().inspectBatch(cleaned, host().signal);
+  const artifacts = results
+    .filter((entry): entry is ChemistryInspectionResult & { graph: ChemistryGraph } => Boolean(entry.ok && entry.graph && Array.isArray(entry.graph.atoms) && Array.isArray(entry.graph.bonds)))
+    .map(entry => dossierArtifact(entry.graph, entry.smiles));
+  return { artifacts, notices: [] };
+}
+
+/** Verify a whole synthesis route without drawing it: every step parsed, every equation
+ *  balanced, and every intermediate leaving one step the same molecule as the one entering
+ *  the next. The result is a `route-audit` artifact the application renders deterministically. */
+async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null> }) {
+  const steps = (Array.isArray(input?.steps) ? input.steps : [])
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map(entry => entry.trim())
+    .slice(0, 16);
+  if (!steps.length) throw new Error('Provide between one and sixteen reaction SMILES steps.');
+  const carriers = Array.isArray(input?.carriers) ? input.carriers.slice(0, steps.length) : undefined;
+  const racemic = typeof input?.racemic === 'boolean'
+    ? input.racemic
+    : Array.isArray(input?.racemic) ? input.racemic.slice(0, steps.length) : undefined;
+  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic }, host().signal);
+  if (!audit) throw new Error('The route could not be verified.');
+  const summary = audit.continuous
+    ? `Route verified: ${audit.steps.length} step(s), every intermediate carried over unchanged`
+    : `Route has ${audit.blocked.length} problem(s)`;
+  return { artifacts: [{ artifactType: 'route-audit', artifactVersion: 1, summary, data: audit }], notices: [] };
 }
 
 export { isChemistrySvgRequest };

@@ -1,4 +1,5 @@
-import type { ChemistryValidationRequest, ChemistryValidationResult } from './engine/chemistryDocument';
+import type { ChemistryInspectionResult, ChemistryValidationRequest, ChemistryValidationResult, RouteAudit } from './engine/chemistryDocument';
+import type { RouteAuditInput } from './engine/chemistryRouteAudit';
 import { host } from './engine/host';
 
 /** What the chemistry engine is allowed to reach, expressed as the injection point the
@@ -52,4 +53,20 @@ const validate = async (request: ChemistryValidationRequest, signal?: AbortSigna
   return result as ChemistryValidationResult;
 };
 
-export const chemistryDependencies = () => ({ fetch: routedFetch, validate });
+/** Read-only batch inspection. One subworker load parses every SMILES, and a species that
+ *  cannot be parsed comes back as an error entry instead of failing the whole batch. */
+const inspectBatch = async (smiles: string[], signal?: AbortSignal): Promise<ChemistryInspectionResult[]> => {
+  signal?.throwIfAborted();
+  const result = await host().subworker.run({ entry: 'validator.js', input: { batch: smiles }, timeoutMs: 120_000 });
+  return (result as { results?: ChemistryInspectionResult[] })?.results ?? [];
+};
+
+/** Read-only route checking. Same killable subworker, same RDKit: every step is parsed and
+ *  every equation and intermediate link is checked before a route is drawn. */
+const verifyRoute = async (route: RouteAuditInput, signal?: AbortSignal): Promise<RouteAudit | null> => {
+  signal?.throwIfAborted();
+  const result = await host().subworker.run({ entry: 'validator.js', input: { route }, timeoutMs: 180_000 });
+  return (result as RouteAudit | null) ?? null;
+};
+
+export const chemistryDependencies = () => ({ fetch: routedFetch, validate, inspectBatch, verifyRoute });
