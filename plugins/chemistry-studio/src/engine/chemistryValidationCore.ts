@@ -1,7 +1,8 @@
 import { Molecule } from 'openchemlib';
 import type { RDKitLoader, RDKitModule, JSMol } from '@rdkit/rdkit';
 import { requireVendored } from './vendor';
-import type { ChemistryGraph, ChemistryPartialReason, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
+import type { ChemistryGraph, ChemistryInspectionSummary, ChemistryPartialReason, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
+import { formulaOf } from './chemistryElements';
 import { sceneFromMolfile, sceneMolfile, renderScene, exportSceneChemfig, verifySceneChemfig, forceTetrahedralPerspective, assignLonePairs } from './chemistryScene';
 import { deriveProjection } from './chemistryProjections';
 import { deriveMechanism } from './chemistryMechanisms';
@@ -59,6 +60,20 @@ function layoutPenalty(molfile: string): number {
     }
   }
   return penalty;
+}
+
+/** The element-and-isotope composition and net charge of a verified graph. Hydrogens are
+ *  counted from each heavy atom's implicit count, so a formula includes them. */
+function compositionOf(atoms: ChemistryGraph['atoms']): { composition: Record<string, number>; charge: number; heavyAtoms: number } {
+  const composition: Record<string, number> = {};
+  let charge = 0;
+  for (const atom of atoms) {
+    const key = `${atom.atomicNumber}:${atom.isotope || 0}`;
+    composition[key] = (composition[key] ?? 0) + 1;
+    if (atom.hydrogens) composition['1:0'] = (composition['1:0'] ?? 0) + atom.hydrogens;
+    charge += atom.charge ?? 0;
+  }
+  return { composition, charge, heavyAtoms: atoms.length };
 }
 
 /** Call only inside a killable process: WASM cannot be interrupted by Promise.race. */
@@ -140,8 +155,14 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
       }
     }
     const rings = ocl.getRingSet();
+    let unspecifiedBonds = 0;
     for (let b = 0; b < ocl.getAllBonds(); b++) {
-      if (request.depiction !== 'lone-pairs' && ocl.getBondParity(b) === Molecule.cBondParityUnknown && stereogenicRingBond(ocl, b, rings)) throw new Error('Bond stereochemistry is unspecified; provide the required E/Z isomer.');
+      if (ocl.getBondParity(b) === Molecule.cBondParityUnknown && stereogenicRingBond(ocl, b, rings)) {
+        // The inspector reports an unspecified double bond as a caveat instead of
+        // refusing; drawing still requires the author to say which geometry is meant.
+        if (!request.inspect && !request.racemic && request.depiction !== 'lone-pairs') throw new Error('Bond stereochemistry is unspecified; provide the required E/Z isomer.');
+        unspecifiedBonds++;
+      }
       if (ocl.isBINAPChiralityBond(b)) throw new Error('Axial stereochemistry is outside the validated scope.');
     }
     // Two independent layout engines. A drawing is only usable if its coordinates
@@ -181,10 +202,12 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
     // not: RDKit's CIP labeller reports a four-coordinate iron or cobalt as an
     // unspecified stereocentre, which is what made haem b and cyanocobalamin look
     // ambiguous when nothing about them was. Trust the labeller only where it is sound.
+    let unspecifiedAtoms = 0;
     for (const [index, tag] of stereo.CIP_atoms) {
       if (tag !== '(?)') continue;
-      if (ORGANIC_CIP_ELEMENTS.has(elementOf(index))) throw new Error('A stereocentre is unspecified; provide the required stereoisomer.');
+      if (!request.inspect && !request.racemic && ORGANIC_CIP_ELEMENTS.has(elementOf(index))) throw new Error('A stereocentre is unspecified; provide the required stereoisomer.');
       partialReasons.add('stereochemistry-not-assignable');
+      if (ORGANIC_CIP_ELEMENTS.has(elementOf(index))) unspecifiedAtoms++;
     }
     const atoms = raw.atoms.map((a: Record<string, number>, i: number) => {
       const value = { ...json.defaults.atom, ...a };
@@ -202,6 +225,21 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
         ...(tag ? { cip: tag[2].replace(/[()]/g, '') } : {}) };
     });
     const graph: ChemistryGraph = { canonicalSmiles, molfile, atoms, bonds };
+    // What the read-only path needs to check a route without drawing any of it: the
+    // verified identity, its constitution, its composition and whether stereochemistry
+    // was left open.
+    const inspection: ChemistryInspectionSummary | undefined = request.inspect ? (() => {
+      const { composition, charge, heavyAtoms } = compositionOf(atoms);
+      let skeletonSmiles = canonicalSmiles;
+      try { skeletonSmiles = parse(canonicalSmiles.replace(/@/g, '').replace(/[\\/]/g, '')).get_smiles(); } catch { /* keep the canonical form */ }
+      const specifiedAtoms = stereo.CIP_atoms.filter(([, tag]) => tag !== '(?)').length;
+      return {
+        canonicalSmiles, skeletonSmiles, formula: formulaOf(composition), charge, heavyAtoms,
+        stereocentres: specifiedAtoms + stereo.CIP_bonds.length,
+        unspecifiedStereocentres: unspecifiedAtoms + unspecifiedBonds,
+        composition,
+      };
+    })() : undefined;
     // Render the exact round-tripped scene, not the original text or another layout.
     const size = atoms.length > 40 ? { width: 1000, height: 650 } : { width: 640, height: 420 };
     // Monochrome textbook notation for whatever elements the structure actually
@@ -236,11 +274,11 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
         : request.depiction === 'wedge-dash' || request.depiction === 'lone-pairs' ? explicitHydrogenScene()
           : scene.get_svg_with_highlights(JSON.stringify({ ...size, atomColourPalette, prepareMolsBeforeDrawing: false, addStereoAnnotation: false }));
     if (!svg.includes('<svg') || /NaN|Infinity/.test(svg)) throw new Error('Invalid SVG geometry.');
-    const result: ChemistryValidationResult = { graph, svg, engineVersion: kit.version(), ...(partialReasons.size ? { partialReasons: [...partialReasons] } : {}), ...(reconciledStereochemistry ? { reconciledStereochemistry } : {}) };
+    const result: ChemistryValidationResult = { graph, svg, engineVersion: kit.version(), ...(inspection ? { inspection } : {}), ...(partialReasons.size ? { partialReasons: [...partialReasons] } : {}), ...(reconciledStereochemistry ? { reconciledStereochemistry } : {}) };
     if (request.reaction) {
       if (request.mechanism) throw new Error('A balanced scheme cannot also claim mechanism verification.');
       const { renderBalancedReaction } = await import('./chemistryReaction');
-      result.reaction = await renderBalancedReaction(request.reaction, validateChemicalReferences, request.notes);
+      result.reaction = await renderBalancedReaction(request.reaction, validateChemicalReferences, request.notes, request.conditions, request.racemic);
     }
     if (newman) result.projection = newmanEvidence(newman);
     if (request.exportChemfig) {

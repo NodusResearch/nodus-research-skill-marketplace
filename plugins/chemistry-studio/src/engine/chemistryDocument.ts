@@ -36,6 +36,18 @@ export interface ChemistryIntent {
    */
   notes?: string;
   /**
+   * Conditions for a reaction step — temperature, time, workup — written under the arrow.
+   * Model-written and checked by nothing, kept separate from `notes` so a step can carry its
+   * conditions without also claiming electron pushing. Sanitized and rendered as arrow text.
+   */
+  conditions?: string;
+  /**
+   * The author declared the step's outcome racemic. Its open stereocentres are a stated
+   * result, not an omission, so the scheme is drawn with them unspecified instead of
+   * refused. Nothing verifies the claim; it only stops the drawing being blocked for it.
+   */
+  racemic?: boolean;
+  /**
    * Declared curved arrows. Present for a mechanism or resonance the bounded rule
    * library does not cover, which is most of them: the arrows are checked by applying
    * them and seeing whether the structure they build conserves atoms and charge.
@@ -51,6 +63,8 @@ export interface ChemistryReactionArtifact {
   svg: string;
   /** Model-written conditions and electron pushing. Rendered as prose, checked by nothing. */
   notes?: string;
+  /** Model-written step conditions, written beneath the arrow. Unchecked. */
+  conditions?: string;
   chemfig: ChemistryChemfigExport;
   species: ReactionSpecies[];
   balance: { atoms: Record<string, number>; charge: number };
@@ -130,6 +144,8 @@ export interface ChemistryValidationRequest {
   depiction?: ChemistryIntent['depiction'];
   /** Passed through to a reaction artifact, unverified. See `ChemistryIntent.notes`. */
   notes?: string;
+  /** Passed through to a reaction artifact, unverified. See `ChemistryIntent.conditions`. */
+  conditions?: string;
   conformation?: NewmanConformation;
   exportChemfig?: boolean;
   mechanism?: {
@@ -142,7 +158,89 @@ export interface ChemistryValidationRequest {
     resonance?: boolean;
   };
   reaction?: ReactionSpecies[];
+  /** Set by the read-only inspector: return the graph even when a stereocentre is
+   *  unspecified, so an intermediate is reported with a caveat instead of rejected. */
+  inspect?: boolean;
+  /** The step is a declared racemate: draw it with its open centres unspecified rather
+   *  than refusing the unspecified stereocentre. Used by the route-fix drawing path. */
+  racemic?: boolean;
 }
-export interface ChemistryValidationResult { graph: ChemistryGraph; svg: string; engineVersion: string; chemfig?: ChemistryChemfigExport; mechanism?: ChemistryMechanismArtifact; reaction?: ChemistryReactionArtifact; projection?: ChemistryDocument['species'][number]['projection']; partialReasons?: ChemistryPartialReason[];
+/** One entry of a batch inspection: the requested SMILES and what RDKit made of it. */
+export interface ChemistryInspectionResult {
+  smiles: string;
+  ok: boolean;
+  graph?: ChemistryGraph;
+  error?: string;
+}
+/** What the read-only inspector and the route checker need from one parsed species,
+ *  produced by the same pipeline that draws it, so a reported identity is the verified
+ *  one. Atoms are counted with their implicit hydrogens; `composition` is keyed
+ *  `${atomicNumber}:${isotope}`. */
+export interface ChemistryInspectionSummary {
+  canonicalSmiles: string;
+  /** Canonical SMILES with chirality and double-bond direction removed: the constitution. */
+  skeletonSmiles: string;
+  formula: string;
+  charge: number;
+  heavyAtoms: number;
+  /** Specified tetrahedral CIP centres plus specified E/Z bonds. */
+  stereocentres: number;
+  /** Tetrahedral centres and stereogenic double bonds the author left unspecified. */
+  unspecifiedStereocentres: number;
+  composition: Record<string, number>;
+}
+/** One step of a synthesis route, as the read-only route checker reports it. */
+export interface RouteSpeciesSummary extends ChemistryInspectionSummary { input: string }
+export interface RouteStepAudit {
+  index: number;
+  reaction: string;
+  ok: boolean;
+  error?: string;
+  reactants: RouteSpeciesSummary[];
+  agents: RouteSpeciesSummary[];
+  products: RouteSpeciesSummary[];
+  balanced: boolean | null;
+  chargeBalanced: boolean | null;
+  /** Element-by-element and charge shortfalls, empty when the equation balances. */
+  differences: string[];
+  unspecifiedStereocentres: number;
+  /** The request declared this step racemic: its open centres are a stated outcome, not a
+   *  refusal. Nothing verifies the claim; it only stops the step being blocked for them. */
+  racemic?: boolean;
+}
+export interface RouteLinkAudit {
+  from: number;
+  to: number;
+  ok: boolean;
+  reason: 'carried' | 'constitution-only' | 'no-overlap' | 'declared-mismatch' | 'parse-failed';
+  /** Species present, by canonical isomeric SMILES, in both the previous step's products
+   *  and this step's reactants: the intermediate the route actually carries. */
+  carried: Array<{ canonicalSmiles: string; formula: string; heavyAtoms: number }>;
+  /** Same constitution but a different stereochemistry or protonation state. */
+  skeletonOnly: Array<{ product: string; reactant: string; skeletonSmiles: string }>;
+  declaredCarrier?: { input: string; canonicalSmiles: string | null; inProduct: boolean; inReactant: boolean };
+}
+/** Whether the route forms the molecule it was asked for. */
+export interface RouteTargetAudit {
+  input: string;
+  canonicalSmiles: string | null;
+  formula: string | null;
+  /** The last step whose products include the target, or null when none does. */
+  formedAt: number | null;
+  /** `unparsed` never blocks: the target came from the request, not from the route. */
+  reason: 'formed' | 'stereo-mismatch' | 'not-formed' | 'unparsed';
+}
+export interface RouteAudit {
+  steps: RouteStepAudit[];
+  links: RouteLinkAudit[];
+  continuous: boolean;
+  /** One sentence per reason the route is not continuous, empty when it is. */
+  blocked: string[];
+  /** Steps that neither use an earlier intermediate nor feed a later step. */
+  isolated?: number[];
+  /** Present when the request named a target. */
+  target?: RouteTargetAudit;
+}
+export interface ChemistryValidationResult { graph: ChemistryGraph; svg: string; engineVersion: string; chemfig?: ChemistryChemfigExport; mechanism?: ChemistryMechanismArtifact; reaction?: ChemistryReactionArtifact; projection?: ChemistryDocument['species'][number]['projection']; partialReasons?: ChemistryPartialReason[]; inspection?: ChemistryInspectionSummary;
   /** Set when references agreed on the graph but only one supplied stereochemistry. */
   reconciledStereochemistry?: boolean }
