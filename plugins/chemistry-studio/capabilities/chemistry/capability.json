@@ -52,7 +52,9 @@
         "type": "object",
         "properties": {
           "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "minItems": 1, "maxItems": 16 },
-          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 16 }
+          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 16 },
+          "racemic": { "type": "boolean" },
+          "target": { "type": "string", "minLength": 1, "maxLength": 2000 }
         },
         "required": ["steps"],
         "additionalProperties": false

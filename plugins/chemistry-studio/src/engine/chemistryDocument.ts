@@ -220,12 +220,26 @@ export interface RouteLinkAudit {
   skeletonOnly: Array<{ product: string; reactant: string; skeletonSmiles: string }>;
   declaredCarrier?: { input: string; canonicalSmiles: string | null; inProduct: boolean; inReactant: boolean };
 }
+/** Whether the route forms the molecule it was asked for. */
+export interface RouteTargetAudit {
+  input: string;
+  canonicalSmiles: string | null;
+  formula: string | null;
+  /** The last step whose products include the target, or null when none does. */
+  formedAt: number | null;
+  /** `unparsed` never blocks: the target came from the request, not from the route. */
+  reason: 'formed' | 'stereo-mismatch' | 'not-formed' | 'unparsed';
+}
 export interface RouteAudit {
   steps: RouteStepAudit[];
   links: RouteLinkAudit[];
   continuous: boolean;
   /** One sentence per reason the route is not continuous, empty when it is. */
   blocked: string[];
+  /** Steps that neither use an earlier intermediate nor feed a later step. */
+  isolated?: number[];
+  /** Present when the request named a target. */
+  target?: RouteTargetAudit;
 }
 export interface ChemistryValidationResult { graph: ChemistryGraph; svg: string; engineVersion: string; chemfig?: ChemistryChemfigExport; mechanism?: ChemistryMechanismArtifact; reaction?: ChemistryReactionArtifact; projection?: ChemistryDocument['species'][number]['projection']; partialReasons?: ChemistryPartialReason[]; inspection?: ChemistryInspectionSummary;
   /** Set when references agreed on the graph but only one supplied stereochemistry. */

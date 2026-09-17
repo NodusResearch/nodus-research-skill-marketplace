@@ -79,7 +79,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null> }; locale: string }) {
+    async invoke({ toolId, input, locale }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string }; locale: string }) {
       if (toolId === 'inspect') return inspectMolecule(input);
       if (toolId === 'verify-route') return verifySynthesisRoute(input);
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
@@ -275,7 +275,7 @@ async function inspectMolecule(input: { smiles?: string[] }) {
 /** Verify a whole synthesis route without drawing it: every step parsed, every equation
  *  balanced, and every intermediate leaving one step the same molecule as the one entering
  *  the next. The result is a `route-audit` artifact the application renders deterministically. */
-async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null> }) {
+async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string }) {
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     .map(entry => entry.trim())
@@ -285,7 +285,8 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
   const racemic = typeof input?.racemic === 'boolean'
     ? input.racemic
     : Array.isArray(input?.racemic) ? input.racemic.slice(0, steps.length) : undefined;
-  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic }, host().signal);
+  const target = typeof input?.target === 'string' && input.target.trim() ? input.target.trim().slice(0, 2000) : undefined;
+  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target }, host().signal);
   if (!audit) throw new Error('The route could not be verified.');
   const summary = audit.continuous
     ? `Route verified: ${audit.steps.length} step(s), every intermediate carried over unchanged`

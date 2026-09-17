@@ -438,12 +438,78 @@ test('a convergent route is continuous when independent branches feed one step',
   const worker = lib.createWorker(stubHost());
   const result = await worker.invoke({
     invocationId: 'r4', toolId: 'verify-route', locale: 'en',
-    input: { steps: ['CCO>>CC=O.[H][H]', 'CC(=O)O.CCO>>CC(=O)OCC.O', 'CC=O.O>>CC(O)O'] },
+    input: { steps: ['CCO>>CC=O.[H][H]', 'CC(=O)O.CCO>>CC(=O)OCC.O', 'CC=O.CC(=O)OCC>>C/C=C/C(=O)OCC.O'] },
   });
   const audit = result.artifacts[0].data;
   assert.equal(audit.continuous, true, JSON.stringify(audit.blocked));
   assert.ok(audit.links.some(link => link.from === 0 && link.to === 2 && link.reason === 'carried'), 'the first branch carries into the final step');
   assert.ok(audit.links.some(link => link.from === 1 && link.to === 2 && link.reason === 'carried'), 'the second branch carries into the final step');
+});
+
+test('water made in one step and used in another does not connect them', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'rw1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO>>CC=O.[H][H]', 'CC(=O)O.CCO>>CC(=O)OCC.O', 'CC=O.O>>CC(O)O'] },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.continuous, false);
+  assert.deepEqual(audit.isolated, [1], JSON.stringify(audit.blocked));
+  assert.ok(!audit.links.some(link => link.carried.some(entry => entry.canonicalSmiles === 'O')), 'water is never a carried intermediate');
+});
+
+test('a spectator counterion does not connect two steps', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'rs1', toolId: 'verify-route', locale: 'en',
+    input: { steps: [
+      'CCOC(=O)CC(=O)OCC.CCBr.[Na+].CC[O-]>>CCOC(=O)C(CC)C(=O)OCC.CCO.[Na+].[Br-]',
+      'Oc1ccccc1.[Na+].[OH-]>>[O-]c1ccccc1.[Na+].O',
+      'CCOC(=O)C(CC)C(=O)OCC.[Na+].[OH-]>>CCC(C(=O)[O-])C(=O)[O-].[Na+].CCO',
+    ] },
+  });
+  const audit = result.artifacts[0].data;
+  assert.ok(audit.steps.every(step => step.balanced), JSON.stringify(audit.steps.map(step => step.differences)));
+  assert.deepEqual(audit.isolated, [1], JSON.stringify(audit.blocked));
+  assert.ok(!audit.links.some(link => link.carried.some(entry => entry.canonicalSmiles === '[Na+]')), 'sodium is never a carried intermediate');
+  assert.ok(audit.links.some(link => link.from === 0 && link.to === 2 && link.reason === 'carried'), 'the diester still carries step 1 into step 3');
+});
+
+test('a step that only prepares an inorganic reagent still feeds the step that uses it', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({
+    invocationId: 'rp1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['[Na].N>>[Na+].[NH2-].[H][H]', 'C#C.[Na+].[NH2-]>>[C-]#C.[Na+].N', '[C-]#C.[Na+].CCBr>>CCC#C.[Na+].[Br-]'] },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.continuous, true, JSON.stringify(audit.blocked));
+  assert.ok(audit.links.some(link => link.from === 0 && link.to === 1 && link.carried.some(entry => entry.canonicalSmiles === '[NH2-]')), JSON.stringify(audit.links));
+});
+
+test('a named target must be formed by the route, with its stereochemistry', async () => {
+  const worker = lib.createWorker(stubHost());
+  const run = async (steps, target) => (await worker.invoke({ invocationId: 'rt', toolId: 'verify-route', locale: 'en', input: { steps, target } })).artifacts[0].data;
+  const route = ['CCO>>CC=O.[H][H]', 'CC=O.[H][H]>>CCO'];
+
+  const formed = await run(route, 'OCC');
+  assert.equal(formed.target.reason, 'formed');
+  assert.equal(formed.target.formedAt, 1);
+  assert.equal(formed.continuous, true, JSON.stringify(formed.blocked));
+
+  const missing = await run(route, 'CC(=O)O');
+  assert.equal(missing.target.reason, 'not-formed');
+  assert.equal(missing.continuous, false);
+  assert.match(missing.blocked.join(' '), /No step forms the target CC\(=O\)O/);
+
+  const hydrogenation = ['CCC#CCC.[H][H]>[Pd]>CC/C=C\\CC'];
+  const wrongIsomer = await run(hydrogenation, 'CC/C=C/CC');
+  assert.equal(wrongIsomer.target.reason, 'stereo-mismatch');
+  assert.equal(wrongIsomer.continuous, false);
+  assert.equal((await run(hydrogenation, 'CCC=CCC')).target.reason, 'formed', 'a target without stereo matches either isomer');
+
+  const unreadable = await run(route, 'not a smiles');
+  assert.equal(unreadable.target.reason, 'unparsed');
+  assert.equal(unreadable.continuous, true, 'an unreadable target does not block the route');
 });
 
 test('the same constitution with different stereochemistry is not the same intermediate', async () => {

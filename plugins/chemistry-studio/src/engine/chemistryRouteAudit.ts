@@ -1,4 +1,4 @@
-import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit } from './chemistryDocument';
+import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit, RouteTargetAudit } from './chemistryDocument';
 import { balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
 import { validateChemicalReferences } from './chemistryValidationCore';
@@ -26,6 +26,18 @@ async function summarize(input: string): Promise<RouteSpeciesSummary> {
     throw new Error(`"${input}" — ${detail}`);
   }
 }
+
+/** Small species a route routinely makes in one step and uses in another without them being
+ *  the route's intermediate: CO2, CO, and the C1/C2 alcohols, alkoxides, acetic acid and
+ *  acetate. Canonical isomeric SMILES, as RDKit writes them. */
+const COMMODITY_CARBON = new Set(['O=C=O', '[C-]#[O+]', 'CO', 'CCO', 'C[O-]', 'CC[O-]', 'CC(=O)O', 'CC(=O)[O-]']);
+
+/** Whether a species can carry the route from one step to another. Water, hydrogen halides,
+ *  ammonia and the ions of a salt appear on both sides of many steps; linking steps through
+ *  them made a route with a missing step look connected ("carried H2O", "carried Na"). A
+ *  carrier therefore contains carbon and is not a commodity solvent or byproduct. */
+const canCarry = (species: RouteSpeciesSummary): boolean =>
+  Object.keys(species.composition).some(key => key.startsWith('6:')) && !COMMODITY_CARBON.has(species.canonicalSmiles);
 
 const splitField = (field: string): string[] => field.split('.').map(entry => entry.trim()).filter(Boolean);
 
@@ -73,6 +85,8 @@ export interface RouteAuditInput {
   /** A declared racemate, per step or for the whole route: open stereocentres on those steps
    *  are reported, not refused. */
   racemic?: boolean | Array<boolean | null | undefined>;
+  /** The requested target as SMILES. When given, the route must form it. */
+  target?: string | null;
 }
 
 export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
@@ -125,7 +139,11 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
   const producers = new Map<string, number[]>();
   for (const step of audited) {
     if (!step.ok) continue;
+    // A step that makes only inorganic species is preparing a reagent (NaNH2 from Na and
+    // NH3, say), so what it makes does carry the route to the step that uses it.
+    const preparesReagent = !step.products.some(canCarry);
     for (const product of step.products) {
+      if (!preparesReagent && !canCarry(product)) continue;
       const list = producers.get(product.canonicalSmiles) ?? [];
       if (!list.includes(step.index)) list.push(step.index);
       producers.set(product.canonicalSmiles, list);
@@ -164,6 +182,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
         // Not produced by an earlier step: a starting material or reagent (possibly one the
         // route also regenerates later). A skeleton match against an earlier product still
         // means the wrong stereoisomer was carried forward.
+        if (!canCarry(reactant)) continue;
         for (const producer of audited) {
           if (!producer.ok || producer.index >= step.index) continue;
           const match = producer.products.find(product => product.skeletonSmiles === reactant.skeletonSmiles && product.canonicalSmiles !== reactant.canonicalSmiles);
@@ -204,6 +223,29 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
     isolated.push(step.index);
   }
 
+  // The target, when the request named one, must be a product of some step. Matching the
+  // constitution only is a stereochemistry failure unless the target leaves its stereo open.
+  let target: RouteTargetAudit | undefined;
+  const requested = typeof input?.target === 'string' ? input.target.trim() : '';
+  if (requested) {
+    target = { input: requested, canonicalSmiles: null, formula: null, formedAt: null, reason: 'unparsed' };
+    try {
+      const wanted = await summarize(requested);
+      const formedBy = (match: (product: RouteSpeciesSummary) => boolean): number[] =>
+        audited.filter(step => step.ok && step.products.some(match)).map(step => step.index);
+      const exact = formedBy(product => product.canonicalSmiles === wanted.canonicalSmiles);
+      const skeleton = formedBy(product => product.skeletonSmiles === wanted.skeletonSmiles);
+      const formed = exact.length ? exact : wanted.stereocentres === 0 ? skeleton : [];
+      target = {
+        input: requested, canonicalSmiles: wanted.canonicalSmiles, formula: wanted.formula,
+        formedAt: formed.length ? Math.max(...formed) : null,
+        reason: formed.length ? 'formed' : skeleton.length ? 'stereo-mismatch' : 'not-formed',
+      };
+    } catch {
+      // Left as `unparsed`: a target that cannot be read says nothing about the route.
+    }
+  }
+
   const links = [...linkByKey.values()].sort((a, b) => a.to - b.to || a.from - b.from);
 
   const blocked: string[] = [];
@@ -220,6 +262,12 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
     else blocked.push(`Step ${link.from + 1} → ${link.to + 1}: could not be checked because a step failed to parse.`);
   }
   for (const index of isolated) blocked.push(`Step ${index + 1} is disconnected: it neither uses an intermediate from an earlier step nor produces one used later.`);
+  // A step that failed to parse cannot be searched for the target, so only a fully parsed
+  // route is refused for not forming it.
+  if (target && audited.every(step => step.ok)) {
+    if (target.reason === 'not-formed') blocked.push(`No step forms the target ${target.canonicalSmiles} (${target.formula}).`);
+    else if (target.reason === 'stereo-mismatch') blocked.push(`A step forms the target's constitution but not its stereochemistry (${target.canonicalSmiles}).`);
+  }
 
-  return { steps: audited, links, continuous: blocked.length === 0, blocked };
+  return { steps: audited, links, continuous: blocked.length === 0, blocked, isolated, ...(target ? { target } : {}) };
 }
