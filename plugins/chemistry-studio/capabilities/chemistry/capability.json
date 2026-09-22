@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "chemistry",
   "provides": "nodus:chemistry",
-  "version": "2.3.0",
+  "version": "2.5.1",
   "description": "Resolve chemical identities against references, validate the structure, and draw it as a verified document.",
   "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
   "requires": [{ "id": "nodus:svg", "minVersion": "1.0.0", "maxVersionExclusive": "2.0.0" }],
@@ -46,15 +46,53 @@
       "billing": "none"
     },
     {
+      "id": "resolve-names",
+      "description": "Resolve systematic chemical names to structures with the reference services (PubChem exact match first, OPSIN fallback), reporting ambiguous and unresolved names with feedback.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 48 }
+        },
+        "required": ["names"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["species-resolution"],
+      "timeoutMs": 180000,
+      "concurrency": 1,
+      "maxPerReply": 2,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
       "id": "verify-route",
-      "description": "Parse every step of a synthesis route with RDKit, check each equation, and confirm each intermediate is carried over unchanged.",
+      "description": "Parse every step of a synthesis route with RDKit, check each equation and confirm each intermediate is carried over unchanged, and check every supplied IUPAC name against the structure it denotes.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "minItems": 1, "maxItems": 16 },
           "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 16 },
           "racemic": { "type": "boolean" },
-          "target": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          "target": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "labels": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "array",
+              "maxItems": 24,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "role": { "type": "string", "enum": ["reactant", "product", "agent"] },
+                  "byproduct": { "type": "boolean" },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "smiles": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                },
+                "required": ["role", "name", "smiles"],
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "required": ["steps"],
         "additionalProperties": false
@@ -98,6 +136,12 @@
       "type": "route-audit",
       "version": 1,
       "label": { "en": "Route audit", "es": "Auditoría de ruta", "fr": "Audit de voie", "de": "Routenprüfung", "pt": "Auditoria de rota", "pt-BR": "Auditoria de rota", "it": "Audit di via", "tr": "Rota denetimi" },
+      "modelVisibility": "projection"
+    },
+    {
+      "type": "species-resolution",
+      "version": 1,
+      "label": { "en": "Species resolution", "es": "Resolución de especies", "fr": "Résolution des espèces", "de": "Spezies-Auflösung", "pt": "Resolução de espécies", "pt-BR": "Resolução de espécies", "it": "Risoluzione delle specie", "tr": "Tür çözümlemesi" },
       "modelVisibility": "projection"
     }
   ],

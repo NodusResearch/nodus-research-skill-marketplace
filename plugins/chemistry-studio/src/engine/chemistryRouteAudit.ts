@@ -10,8 +10,12 @@ import { validateChemicalReferences } from './chemistryValidationCore';
  *  comparison, not a judgement about whether two drawings look alike. */
 
 const MAX_STEPS = 16;
-const MAX_SPECIES_PER_STEP = 12;
-const MAX_SPECIES_TOTAL = 160;
+// A backstop against pathological input, not a chemistry constraint. A named salt expands to
+// its ions in the equation (`sodium dichromate` is three components), so a legitimate redox
+// step can exceed a tight per-step limit; the application caps the author's labels per step
+// and the whole route separately, and the subworker is killable and time-bounded.
+const MAX_SPECIES_PER_STEP = 48;
+const MAX_SPECIES_TOTAL = 256;
 const MAX_REACTION_CHARS = 4000;
 
 async function summarize(input: string): Promise<RouteSpeciesSummary> {
@@ -79,6 +83,18 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
   }
 }
 
+/** A species the author named in the step prose: the systematic name, the isomeric SMILES
+ *  written beside it, and the SMILES its name resolved to (resolved by the worker, which has
+ *  the network; the subworker only compares). An empty `nameSmiles` means the name could not
+ *  be resolved and is reported as unchecked, never as a disagreement. */
+export interface RouteLabelInput {
+  role: 'reactant' | 'product' | 'agent';
+  byproduct?: boolean;
+  name: string;
+  smiles: string;
+  nameSmiles?: string[];
+}
+
 export interface RouteAuditInput {
   steps: string[];
   carriers?: Array<string | null | undefined>;
@@ -87,6 +103,9 @@ export interface RouteAuditInput {
   racemic?: boolean | Array<boolean | null | undefined>;
   /** The requested target as SMILES. When given, the route must form it. */
   target?: string | null;
+  /** Per-step species labels. Each label's name is checked against the structure its SMILES
+   *  denotes, so a name for a different compound is refused alongside an unbalanced step. */
+  labels?: Array<Array<RouteLabelInput | null | undefined> | null | undefined>;
 }
 
 export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
@@ -131,6 +150,56 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       step.error = error instanceof Error ? error.message : 'The step could not be parsed.';
     }
     audited.push(step);
+  }
+
+  // The author's names, checked against the structures they were written beside. This is the
+  // deterministic half of the prose/name/structure gate: a name is resolved to a graph
+  // outside this subworker, and here two RDKit canonical forms are compared. A name that
+  // resolves to a different compound is as much a refusal as an unbalanced equation.
+  const labels = Array.isArray(input?.labels) ? input.labels : [];
+  let namesUnresolved = 0;
+  for (const step of audited) {
+    if (!step.ok) continue;
+    const supplied = Array.isArray(labels[step.index]) ? labels[step.index]! : [];
+    for (const raw of supplied) {
+      if (!raw || typeof raw.name !== 'string' || !raw.name.trim() || typeof raw.smiles !== 'string' || !raw.smiles.trim()) continue;
+      if (raw.role !== 'reactant' && raw.role !== 'product' && raw.role !== 'agent') continue;
+      let declared: RouteSpeciesSummary;
+      try { declared = await summarize(raw.smiles); } catch { continue; }
+      const candidates = (Array.isArray(raw.nameSmiles) ? raw.nameSmiles : [])
+        .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+      let nameOk: boolean | undefined;
+      if (candidates.length) {
+        nameOk = false;
+        for (const candidate of candidates) {
+          try {
+            const resolved = await summarize(candidate);
+            if (resolved.canonicalSmiles === declared.canonicalSmiles) { nameOk = true; break; }
+            if (resolved.skeletonSmiles === declared.skeletonSmiles && resolved.charge === declared.charge) {
+              // Same constitution: a name that is silent about stereochemistry is not a
+              // disagreement, but two explicit, different stereodescriptors are.
+              if (!(resolved.stereocentres > 0 && declared.stereocentres > 0)) { nameOk = true; break; }
+            }
+          } catch {
+            // An unparseable candidate is silence, not a disagreement.
+          }
+        }
+      } else {
+        namesUnresolved += 1;
+      }
+      const side = raw.role === 'reactant' ? step.reactants : raw.role === 'agent' ? step.agents : step.products;
+      const target = side.find(entry => entry.canonicalSmiles === declared.canonicalSmiles)
+        ?? side.find(entry => entry.input === raw.smiles.trim());
+      if (target) {
+        target.name = raw.name.trim().slice(0, 200);
+        if (raw.byproduct === true) target.byproduct = true;
+        if (typeof nameOk === 'boolean') target.nameOk = nameOk;
+      }
+      if (nameOk === false) {
+        const problem = `the IUPAC name "${raw.name.trim().slice(0, 200)}" denotes a different structure than \`${declared.canonicalSmiles}\`${declared.formula ? ` (${declared.formula})` : ''}`;
+        (step.nameProblems ??= []).push(problem);
+      }
+    }
   }
 
   // Provenance over the whole route rather than from step to step: a route may branch and
@@ -250,8 +319,9 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
 
   const blocked: string[] = [];
   for (const step of audited) {
-    if (!step.ok) blocked.push(`Step ${step.index + 1}: ${step.error ?? 'could not be parsed.'}`);
-    else if (!step.balanced) blocked.push(`Step ${step.index + 1} is not balanced: ${step.differences.join('; ')}.`);
+    if (!step.ok) { blocked.push(`Step ${step.index + 1}: ${step.error ?? 'could not be parsed.'}`); continue; }
+    for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${problem}.`);
+    if (!step.balanced) blocked.push(`Step ${step.index + 1} is not balanced: ${step.differences.join('; ')}.`);
     else if (step.unspecifiedStereocentres > 0 && !step.racemic) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);
   }
   for (const link of links) {
@@ -269,5 +339,5 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
     else if (target.reason === 'stereo-mismatch') blocked.push(`A step forms the target's constitution but not its stereochemistry (${target.canonicalSmiles}).`);
   }
 
-  return { steps: audited, links, continuous: blocked.length === 0, blocked, isolated, ...(target ? { target } : {}) };
+  return { steps: audited, links, continuous: blocked.length === 0, blocked, isolated, ...(target ? { target } : {}), ...(namesUnresolved ? { namesUnresolved } : {}) };
 }

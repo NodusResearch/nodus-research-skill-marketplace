@@ -190,7 +190,16 @@ export interface ChemistryInspectionSummary {
   composition: Record<string, number>;
 }
 /** One step of a synthesis route, as the read-only route checker reports it. */
-export interface RouteSpeciesSummary extends ChemistryInspectionSummary { input: string }
+export interface RouteSpeciesSummary extends ChemistryInspectionSummary {
+  input: string;
+  /** The systematic name the author wrote beside this species, when one was supplied. */
+  name?: string;
+  /** True when the name resolved to this structure, false when it resolved to a different
+   *  one. Absent when no name was supplied or none could be resolved. */
+  nameOk?: boolean;
+  /** The author labelled this product a byproduct. A display flag only. */
+  byproduct?: boolean;
+}
 export interface RouteStepAudit {
   index: number;
   reaction: string;
@@ -204,6 +213,9 @@ export interface RouteStepAudit {
   /** Element-by-element and charge shortfalls, empty when the equation balances. */
   differences: string[];
   unspecifiedStereocentres: number;
+  /** One sentence per supplied name that denotes a different structure than the species it
+   *  was written beside. Empty when every resolvable name agrees. */
+  nameProblems?: string[];
   /** The request declared this step racemic: its open centres are a stated outcome, not a
    *  refusal. Nothing verifies the claim; it only stops the step being blocked for them. */
   racemic?: boolean;
@@ -240,6 +252,9 @@ export interface RouteAudit {
   isolated?: number[];
   /** Present when the request named a target. */
   target?: RouteTargetAudit;
+  /** How many supplied IUPAC names could not be resolved to any structure. Advisory: an
+   *  unusual but valid name is not treated as a disagreement. */
+  namesUnresolved?: number;
 }
 export interface ChemistryValidationResult { graph: ChemistryGraph; svg: string; engineVersion: string; chemfig?: ChemistryChemfigExport; mechanism?: ChemistryMechanismArtifact; reaction?: ChemistryReactionArtifact; projection?: ChemistryDocument['species'][number]['projection']; partialReasons?: ChemistryPartialReason[]; inspection?: ChemistryInspectionSummary;
   /** Set when references agreed on the graph but only one supplied stereochemistry. */

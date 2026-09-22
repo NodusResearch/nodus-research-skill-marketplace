@@ -1,6 +1,7 @@
 import { bindHost, completeText, host, type CapabilityHost } from './engine/host';
-import { resolveChemistryIntent } from './engine/chemistryIdentity';
+import { resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution } from './engine/chemistryIdentity';
 import { chemistryDependencies } from './deps';
+import type { RouteLabelInput } from './engine/chemistryRouteAudit';
 import { splitFences } from './engine/fences';
 import { chemistrySvgAuditSystem, chemistrySvgMode, isChemistrySvgRequest } from './engine/chatChemistrySvg';
 import { CHEMISTRY_INSTRUCTIONS } from './engine/instructions';
@@ -79,7 +80,8 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string }; locale: string }) {
+    async invoke({ toolId, input, locale }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }; locale: string }) {
+      if (toolId === 'resolve-names') return resolveNames(input);
       if (toolId === 'inspect') return inspectMolecule(input);
       if (toolId === 'verify-route') return verifySynthesisRoute(input);
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
@@ -272,10 +274,74 @@ async function inspectMolecule(input: { smiles?: string[] }) {
   return { artifacts, notices: [] };
 }
 
+/** Resolve a batch of systematic names to structures (PubChem first, OPSIN fallback), each
+ *  with a status and, when it fails, a feedback sentence the model can act on. The route
+ *  derivation calls this before building any equation, so the SMILES never come from the
+ *  model. */
+const MAX_NAMES = 48;
+async function resolveNames(input: { names?: string[] }) {
+  const list = Array.isArray(input?.names) ? input.names : [];
+  const cleaned = [...new Set(list
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map((entry) => entry.trim().slice(0, 200)))].slice(0, MAX_NAMES);
+  if (!cleaned.length) throw new Error(`Provide between one and ${MAX_NAMES} chemical names.`);
+  const deps = chemistryDependencies();
+  const results: SpeciesNameResolution[] = [];
+  for (const name of cleaned) {
+    host().signal.throwIfAborted();
+    results.push(await resolveSpeciesName(name, deps, host().signal));
+  }
+  const unresolved = results.filter((entry) => entry.status !== 'resolved').length;
+  const summary = unresolved
+    ? `${results.length - unresolved} of ${results.length} name(s) resolved`
+    : `${results.length} name(s) resolved`;
+  return { artifacts: [{ artifactType: 'species-resolution', artifactVersion: 1, summary, data: { results } }], notices: [] };
+}
+
+const MAX_LABELS_PER_STEP = 24;
+/** Bound the reference lookups a single route can trigger; a name is resolved once and the
+ *  answer is reused for the same name on every step. */
+const MAX_LABELS_TOTAL = 48;
+
+/** Resolve the names the author wrote beside each species. Resolution needs the network, so
+ *  it happens here in the worker; the subworker receives the pre-resolved SMILES and only
+ *  compares canonical graphs. A name that resolves to nothing is left with an empty list and
+ *  is reported as unchecked, never as a disagreement. */
+async function resolveRouteLabels(
+  raw: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> | undefined,
+  stepCount: number,
+  signal?: AbortSignal,
+): Promise<RouteLabelInput[][]> {
+  const out: RouteLabelInput[][] = Array.from({ length: stepCount }, () => []);
+  if (!Array.isArray(raw)) return out;
+  const deps = chemistryDependencies();
+  const cache = new Map<string, string[]>();
+  let resolved = 0;
+  for (let index = 0; index < Math.min(stepCount, raw.length); index += 1) {
+    const list = Array.isArray(raw[index]) ? raw[index]! : [];
+    for (const entry of list.slice(0, MAX_LABELS_PER_STEP)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const role = entry.role === 'reactant' || entry.role === 'product' || entry.role === 'agent' ? entry.role : null;
+      const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, 200) : '';
+      const smiles = typeof entry.smiles === 'string' ? entry.smiles.trim() : '';
+      if (!role || !name || !smiles) continue;
+      let nameSmiles = cache.get(name);
+      if (!nameSmiles) {
+        nameSmiles = resolved < MAX_LABELS_TOTAL ? await resolveNameReferences(name, deps, signal) : [];
+        resolved += 1;
+        cache.set(name, nameSmiles);
+      }
+      out[index].push({ role, byproduct: entry.byproduct === true, name, smiles, nameSmiles });
+    }
+  }
+  return out;
+}
+
 /** Verify a whole synthesis route without drawing it: every step parsed, every equation
- *  balanced, and every intermediate leaving one step the same molecule as the one entering
- *  the next. The result is a `route-audit` artifact the application renders deterministically. */
-async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string }) {
+ *  balanced, every intermediate leaving one step the same molecule as the one entering the
+ *  next, and every supplied IUPAC name denoting the structure it was written beside. The
+ *  result is a `route-audit` artifact the application renders deterministically. */
+async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }) {
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     .map(entry => entry.trim())
@@ -286,7 +352,8 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
     ? input.racemic
     : Array.isArray(input?.racemic) ? input.racemic.slice(0, steps.length) : undefined;
   const target = typeof input?.target === 'string' && input.target.trim() ? input.target.trim().slice(0, 2000) : undefined;
-  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target }, host().signal);
+  const labels = await resolveRouteLabels(input?.labels, steps.length, host().signal);
+  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target, ...(labels.some(step => step.length) ? { labels } : {}) }, host().signal);
   if (!audit) throw new Error('The route could not be verified.');
   const summary = audit.continuous
     ? `Route verified: ${audit.steps.length} step(s), every intermediate carried over unchanged`

@@ -244,6 +244,84 @@ async function references(input: ChemistryIntent['species'][number]['input'], de
   return found;
 }
 
+/** Resolve one authored name to every SMILES its declared references agree on. The route
+ *  checker uses this to test an IUPAC name against the structure it was written beside. An
+ *  unresolved or ambiguous name yields no candidates, which the checker reports as unchecked
+ *  rather than as a disagreement. */
+export async function resolveNameReferences(name: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<string[]> {
+  const value = typeof name === 'string' ? name.trim() : '';
+  if (!value || value.length > 200 || !/\p{L}/u.test(value)) return [];
+  try {
+    const found = await references({ kind: 'name', value }, deps, signal);
+    const smiles = found.map(entry => entry.smiles).filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+    return [...new Set(smiles)].slice(0, 4);
+  } catch {
+    return [];
+  }
+}
+
+/** A name resolved to a structure by the reference services. PubChem is tried first: its
+ *  curated records are right about reagent names ("sodium acetylide" is the mono salt, not
+ *  OPSIN's disodium) and about "hydrogen" (H2, not the radical). OPSIN is the fallback for
+ *  systematic names PubChem does not hold. */
+export interface SpeciesNameResolution {
+  name: string;
+  status: 'resolved' | 'ambiguous' | 'unresolved';
+  smiles?: string;
+  formula?: string;
+  source?: 'pubchem' | 'opsin';
+  /** Why it did not resolve, phrased so the model can correct the name. */
+  feedback?: string;
+}
+
+async function pubchemByName(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
+  const matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(value)}/cids/JSON?name_type=complete`, deps, signal);
+  const cids = matches?.IdentifierList?.CID;
+  if (!Array.isArray(cids) || !cids.length) return { name: value, status: 'unresolved', feedback: 'PubChem has no exact match for this name.' };
+  if (cids.length !== 1 || !Number.isSafeInteger(cids[0]) || cids[0] <= 0) {
+    return { name: value, status: 'ambiguous', feedback: `PubChem returns ${cids.length} exact matches; give a more specific systematic name.` };
+  }
+  const cid = String(cids[0]);
+  const record = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/IsomericSMILES,MolecularFormula/JSON`, deps, signal);
+  const rows = record?.PropertyTable?.Properties;
+  if (!Array.isArray(rows) || rows.length !== 1 || String(rows[0].CID) !== cid) {
+    return { name: value, status: 'unresolved', source: 'pubchem', feedback: 'PubChem could not return a structure for its own identifier.' };
+  }
+  const smiles = rows[0].IsomericSMILES ?? rows[0].SMILES;
+  if (typeof smiles !== 'string' || !smiles) return { name: value, status: 'unresolved', source: 'pubchem', feedback: 'PubChem returned no isomeric SMILES.' };
+  return {
+    name: value, status: 'resolved', smiles, source: 'pubchem',
+    ...(typeof rows[0].MolecularFormula === 'string' && rows[0].MolecularFormula ? { formula: rows[0].MolecularFormula } : {}),
+  };
+}
+
+async function opsinByName(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
+  const record = await readJSON(`https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(value)}.json`, deps, signal);
+  if (record?.status === 'SUCCESS' && typeof record.smiles === 'string' && record.smiles) {
+    if (Array.isArray(record.warnings) && record.warnings.length) {
+      return { name: value, status: 'unresolved', source: 'opsin', feedback: `OPSIN only partly interpreted the name: ${record.warnings.join(' ').slice(0, 200)}` };
+    }
+    return { name: value, status: 'resolved', smiles: record.smiles, source: 'opsin' };
+  }
+  return { name: value, status: 'unresolved', source: 'opsin', feedback: record?.message ? `OPSIN: ${String(record.message).slice(0, 200)}` : 'Not a recognised systematic name.' };
+}
+
+/** Resolve one name to a structure: PubChem exact match first, OPSIN fallback, and a
+ *  feedback sentence when neither resolves so the model can restate it as a true IUPAC name. */
+export async function resolveSpeciesName(rawName: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
+  const name = typeof rawName === 'string' ? rawName.trim().slice(0, 200) : '';
+  if (!name || !/\p{L}/u.test(name)) return { name, status: 'unresolved', feedback: 'Not a chemical name.' };
+  let pubchem: SpeciesNameResolution | null = null;
+  try { pubchem = await pubchemByName(name, deps, signal); } catch { pubchem = null; }
+  if (pubchem?.status === 'resolved') return pubchem;
+  let opsin: SpeciesNameResolution | null = null;
+  try { opsin = await opsinByName(name, deps, signal); } catch { opsin = null; }
+  if (opsin?.status === 'resolved') return opsin;
+  if (pubchem?.status === 'ambiguous') return pubchem;
+  const feedback = [pubchem?.feedback, opsin?.feedback].filter((entry): entry is string => Boolean(entry)).join(' ');
+  return { name, status: 'unresolved', ...(feedback ? { feedback } : {}) };
+}
+
 /** States exactly what was not checked, so a partial drawing is never mistaken for a verified one. */
 function describePartial(reasons: ChemistryPartialReason[]): string {
   const text: Record<ChemistryPartialReason, string> = {
