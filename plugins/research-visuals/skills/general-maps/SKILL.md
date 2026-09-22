@@ -12,13 +12,15 @@ Requires the signed Research Visuals package and `research-visuals:cartography`,
 Use the application-declared `research-map-request` fenced JSON protocol to invoke `render-map`. The fence body is the tool input, with no invented result envelope.
 
 ## 4. Validation before access
-Check coordinate order, source rights and requested scope. Ask for missing exact coordinates instead of guessing. Use modern provider geometry only for modern geography. Values and territory selectors must correspond to actual feature properties: an unmatched selector fails. Never present a schematic illustration as measured geometry.
+Check coordinate order, source rights and requested scope. Ask for missing exact coordinates instead of guessing. Use modern provider geometry only for modern geography. Values and territory selectors must correspond to actual feature properties: `geoboundaries` units publish `name`, `iso` and `id`, Natural Earth countries publish `name` and `iso`, and an unmatched selector fails instead of inventing a feature. Never present a schematic illustration as measured geometry.
+
+Labels are placed exactly where the data puts them and nothing resolves collisions for you. At a country or continental frame, label the divisions that can hold their own name — the largest ones — and leave the rest unlabelled, or compute a marker for each feature you want named. A layer asked for a hundred labels returns a hundred overlapping labels, and a dense administrative layer can outgrow the SVG ceiling: when that happens, select fewer features, use a coarser frame, or keep `detail: standard`.
 
 ## 5. Execution
 1. Choose supplied GeoJSON or an approved provider query: `natural-earth` for world countries, `geoboundaries` with an ISO alpha-3 country and level 0, 1 or 2 for modern administrative data. Provider availability and boundary level coverage vary by country.
 2. Invoke `render-map` with title and meaningful alt text. Put the query in each layer so retrieval and rendering occur in one controlled call; alternatively provide `data: {geojson, source}`. Avoid opaque dataset references across calls.
-3. Use `select: {property, values}` for exact subset selection, `colors: {property, values: [{value, color}]}` for thematic colors, and `labelProperty` for labels. Do not fabricate property names; when unknown, request an unfiltered map or use supplied documented data.
-4. Add coordinate markers, route coordinate arrays (`straight`, `curved` or `great-circle`, optional `arrow`), labels and a matching legend. `overlaySource` is mandatory for markers/routes. Select equal-earth, mercator or equirectangular for the research purpose.
+3. Use `select: {property, values}` for exact subset selection, `colors: {property, values: [{value, color}]}` for thematic colors, and `labelProperty` for labels. Do not fabricate property names: `geoboundaries` publishes `name`, `iso` and `id`, Natural Earth publishes `name` and `iso`; when a property is unknown, request an unfiltered map or supply documented data. Label the largest divisions only, as section 4 explains.
+4. Add coordinate markers, route coordinate arrays (`straight`, `curved` or `great-circle`, optional `arrow`), labels and a matching legend. `overlaySource` is mandatory for markers/routes: an object with `label`, `attribution` and `license`, and optionally `url` and `period`. Select equal-earth, mercator or equirectangular for the research purpose.
 5. Use only the returned SVG and provenance. Include a visual only when useful; enabled tools and limits never imply a minimum number of maps.
 
 ## 6. Outputs and evidence
