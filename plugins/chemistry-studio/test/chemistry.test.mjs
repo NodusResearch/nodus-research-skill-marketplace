@@ -846,3 +846,177 @@ test('what cannot be balanced says what is missing', () => {
   assert.throws(() => lib.balanceReaction([H2, O2], ['reactant', 'reactant'], [1, 1]), /at least one reactant and one product/);
 });
 
+
+// ---------------------------------------------------------------- IUPAC name checks
+
+test('the route checker confirms a supplied IUPAC name denotes the structure it was written beside', async () => {
+  const host = ethanolHost();
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({
+    invocationId: 'rn1', toolId: 'verify-route', locale: 'en',
+    input: {
+      steps: ['CCO>>CC=O.[H][H]'],
+      labels: [[{ role: 'reactant', name: 'ethanol', smiles: 'CCO' }]],
+    },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.continuous, true, JSON.stringify(audit.blocked));
+  assert.equal(audit.steps[0].reactants[0].name, 'ethanol');
+  assert.equal(audit.steps[0].reactants[0].nameOk, true);
+  assert.equal(audit.namesUnresolved, undefined, 'the name was resolved');
+  assert.ok(host.calls.some(call => call.startsWith('opsin') || call.startsWith('pubchem')), 'the name was resolved against a reference');
+});
+
+test('a name that denotes a different compound is refused like an unbalanced step', async () => {
+  // The species is ethanol (CCO) but the reference resolves the name "ethanol" to a
+  // different graph, exactly the case the check exists to catch.
+  const host = stubHost({
+    fetch: (endpointId, target) => endpointId === 'opsin' && target.includes('/opsin/ws/')
+      ? { status: 'SUCCESS', smiles: 'CC=O' }
+      : undefined,
+  });
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({
+    invocationId: 'rn2', toolId: 'verify-route', locale: 'en',
+    input: {
+      steps: ['CCO>>CC=O.[H][H]'],
+      labels: [[{ role: 'reactant', name: 'ethanol', smiles: 'CCO' }]],
+    },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.continuous, false);
+  assert.equal(audit.steps[0].reactants[0].nameOk, false);
+  assert.equal(audit.steps[0].nameProblems.length, 1);
+  assert.match(audit.blocked.join(' '), /the IUPAC name "ethanol" denotes a different structure/);
+});
+
+test('an unresolvable name is reported as unchecked, never as a disagreement', async () => {
+  const host = stubHost();
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({
+    invocationId: 'rn3', toolId: 'verify-route', locale: 'en',
+    input: {
+      steps: ['CCO>>CC=O.[H][H]'],
+      labels: [[{ role: 'reactant', name: 'mystery compound', smiles: 'CCO' }]],
+    },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.continuous, true, JSON.stringify(audit.blocked));
+  assert.equal(audit.namesUnresolved, 1);
+  assert.equal(audit.steps[0].reactants[0].name, 'mystery compound');
+  assert.equal(audit.steps[0].reactants[0].nameOk, undefined);
+  assert.equal(audit.steps[0].nameProblems, undefined);
+});
+
+test('a byproduct label is carried through onto the product side', async () => {
+  const worker = lib.createWorker(ethanolHost());
+  const result = await worker.invoke({
+    invocationId: 'rn4', toolId: 'verify-route', locale: 'en',
+    input: {
+      steps: ['CCO>>C=C.O'],
+      labels: [[
+        { role: 'reactant', name: 'ethanol', smiles: 'CCO' },
+        { role: 'product', name: 'water', smiles: 'O', byproduct: true },
+      ]],
+    },
+  });
+  const product = result.artifacts[0].data.steps[0].products.find(entry => entry.canonicalSmiles === 'O');
+  assert.ok(product, 'water is on the product side');
+  assert.equal(product.byproduct, true);
+});
+
+// ---------------------------------------------------------------- name resolution
+
+const resolveHost = (fetch) => stubHost({ fetch });
+
+test('resolve-names prefers PubChem and does not let OPSIN override a curated record', async () => {
+  const host = resolveHost((endpointId, target) => {
+    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [2733336] } };
+    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 2733336, IsomericSMILES: 'C#[C-].[Na+]', MolecularFormula: 'C2HNa' }] } };
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: '[C-]#[C-].[Na+].[Na+]' };
+    return undefined;
+  });
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({ invocationId: 'rn1', toolId: 'resolve-names', locale: 'en', input: { names: ['sodium acetylide'] } });
+  const resolution = result.artifacts.find(artifact => artifact.artifactType === 'species-resolution');
+  assert.ok(resolution, 'a species-resolution artifact is produced');
+  assert.equal(result.artifacts[0].artifactVersion, 1);
+  const entry = resolution.data.results[0];
+  assert.equal(entry.status, 'resolved');
+  assert.equal(entry.source, 'pubchem');
+  assert.equal(entry.smiles, 'C#[C-].[Na+]');
+  assert.equal(entry.formula, 'C2HNa');
+});
+
+test('resolve-names falls back to OPSIN when PubChem has no exact match', async () => {
+  const worker = lib.createWorker(resolveHost((endpointId, target) => {
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: 'C#CCC' };
+    return undefined; // pubchem 404
+  }));
+  const result = await worker.invoke({ invocationId: 'rn2', toolId: 'resolve-names', locale: 'en', input: { names: ['but-1-yne'] } });
+  const entry = result.artifacts[0].data.results[0];
+  assert.equal(entry.status, 'resolved');
+  assert.equal(entry.source, 'opsin');
+  assert.equal(entry.smiles, 'C#CCC');
+});
+
+test('an ambiguous PubChem match and a partial OPSIN parse are reported with feedback', async () => {
+  const ambiguous = lib.createWorker(resolveHost((endpointId, target) => {
+    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [1, 2] } };
+    return undefined;
+  }));
+  const many = await ambiguous.invoke({ invocationId: 'rn3', toolId: 'resolve-names', locale: 'en', input: { names: ['ambiguous name'] } });
+  const manyEntry = many.artifacts[0].data.results[0];
+  assert.equal(manyEntry.status, 'ambiguous');
+  assert.match(manyEntry.feedback, /exact matches/);
+
+  const partial = lib.createWorker(resolveHost((endpointId, target) => {
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: 'CCC', warnings: ['unparsed segment'] };
+    return undefined;
+  }));
+  const partialResult = await partial.invoke({ invocationId: 'rn4', toolId: 'resolve-names', locale: 'en', input: { names: ['partly parsed name'] } });
+  const partialEntry = partialResult.artifacts[0].data.results[0];
+  assert.equal(partialEntry.status, 'unresolved');
+  assert.match(partialEntry.feedback, /partly interpreted/);
+});
+
+test('an entirely unknown name is unresolved with feedback, and duplicates are resolved once', async () => {
+  const worker = lib.createWorker(resolveHost(() => undefined));
+  const result = await worker.invoke({ invocationId: 'rn5', toolId: 'resolve-names', locale: 'en', input: { names: ['but-1-yne', 'but-1-yne'] } });
+  const results = result.artifacts[0].data.results;
+  assert.equal(results.length, 1, 'the duplicate name is resolved once');
+  assert.equal(results[0].status, 'unresolved');
+  assert.ok(results[0].feedback, 'a feedback sentence is returned for the model to act on');
+});
+
+test('resolve-names rejects an empty request', async () => {
+  const worker = lib.createWorker(resolveHost(() => undefined));
+  await assert.rejects(() => worker.invoke({ invocationId: 'rn6', toolId: 'resolve-names', locale: 'en', input: { names: ['', '   '] } }), /between one and/);
+});
+
+test('the per-step species cap is a generous backstop, not the old 12', async () => {
+  const worker = lib.createWorker(stubHost());
+  // 21 components parses fine: a real dichromate step can exceed the old 12.
+  const accepted = await worker.invoke({ invocationId: 'cap1', toolId: 'verify-route', locale: 'en', input: { steps: [`${'C.'.repeat(20)}C>>C`] } });
+  assert.equal(accepted.artifacts[0].data.steps[0].ok, true, accepted.artifacts[0].data.steps[0].error);
+
+  // 49 reactants + 1 product = 50 components exceeds the 48 backstop.
+  const refused = await worker.invoke({ invocationId: 'cap2', toolId: 'verify-route', locale: 'en', input: { steps: [`${'C.'.repeat(48)}C>>C`] } });
+  const step = refused.artifacts[0].data.steps[0];
+  assert.equal(step.ok, false);
+  assert.match(step.error, /at most 48 species/);
+});
+
+test('a shared counterion written once per side balances uniquely; repeated tokens do not', async () => {
+  // The name-first app derives this from named salts, writing each ion once per side.
+  const deduped = 'C1(CCCCC1)O.[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-].[Na+].S(O)(O)(=O)=O>>C1(CCCCC1)=O.S(=O)(=O)([O-])[O-].[Cr+3].[Na+].O';
+  const ok = await lib.auditRoute({ steps: [deduped] });
+  assert.equal(ok.steps[0].balanced, true, JSON.stringify(ok.steps[0].differences));
+
+  // The same equation with the shared sulfate and sodium repeated (as an un-deduped derivation
+  // would write them) admits more than one balance and is refused.
+  const repeated = 'C1(CCCCC1)O.[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-].[Na+].[Na+].S(O)(O)(=O)=O>>C1(CCCCC1)=O.S(=O)(=O)([O-])[O-].S(=O)(=O)([O-])[O-].S(=O)(=O)([O-])[O-].[Cr+3].[Cr+3].S(=O)(=O)([O-])[O-].[Na+].[Na+].O';
+  const refused = await lib.auditRoute({ steps: [repeated] });
+  assert.equal(refused.steps[0].balanced, false);
+  assert.match(refused.steps[0].differences.join(' '), /more than one balanced equation/);
+});

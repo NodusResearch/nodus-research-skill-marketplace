@@ -1,3 +1,32 @@
+# Chemistry Studio 2.5.1
+
+Name-first route support. The package can now resolve a systematic IUPAC name to a structure
+and check author-supplied names against the structures they denote, so the application can
+derive SMILES from names instead of trusting a model. This release folds in 2.4.0 and 2.5.0.
+
+## resolve-names
+
+A new read-only tool resolves a batch of names to structures: PubChem exact match first, OPSIN
+as fallback. Each name comes back with a status, isomeric SMILES, formula, source and — when
+it does not resolve — a feedback sentence. PubChem is tried first because OPSIN reads
+`sodium acetylide` as the di-sodium salt and `hydrogen` as a radical, where PubChem returns
+the mono salt and H2. An ambiguous or unresolved name is reported rather than guessed, so a
+caller can hand it back to a model to restate as a true systematic name.
+
+## verify-route names
+
+`verify-route` accepts an optional per-step `labels` array. Each supplied name is resolved and
+compared to the structure it was written beside: a name that denotes a different compound is
+refused alongside an unbalanced step, and an unresolvable name is reported as unchecked.
+Named species are returned with their resolved structure and a `nameOk` flag.
+
+## Species limits
+
+The per-step species backstop is raised from 12 to 48 (route total 160 to 256). The old 12 was
+a model-facing instruction; a named salt expands to its ions in the equation, so a legitimate
+redox step could exceed it. The 24 author labels per step and the killable subworker remain the
+real guards.
+
 # Chemistry Studio 2.2.1
 
 A packaging fix. Nothing the package draws, verifies or refuses has changed.
