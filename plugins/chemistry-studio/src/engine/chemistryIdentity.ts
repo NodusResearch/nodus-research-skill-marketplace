@@ -262,8 +262,11 @@ export async function resolveNameReferences(name: string, deps: ChemistryIdentit
 
 /** A name resolved to a structure by the reference services. PubChem is tried first: its
  *  curated records are right about reagent names ("sodium acetylide" is the mono salt, not
- *  OPSIN's disodium) and about "hydrogen" (H2, not the radical). OPSIN is the fallback for
- *  systematic names PubChem does not hold. */
+ *  OPSIN's disodium) and about "hydrogen" (H2, not the radical), and OPSIN is the fallback for
+ *  systematic names PubChem does not hold. A name that mentions a metal is resolved against
+ *  both, and the reference that shows the metal as an ion is preferred, because PubChem
+ *  sometimes holds a curated record that writes a salt with a bare neutral atom
+ *  ("sodium phenoxide" as phenol + `[Na]`). */
 export interface SpeciesNameResolution {
   name: string;
   status: 'resolved' | 'ambiguous' | 'unresolved';
@@ -306,17 +309,65 @@ async function opsinByName(value: string, deps: ChemistryIdentityDependencies, s
   return { name: value, status: 'unresolved', source: 'opsin', feedback: record?.message ? `OPSIN: ${String(record.message).slice(0, 200)}` : 'Not a recognised systematic name.' };
 }
 
+/** The element a salt or organometallic name mentions, when it mentions one. */
+const METAL_WORDS: ReadonlyArray<readonly [string, string]> = [
+  ['sodium', 'Na'], ['potassium', 'K'], ['lithium', 'Li'], ['rubidium', 'Rb'], ['caesium', 'Cs'], ['cesium', 'Cs'],
+  ['magnesium', 'Mg'], ['calcium', 'Ca'], ['strontium', 'Sr'], ['barium', 'Ba'],
+  ['aluminium', 'Al'], ['aluminum', 'Al'], ['gallium', 'Ga'], ['indium', 'In'], ['thallium', 'Tl'],
+  ['tin', 'Sn'], ['lead', 'Pb'], ['bismuth', 'Bi'],
+  ['iron', 'Fe'], ['cobalt', 'Co'], ['nickel', 'Ni'], ['copper', 'Cu'], ['zinc', 'Zn'], ['silver', 'Ag'],
+  ['manganese', 'Mn'], ['chromium', 'Cr'], ['cadmium', 'Cd'], ['mercury', 'Hg'], ['platinum', 'Pt'], ['gold', 'Au'],
+];
+
+function metalElementForName(name: string): string | null {
+  const lower = name.toLowerCase();
+  for (const [word, symbol] of METAL_WORDS) {
+    if (new RegExp(`\\b${word}\\b`).test(lower)) return symbol;
+  }
+  return null;
+}
+
+/** Whether a SMILES shows the element as a charged ion, as a salt should (`[Na+]`, `[Fe+2]`),
+ *  rather than a bare neutral atom (`[Na]`). */
+function showsIonicMetal(smiles: string, symbol: string): boolean {
+  return new RegExp(`\\[${symbol}(?:[0-9]*[+-]+|[+-]+[0-9]*)\\]`).test(smiles);
+}
+
 /** Resolve one name to a structure: PubChem exact match first, OPSIN fallback, and a
- *  feedback sentence when neither resolves so the model can restate it as a true IUPAC name. */
+ *  feedback sentence when neither resolves so the model can restate it as a true IUPAC name.
+ *  When the name mentions a metal, both references are compared and the one that shows the
+ *  metal as an ion wins; a curated record with a bare neutral metal atom is not used for a
+ *  salt name. */
 export async function resolveSpeciesName(rawName: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
   const name = typeof rawName === 'string' ? rawName.trim().slice(0, 200) : '';
   if (!name || !/\p{L}/u.test(name)) return { name, status: 'unresolved', feedback: 'Not a chemical name.' };
+  const metal = metalElementForName(name);
   let pubchem: SpeciesNameResolution | null = null;
   try { pubchem = await pubchemByName(name, deps, signal); } catch { pubchem = null; }
-  if (pubchem?.status === 'resolved') return pubchem;
+
+  if (!metal) {
+    // No metal: PubChem first, OPSIN fallback.
+    if (pubchem?.status === 'resolved') return pubchem;
+    let opsin: SpeciesNameResolution | null = null;
+    try { opsin = await opsinByName(name, deps, signal); } catch { opsin = null; }
+    if (opsin?.status === 'resolved') return opsin;
+    if (pubchem?.status === 'ambiguous') return pubchem;
+    const feedback = [pubchem?.feedback, opsin?.feedback].filter((entry): entry is string => Boolean(entry)).join(' ');
+    return { name, status: 'unresolved', ...(feedback ? { feedback } : {}) };
+  }
+
+  // A metal is named: resolve both and prefer the reference that shows it as an ion.
   let opsin: SpeciesNameResolution | null = null;
   try { opsin = await opsinByName(name, deps, signal); } catch { opsin = null; }
-  if (opsin?.status === 'resolved') return opsin;
+  const pubchemResolved = pubchem?.status === 'resolved' && Boolean(pubchem.smiles);
+  const opsinResolved = opsin?.status === 'resolved' && Boolean(opsin.smiles);
+  if (pubchemResolved && opsinResolved) {
+    const opsinIonic = showsIonicMetal(opsin!.smiles!, metal);
+    const pubchemIonic = showsIonicMetal(pubchem!.smiles!, metal);
+    return opsinIonic && !pubchemIonic ? opsin! : pubchem!;
+  }
+  if (pubchemResolved) return pubchem!;
+  if (opsinResolved) return opsin!;
   if (pubchem?.status === 'ambiguous') return pubchem;
   const feedback = [pubchem?.feedback, opsin?.feedback].filter((entry): entry is string => Boolean(entry)).join(' ');
   return { name, status: 'unresolved', ...(feedback ? { feedback } : {}) };

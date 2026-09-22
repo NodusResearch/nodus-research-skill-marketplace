@@ -1020,3 +1020,50 @@ test('a shared counterion written once per side balances uniquely; repeated toke
   assert.equal(refused.steps[0].balanced, false);
   assert.match(refused.steps[0].differences.join(' '), /more than one balanced equation/);
 });
+
+test('a salt name prefers the reference that shows the metal as an ion', async () => {
+  // PubChem's exact record for "sodium phenoxide" is phenol plus a bare neutral Na atom;
+  // OPSIN returns the ionic salt, which is what a salt name must resolve to.
+  const host = resolveHost((endpointId, target) => {
+    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [2733330] } };
+    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 2733330, IsomericSMILES: 'C1=CC=C(C=C1)O.[Na]', MolecularFormula: 'C6H6NaO' }] } };
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: '[O-]C1=CC=CC=C1.[Na+]' };
+    return undefined;
+  });
+  const result = await lib.createWorker(host).invoke({ invocationId: 'salt1', toolId: 'resolve-names', locale: 'en', input: { names: ['sodium phenoxide'] } });
+  const entry = result.artifacts[0].data.results[0];
+  assert.equal(entry.status, 'resolved');
+  assert.equal(entry.source, 'opsin', 'the ionic reference wins over a bare neutral metal');
+  assert.equal(entry.smiles, '[O-]C1=CC=CC=C1.[Na+]');
+});
+
+test('a metal name keeps PubChem when both references show the metal as an ion', async () => {
+  const host = resolveHost((endpointId, target) => {
+    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [2733336] } };
+    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 2733336, IsomericSMILES: 'C#[C-].[Na+]', MolecularFormula: 'C2HNa' }] } };
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: '[C-]#[C-].[Na+].[Na+]' };
+    return undefined;
+  });
+  const entry = (await lib.createWorker(host).invoke({ invocationId: 'salt2', toolId: 'resolve-names', locale: 'en', input: { names: ['sodium acetylide'] } })).artifacts[0].data.results[0];
+  assert.equal(entry.source, 'pubchem', 'PubChem keeps its curated mono-salt record');
+  assert.equal(entry.smiles, 'C#[C-].[Na+]');
+});
+
+test('a name without a metal is still PubChem-first', async () => {
+  const host = resolveHost((endpointId, target) => {
+    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [783] } };
+    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 783, IsomericSMILES: '[HH]', MolecularFormula: 'H2' }] } };
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: '[H]' };
+    return undefined;
+  });
+  const entry = (await lib.createWorker(host).invoke({ invocationId: 'salt3', toolId: 'resolve-names', locale: 'en', input: { names: ['hydrogen'] } })).artifacts[0].data.results[0];
+  assert.equal(entry.source, 'pubchem');
+  assert.equal(entry.smiles, '[HH]');
+});
+
+test('when only one reference resolves a metal name, that one is used', async () => {
+  const host = resolveHost((endpointId) => endpointId === 'opsin' ? { status: 'SUCCESS', smiles: '[Sn](Cl)Cl' } : undefined);
+  const entry = (await lib.createWorker(host).invoke({ invocationId: 'salt4', toolId: 'resolve-names', locale: 'en', input: { names: ['tin(II) chloride'] } })).artifacts[0].data.results[0];
+  assert.equal(entry.source, 'opsin');
+  assert.equal(entry.smiles, '[Sn](Cl)Cl');
+});

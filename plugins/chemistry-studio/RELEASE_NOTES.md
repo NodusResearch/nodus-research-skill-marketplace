@@ -1,3 +1,19 @@
+# Chemistry Studio 2.5.2
+
+A resolution fix. Nothing the package draws changes.
+
+## A salt is resolved to its ions
+
+`resolve-names` recommended a metal salt by its first PubChem record. PubChem sometimes holds a
+curated record that writes a salt with a **bare neutral metal atom** — for `sodium phenoxide` it
+returns phenol plus `[Na]` (C6H6NaO), not the salt. Route balances built on that structure could
+never close.
+
+When a name mentions a metal, both references are now read and the one that shows the metal as a
+charged ion is preferred: `sodium phenoxide` resolves to `[O-]c1ccccc1.[Na+]` (OPSIN) while
+`sodium acetylide` still keeps PubChem's curated mono-salt `C#[C-].[Na+]`, because there both
+references are ionic and PubChem wins. A name without a metal is unchanged (PubChem first).
+
 # Chemistry Studio 2.5.1
 
 Name-first route support. The package can now resolve a systematic IUPAC name to a structure
