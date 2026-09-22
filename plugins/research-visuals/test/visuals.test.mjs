@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import maps, {historicalRequest} from '../src/maps.js';
+import maps, {historicalRequest,historicalLabels} from '../src/maps.js';
 import images, {retrieveImages,validateInput} from '../src/images.js';
 import {approvedImage,wikimediaCandidate,searchSource,searchBatch,DEFAULT_SOURCES} from '../src/sources.js';
 import {validateCapabilityManifestV2,validateSettingsState,validateSettingsSubmission,validateWorkerArtifact} from '../../../scripts/contract-v2.mjs';
@@ -42,8 +42,59 @@ test('Wikimedia licensing, credits and approved hosts fail closed',()=>{assert.e
 const jsonResponse=value=>({status:200,headers:{'content-type':'application/json'},body:new TextEncoder().encode(JSON.stringify(value))});
 test('search calls only checked sources and never exceeds five candidate slots',async()=>{const calls=[];const host={signal:new AbortController().signal,network:{async fetch(id,r){calls.push([id,r.path]);return jsonResponse(id==='commons'?{query:{pages:{1:page('Public domain')}}}:{data:[]})}}};await searchBatch(host,{wikimedia:true,met:false,aic:false},'plate',0);assert.deepEqual(calls.map(c=>c[0]),['commons']);assert.match(calls[0][1],/^\/w\/api.php\?/);assert.match(calls[0][1],/gsrlimit=5/);calls.length=0;await searchBatch(host,{wikimedia:false,met:false,aic:true},'plate',0);assert.deepEqual(calls.map(c=>c[0]),['aic']);assert.equal(JSON.parse(new URL(calls[0][1],'https://api.artic.edu').searchParams.get('params')).query.term.is_public_domain,true)});
 test('museum records require explicit public-domain flags and fixed image origin',async()=>{const item={id:123,title:'Synthetic plate',image_id:'12345678-1234-1234-1234-123456789012',is_public_domain:false};const h={signal:new AbortController().signal,network:{async fetch(){return jsonResponse({data:[item]})}}};assert.equal((await searchSource(h,'aic','plate',0,5)).length,0);item.is_public_domain=true;assert.equal((await searchSource(h,'aic','plate',0,5))[0].license,'CC0');const seen=[];const m={...h,network:{async fetch(_id,r){seen.push(r.path);return jsonResponse(r.path.includes('/search?')?{objectIDs:[1]}:{objectID:1,title:'Synthetic plate',isPublicDomain:true,primaryImageSmall:'https://images.metmuseum.org/CRDImages/ad/fixture.jpg'})}}};assert.equal((await searchSource(m,'met','plate',1,2)).length,1);assert.match(seen[0],/v1\.1\/search\?/);assert.match(seen[0],/offset=2/)});
-const source={label:'Synthetic historical fixture',attribution:'Synthetic geometry; not real borders',license:'CC0',url:'https://example.org/synthetic',period:{from:'1800-01-01',to:'1899-12-31'}};
-const request={title:'Synthetic historical route',alt:'Synthetic route between two supplied coordinates',markers:[{coordinates:[0,0],label:'A'},{coordinates:[1,1],label:'B'}],routes:[{coordinates:[[0,0],[1,1]],arrow:true}],overlaySource:source};
-test('historical runtime enforces evidence, dates and no modern substitution',()=>{assert.deepEqual(historicalRequest({...request,period:{from:'1850-01-01',to:'1850-12-31'}}),request);for(const bad of [{...request},{...request,period:{from:'1750-01-01',to:'1750-12-31'}},{...request,period:source.period,overlaySource:{...source,url:undefined}},{...request,period:source.period,layers:[{query:{provider:'natural-earth'}}]}])assert.throws(()=>historicalRequest(bad));assert.doesNotThrow(()=>historicalRequest({...request,period:{from:'-000500-01-01',to:'-000499-12-31'},overlaySource:{...source,period:{from:'-000600-01-01',to:'-000400-12-31'}}}))});
-test('both map tools invoke the native renderer and preserve editable/provenance exports',async()=>{const s=setup();const calls=[];s.host.maps={async render(r){calls.push(r);return {svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M0 0L20 20"/></svg>',geometry:[],provenance:{sources:[source]}}}};const w=maps(s.host);for(const toolId of ['render-map','render-historical-map']){const result=await w.invoke({toolId,input:{...request,...(toolId.includes('historical')?{period:source.period}:{})}});assert.equal(result.artifacts[0].view.nodes.filter(n=>n.kind==='download').length,2);assert.equal(result.artifacts[0].data.svg.includes('<svg'),true)}assert.equal(calls.length,2);await assert.rejects(w.invoke({toolId:'invented',input:request}));});
+const dated={label:'Synthetic dated fixture',attribution:'Synthetic geometry; not real borders',license:'CC0',url:'https://example.org/synthetic',period:{from:'1800-01-01',to:'1899-12-31'}};
+const supplied={label:'Reconstruction from general knowledge',attribution:'Model reconstruction, not evidence',license:'CC0'};
+const region={type:'FeatureCollection',features:[{type:'Feature',id:'r1',geometry:{type:'Polygon',coordinates:[[[-4,39],[-3,39],[-3,40],[-4,40],[-4,39]]]},properties:{name:'Region'}}]};
+const request={title:'Synthetic historical route',alt:'Synthetic route between two supplied coordinates',markers:[{coordinates:[0,0],label:'A'},{coordinates:[1,1],label:'B'}],routes:[{coordinates:[[0,0],[1,1]],arrow:true}],overlaySource:dated};
+const period={from:'1850-01-01',to:'1850-12-31'};
+// What the renderer reports for each lane, which is what the map is labelled from.
+const providerSource=(label,extra={})=>({origin:'provider',provider:'openhistoricalmap',label,attribution:'OpenHistoricalMap contributors, CC0',license:'CC0 1.0',url:'https://www.openhistoricalmap.org/',sha256:'0'.repeat(64),modifications:[],...extra});
+const callerSource=(source)=>({origin:'caller',sha256:'0'.repeat(64),modifications:[],...source});
+test('the tools only accept a request that says what it is about',()=>{
+  for(const bad of [{...request},{...request,period:{from:'1750-01-01',to:'1750-12-31'}},{...request,period,overlaySource:{...supplied,period:{from:'1700-01-01',to:'1710-12-31'}}},{...request,period,layers:[{datasetId:'00000000-0000-0000-0000-000000000000'}]}])assert.throws(()=>historicalRequest(bad));
+  assert.deepEqual(historicalRequest({...request,period}).request,request);
+  assert.doesNotThrow(()=>historicalRequest({...request,period:{from:'-000500-01-01',to:'-000499-12-31'},overlaySource:{...dated,period:{from:'-000600-01-01',to:'-000400-12-31'}}}));
+});
+test('the label comes from what the geometry is: dated, reconstructed or a reference frame',()=>{
+  const datedMap=historicalLabels([providerSource('OpenHistoricalMap · admin level 4',{period}),callerSource(dated)],period);
+  assert.deepEqual(datedMap,{approximate:false,referenceOnly:false,references:[]});
+  const rebuilt=historicalLabels([callerSource({...supplied}),callerSource(dated)],period);
+  assert.equal(rebuilt.approximate,true,'a route drawn from general knowledge is a reconstruction');
+  const reference=historicalLabels([providerSource('geoBoundaries ESP ADM2')],period);
+  assert.deepEqual(reference,{approximate:true,referenceOnly:true,references:['geoBoundaries ESP ADM2']});
+  const mixed=historicalLabels([providerSource('OpenHistoricalMap · admin level 4',{period}),providerSource('geoBoundaries ESP ADM2')],period);
+  assert.deepEqual(mixed,{approximate:false,referenceOnly:false,references:['geoBoundaries ESP ADM2']},'dated boundaries beside a reference layer stay dated, and the reference is named');
+  // A provider source without a period is today's map, and it does not make anything dated.
+  assert.equal(historicalLabels([providerSource('Natural Earth')],period).approximate,true);
+});
+test('the view carries the label: warning when it is not dated, none when it is',async()=>{
+  // The stub reports what the renderer would: a caller source for the supplied overlay.
+  const s=setup();s.host.maps={async render(){return {svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M0 0L20 20"/></svg>',geometry:[],provenance:{sources:[callerSource(supplied)]}}}};
+  const w=maps(s.host);
+  const approximate=(await w.invoke({toolId:'render-historical-map',input:{...request,overlaySource:supplied,period}})).artifacts[0];
+  assert.equal(approximate.data.approximate,true);
+  assert.equal(approximate.view.nodes.filter(node=>node.kind==='notice'&&node.tone==='warning').length,1);
+  // The label is derived from stored data, so a map reopened from an artifact says the same thing.
+  assert.equal((await w.renderArtifact({artifactType:'research-map',artifactVersion:1,data:approximate.data})).nodes.some(node=>node.kind==='notice'),true);
+});
+test('both map tools invoke the native renderer and preserve editable/provenance exports',async()=>{const s=setup();const calls=[];s.host.maps={async render(r){calls.push(r);return {svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M0 0L20 20"/></svg>',geometry:[],provenance:{sources:[dated]}}}};const w=maps(s.host);for(const toolId of ['render-map','render-historical-map']){const result=await w.invoke({toolId,input:{...request,...(toolId.includes('historical')?{period:dated.period}:{})}});assert.equal(result.artifacts[0].view.nodes.filter(n=>n.kind==='download').length,2);assert.equal(result.artifacts[0].data.svg.includes('<svg'),true)}assert.equal(calls.length,2);await assert.rejects(w.invoke({toolId:'invented',input:request}));});
+test('a dated provider map is reported with the period it was drawn for',async()=>{const s=setup();const ohm={...providerSource('OpenHistoricalMap · admin level 4 · 13 boundaries',{period})};s.host.maps={async render(){return {svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M0 0L20 20"/></svg>',geometry:[],provenance:{sources:[ohm]}}}};const w=maps(s.host);const artifact=(await w.invoke({toolId:'render-historical-map',input:{title:'Regiones',alt:'Dated boundaries.',period,bounds:[-10,35,4.5,44],layers:[{query:{provider:'openhistoricalmap',level:4,period}}]}})).artifacts[0];assert.equal(artifact.data.approximate,false);assert.equal(artifact.data.references.length,0);assert.equal(artifact.view.nodes.some(node=>node.kind==='notice'),false);assert.match(artifact.view.nodes.find(node=>node.kind==='paragraph').spans.map(span=>span.text).join(' '),/Historical source period: 1850-01-01 to 1850-12-31/);});
+test('a map request answered by hand is retired, with what to do next',async()=>{
+  const prepareChat=input=>maps({signal:{throwIfAborted(){}}}).prepareChat(input);
+  const prose={id:'n0',kind:'prose',content:'Here is your map.',complete:true};
+  const drawn={id:'n1',kind:'fence',fence:'svg',content:'<svg xmlns="http://www.w3.org/2000/svg"><title>Spain</title></svg>',complete:true};
+  const retired=await prepareChat({question:'Crea un mapa de España en 1940',nodes:[prose,drawn],locale:'es'});
+  assert.equal(retired.length,2);
+  assert.deepEqual(retired[0],{op:'claim',suppressSvgRefinement:true});
+  assert.equal(retired[1].view.nodes[0].kind,'notice');
+  assert.match(retired[1].view.nodes[0].spans[0].text,/herramienta de cartografía/);
+  // A diagram beside an unrelated question is not this Skill's business.
+  assert.deepEqual(await prepareChat({question:'Explain the water cycle',nodes:[prose,drawn],locale:'en'}),[]);
+  // A map question answered through the tool has nothing to retire.
+  assert.deepEqual(await prepareChat({question:'Map of Spain in 1940',nodes:[prose,{id:'n2',kind:'fence',fence:'historical-map-request',content:'{}',complete:true}],locale:'en'}),[]);
+  // An unknown locale falls back to English rather than failing the reply.
+  assert.match((await prepareChat({question:'mapa',nodes:[drawn],locale:'xx'}))[1].view.nodes[0].spans[0].text,/cartography tool/);
+  // Text that merely mentions a map is not a map request when nothing was drawn.
+  assert.deepEqual(await prepareChat({question:'Was there a map in that article?',nodes:[prose],locale:'en'}),[]);
+});
 test('manifest settings and paid review contract validate',async()=>{const manifest=validateCapabilityManifestV2(JSON.parse(fs.readFileSync(fileURLToPath(new URL('../capabilities/images/capability.json',import.meta.url)))));assert.equal(manifest.tools[0].billing,'per-call');assert.equal(manifest.permissions.model,undefined);assert.equal(manifest.permissions.vision.maxRounds,3);const w=images(setup().host);validateSettingsState(await w.getSettings(),manifest.settings);assert.throws(()=>validateSettingsSubmission({fields:{met:'yes'}},manifest.settings));});

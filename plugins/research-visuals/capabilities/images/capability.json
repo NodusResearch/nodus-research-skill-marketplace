@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "images",
   "provides": "research-visuals:images",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Search checked open image sources and review at most three batches of five thumbnails through native vision.",
   "runtime": {
     "kind": "nodus-trusted-worker-v1",

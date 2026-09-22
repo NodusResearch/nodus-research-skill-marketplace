@@ -157,7 +157,7 @@ var localize = (text2, locale) => text2[locale] ?? text2[locale.split("-")[0]] ?
 
 // packages/capability-api/src/maps.ts
 var MAP_LIMITS = { calls: 8, retrievals: 4, layers: 4, features: 5e3, positions: 2e5, inputBytes: 12e6, responseBytes: 16e6, svgChars: 3e5, markers: 200, routes: 100, timeoutMs: 3e4 };
-var MAP_PROVIDERS = ["natural-earth", "geoboundaries"];
+var MAP_PROVIDERS = ["natural-earth", "geoboundaries", "openhistoricalmap"];
 function object(value, keys, label) {
   if (!value || typeof value !== "object" || Array.isArray(value) || !exactKeys(value, keys)) throw new Error(`Invalid map ${label}.`);
 }
@@ -202,7 +202,13 @@ function validateMapQuery(value) {
   if (value.period !== void 0) period(value.period);
   if (value.provider === "natural-earth") {
     if (value.country !== void 0 || value.level !== void 0) throw new Error("Natural Earth supplies the world countries layer; select features after retrieval.");
+    if (value.period !== void 0) throw new Error("This provider does not support historical date queries. No modern geometry was substituted.");
+  } else if (value.provider === "openhistoricalmap") {
+    if (value.country !== void 0) throw new Error("OpenHistoricalMap is retrieved by area and date, not by country; give the map its bounds and period.");
+    if (value.level !== 2 && value.level !== 4) throw new Error("OpenHistoricalMap retrieval needs admin level 2 (states and polities) or 4 (regions and provinces where mapped).");
+    if (value.period === void 0) throw new Error("OpenHistoricalMap retrieval needs the period it is drawn for.");
   } else if (typeof value.country !== "string" || !/^[A-Z]{3}$/.test(value.country) || value.country === "ALL" || !Number.isInteger(value.level) || value.level < 0 || value.level > 2) throw new Error("Administrative retrieval requires one ISO alpha-3 country and level 0, 1 or 2.");
+  else if (value.period !== void 0) throw new Error("This provider does not support historical date queries. No modern geometry was substituted.");
   return structuredClone(value);
 }
 function validateMapGeometry(input) {

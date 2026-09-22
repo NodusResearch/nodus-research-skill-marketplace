@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-22T11:04:52.349Z",
+  "updatedAt": "2026-09-22T16:45:16.731Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -167,20 +167,20 @@
         "it": "Mappe generali e storiche e ricerca di immagini aperte con revisione visiva facoltativa. Richiede maps e vision nativi.",
         "tr": "Genel ve tarihî haritalar, isteğe bağlı görsel incelemeli açık lisanslı görsel arama. Yerel maps ve vision desteği gerektirir."
       },
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "plugins/research-visuals",
       "replaces": [],
       "targets": [
         "any"
       ],
       "release": {
-        "tag": "research-visuals-v1.0.0",
+        "tag": "research-visuals-v1.1.0",
         "manifest": "release-manifest.json",
         "signature": "release-manifest.sig",
         "assets": [
           {
             "target": "any",
-            "asset": "research-visuals-1.0.0-any.nodus-plugin",
+            "asset": "research-visuals-1.1.0-any.nodus-plugin",
             "bytes": 45257
           }
         ]

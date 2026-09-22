@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "id": "cartography",
   "provides": "research-visuals:cartography",
-  "version": "1.0.0",
-  "description": "Research maps through the native cartographic renderer, with dated-source enforcement for historical maps.",
+  "version": "1.1.0",
+  "description": "Research maps through the native cartographic renderer, with dated-source reporting for historical maps.",
   "runtime": {
     "kind": "nodus-trusted-worker-v1",
     "protocol": 1,
@@ -19,15 +19,19 @@
   "tools": [
     {
       "id": "render-map",
-      "description": "Render supplied or approved-provider geography with attribution.",
+      "description": "Render supplied or approved-provider geography with attribution. openhistoricalmap retrieves dated administrative boundaries inside the request bounds when a level (2 or 4) and a period are given.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "title": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
           },
           "alt": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
           },
           "width": {
             "type": "number",
@@ -80,16 +84,19 @@
                       "type": "string",
                       "enum": [
                         "natural-earth",
-                        "geoboundaries"
+                        "geoboundaries",
+                        "openhistoricalmap"
                       ]
                     },
                     "country": {
-                      "type": "string"
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 3
                     },
                     "level": {
                       "type": "integer",
                       "minimum": 0,
-                      "maximum": 2
+                      "maximum": 4
                     },
                     "period": {
                       "type": "object",
@@ -114,7 +121,9 @@
                   "additionalProperties": false
                 },
                 "datasetId": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 36,
+                  "maxLength": 36
                 },
                 "data": {
                   "type": "object",
@@ -126,16 +135,24 @@
                       "type": "object",
                       "properties": {
                         "label": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
                         },
                         "attribution": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500
                         },
                         "license": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
                         },
                         "url": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1500
                         },
                         "period": {
                           "type": "object",
@@ -188,7 +205,9 @@
                   "additionalProperties": false
                 },
                 "fill": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 7,
+                  "maxLength": 7
                 },
                 "colors": {
                   "type": "object",
@@ -203,7 +222,9 @@
                         "properties": {
                           "value": {},
                           "color": {
-                            "type": "string"
+                            "type": "string",
+                            "minLength": 7,
+                            "maxLength": 7
                           }
                         },
                         "required": [
@@ -243,10 +264,14 @@
                   "maxItems": 2
                 },
                 "label": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
                 },
                 "color": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 7,
+                  "maxLength": 7
                 },
                 "radius": {
                   "type": "number",
@@ -291,7 +316,9 @@
                   "type": "boolean"
                 },
                 "color": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 7,
+                  "maxLength": 7
                 },
                 "width": {
                   "type": "number",
@@ -299,7 +326,9 @@
                   "maximum": 12
                 },
                 "label": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
                 }
               },
               "required": [
@@ -312,16 +341,24 @@
             "type": "object",
             "properties": {
               "label": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
               },
               "attribution": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
               },
               "license": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
               },
               "url": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1500
               },
               "period": {
                 "type": "object",
@@ -354,10 +391,14 @@
               "type": "object",
               "properties": {
                 "label": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
                 },
                 "color": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 7,
+                  "maxLength": 7
                 }
               },
               "required": [
@@ -386,15 +427,19 @@
     },
     {
       "id": "render-historical-map",
-      "description": "Render only supplied dated historical geography. Each source must cover the requested period; no modern boundary substitution.",
+      "description": "Render a dated historical map from supplied geometry, coordinates, dated provider boundaries or a modern reference layer. An openhistoricalmap query with level 2 or 4 and a period draws the boundaries whose own dates cover it, inside the request bounds; a source whose period covers the request and carries an evidence link is reported as dated, and anything else renders with a stated approximate-reconstruction notice.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "title": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
           },
           "alt": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
           },
           "width": {
             "type": "number",
@@ -447,16 +492,19 @@
                       "type": "string",
                       "enum": [
                         "natural-earth",
-                        "geoboundaries"
+                        "geoboundaries",
+                        "openhistoricalmap"
                       ]
                     },
                     "country": {
-                      "type": "string"
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 3
                     },
                     "level": {
                       "type": "integer",
                       "minimum": 0,
-                      "maximum": 2
+                      "maximum": 4
                     },
                     "period": {
                       "type": "object",
@@ -481,7 +529,9 @@
                   "additionalProperties": false
                 },
                 "datasetId": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 36,
+                  "maxLength": 36
                 },
                 "data": {
                   "type": "object",
@@ -493,16 +543,24 @@
                       "type": "object",
                       "properties": {
                         "label": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
                         },
                         "attribution": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500
                         },
                         "license": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
                         },
                         "url": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1500
                         },
                         "period": {
                           "type": "object",
@@ -555,7 +613,9 @@
                   "additionalProperties": false
                 },
                 "fill": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 7,
+                  "maxLength": 7
                 },
                 "colors": {
                   "type": "object",
@@ -570,7 +630,9 @@
                         "properties": {
                           "value": {},
                           "color": {
-                            "type": "string"
+                            "type": "string",
+                            "minLength": 7,
+                            "maxLength": 7
                           }
                         },
                         "required": [
@@ -610,10 +672,14 @@
                   "maxItems": 2
                 },
                 "label": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
                 },
                 "color": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 7,
+                  "maxLength": 7
                 },
                 "radius": {
                   "type": "number",
@@ -658,7 +724,9 @@
                   "type": "boolean"
                 },
                 "color": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 7,
+                  "maxLength": 7
                 },
                 "width": {
                   "type": "number",
@@ -666,7 +734,9 @@
                   "maximum": 12
                 },
                 "label": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
                 }
               },
               "required": [
@@ -679,16 +749,24 @@
             "type": "object",
             "properties": {
               "label": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
               },
               "attribution": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
               },
               "license": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
               },
               "url": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1500
               },
               "period": {
                 "type": "object",
@@ -721,10 +799,14 @@
               "type": "object",
               "properties": {
                 "label": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
                 },
                 "color": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 7,
+                  "maxLength": 7
                 }
               },
               "required": [
@@ -791,7 +873,8 @@
       "maxCalls": 4,
       "providers": [
         "natural-earth",
-        "geoboundaries"
+        "geoboundaries",
+        "openhistoricalmap"
       ]
     }
   },
@@ -812,7 +895,9 @@
       }
     ],
     "legacyResults": [],
-    "hooks": {},
+    "hooks": {
+      "prepare": true
+    },
     "pendingLabel": {
       "en": "Preparing research visuals…",
       "es": "Preparando recursos visuales…",

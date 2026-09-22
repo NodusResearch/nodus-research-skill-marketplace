@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "research-images",
   "name": "Open Image Finder",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Drakonis96",
   "description": "Find openly reusable images in Wikimedia Commons by default, with optional museum sources and bounded visual relevance review.",
   "category": "Design and visual communication",
