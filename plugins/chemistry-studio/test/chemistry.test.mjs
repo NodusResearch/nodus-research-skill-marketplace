@@ -1067,3 +1067,10 @@ test('when only one reference resolves a metal name, that one is used', async ()
   assert.equal(entry.source, 'opsin');
   assert.equal(entry.smiles, '[Sn](Cl)Cl');
 });
+
+test('a bare counterion does not downgrade the document, but a bonded out-of-set element does', async () => {
+  const salt = await lib.validateChemicalReferences({ references: ['[Na+].[O-]C1=CC=CC=C1'] });
+  assert.ok(!(salt.partialReasons ?? []).includes('element-outside-cip-scope'), 'a bare Na+ is a spectator with no stereochemistry or implicit valence to certify');
+  const bonded = await lib.validateChemicalReferences({ references: ['Cl[Sn](Cl)(Cl)Cl'] });
+  assert.ok((bonded.partialReasons ?? []).includes('element-outside-cip-scope'), 'a bonded tin is still outside the certified set');
+});

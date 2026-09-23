@@ -215,7 +215,11 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
       // valence model are not dependable, so the drawing keeps its graph and its balance
       // check but stops claiming stereochemical verification. Refusing an element the
       // toolkits parse perfectly well was this validator's own limit, not chemistry's.
-      if (!ORGANIC_CIP_ELEMENTS.has(value.z)) partialReasons.add('element-outside-cip-scope');
+      // A bare counterion ([Na+], [K+]) is the exception: it has no stereochemistry and no
+      // implicit valence to certify, so only an out-of-set element actually bonded into the
+      // structure downgrades the document.
+      const bonded = raw.bonds.some((b: { atoms: [number, number] }) => b.atoms[0] === i || b.atoms[1] === i);
+      if (!ORGANIC_CIP_ELEMENTS.has(value.z) && bonded) partialReasons.add('element-outside-cip-scope');
       return { id: `a${i}`, atomicNumber: value.z, charge: value.chg, isotope: value.isotope, hydrogens: value.impHs,
         ...(stereo.CIP_atoms.find(([index]) => index === i) ? { cip: stereo.CIP_atoms.find(([index]) => index === i)![1].replace(/[()]/g, '') } : {}) };
     });

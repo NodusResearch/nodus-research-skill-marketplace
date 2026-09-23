@@ -1,3 +1,16 @@
+# Chemistry Studio 2.5.3
+
+A validation-scope fix. Nothing the package draws changes.
+
+## A bare counterion no longer downgrades the document
+
+A structure with a spectator ion outside the certified organic element set — `[Na+]` in
+`sodium phenoxide`, say — was reported as only partly verified: "the structure contains an
+element outside the organic set, so stereochemical labelling and implicit valences were not
+certified". A bare counterion has no stereochemistry and no implicit valence to certify, so it no
+longer triggers that caveat. An out-of-set element that is actually bonded into the structure
+still does.
+
 # Chemistry Studio 2.5.2
 
 A resolution fix. Nothing the package draws changes.
