@@ -1,3 +1,26 @@
+# Chemistry Studio 2.5.4
+
+Route-checking fixes. Nothing that was already drawn changes.
+
+## Several balanced equations take the smallest one
+A step whose declared species admit several balanced equations — six species over four elements is
+already two-dimensional — was refused with "more than one balanced equation". The checker now takes
+the smallest equation in which every declared species takes part and accepts it when it is unique,
+and refuses only when two different equations tie for smallest (then the author is asked to split the
+step). The Robinson tropinone assembly balances as 1:1:1 → 1:2:2 instead of being refused.
+
+## Only what a step makes must specify its stereochemistry
+An unspecified stereocentre on a purchased reagent (2,5-dimethoxytetrahydrofuran) failed the step,
+even though the step neither sets nor keeps it. The check now counts unspecified centres on the
+step's products only; an intermediate is still checked in the step that makes it, and a racemic
+declaration still opts out.
+
+## The skill instructions describe the names-first route
+The synthesis section of SKILL.md still told the model to write `reactants>agents>products` lines
+and to give each species an isomeric SMILES beside its name, contradicting the application's
+names-only synthesis contract. It now describes the contract the application appends: IUPAC names
+and roles only, resolved by `resolve-names` and checked by `verify-route`.
+
 # Chemistry Studio 2.5.3
 
 A validation-scope fix. Nothing the package draws changes.

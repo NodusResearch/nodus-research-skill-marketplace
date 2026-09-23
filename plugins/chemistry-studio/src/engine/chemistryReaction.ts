@@ -174,6 +174,7 @@ interface Composition { atoms: Record<string, number>; charge: number }
 type Frac = [bigint, bigint];
 const gcd = (a: bigint, b: bigint): bigint => { a = a < 0n ? -a : a; b = b < 0n ? -b : b; while (b) { const t = a % b; a = b; b = t; } return a; };
 const norm = (n: bigint, d: bigint): Frac => { if (d < 0n) { n = -n; d = -d; } const g = gcd(n, d) || 1n; return [n / g, d / g]; };
+const fAdd = (a: Frac, b: Frac): Frac => norm(a[0] * b[1] + b[0] * a[1], a[1] * b[1]);
 const fSub = (a: Frac, b: Frac): Frac => norm(a[0] * b[1] - b[0] * a[1], a[1] * b[1]);
 const fMul = (a: Frac, b: Frac): Frac => norm(a[0] * b[0], a[1] * b[1]);
 const fDiv = (a: Frac, b: Frac): Frac => norm(a[0] * b[1], a[1] * b[0]);
@@ -209,6 +210,43 @@ function nullSpace(matrix: bigint[][], columns: number): Frac[][] {
     pivots.forEach((pivotColumn, index) => { vector[pivotColumn] = [-m[index][freeColumn][0], m[index][freeColumn][1]]; });
     return vector;
   });
+}
+
+/** The smallest positive whole-number equation in a multi-dimensional null space, or null when
+ *  there is not exactly one.
+ *
+ *  A null space of dimension > 1 means the declared species admit several balanced equations.
+ *  The smallest one — the fewest total moles, every declared species taking part — is almost
+ *  always the one intended, and the other basis-vector combinations are scaled-up or
+ *  spectator-dropping variants no chemist means. This returns that smallest equation when it is
+ *  unique, and null (so the caller asks for a split) when two different equations tie.
+ *
+ *  The basis is in reduced form, one free column per vector, so the multiplier on each basis
+ *  vector is the coefficient of its free column in the result: searching multipliers 1..12 (the
+ *  coefficient ceiling) searches every usable equation.
+ */
+function smallestPositiveEquation(basis: Frac[][]): number[] | null {
+  const dimension = Math.min(basis.length, 4); // bounded search; deeper spaces are refused
+  const ceiling = 12;
+  const best = new Map<string, number[]>();
+  let bestSum = Infinity;
+  const total = ceiling ** dimension;
+  for (let code = 0; code < total; code++) {
+    let n = code;
+    const vector: Frac[] = basis[0].map(() => [0n, 1n] as Frac);
+    for (let b = 0; b < dimension; b++) {
+      const multiplier = BigInt((n % ceiling) + 1);
+      n = Math.floor(n / ceiling);
+      for (let j = 0; j < vector.length; j++) if (!fZero(basis[b][j])) vector[j] = fAdd(vector[j], fMul([multiplier, 1n], basis[b][j]));
+    }
+    const whole = toIntegerCoefficients(vector);
+    if (!whole) continue;
+    const sum = whole.reduce((acc, value) => acc + value, 0);
+    if (sum > bestSum) continue;
+    if (sum < bestSum) { bestSum = sum; best.clear(); }
+    best.set(whole.join(','), whole);
+  }
+  return best.size === 1 ? [...best.values()][0] : null;
 }
 
 /** The smallest whole-number form of a null vector, or null when it is not a usable
@@ -325,6 +363,16 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
   // of such a space are combinations, usually with a zero or a negative in them. Judging
   // them one at a time reports "cannot be balanced" for a system with too many answers.
   if (basis.length > 1) {
+    // Several balanced equations: take the smallest one that uses every declared species, and
+    // only refuse when two different equations tie for smallest (then the choice would be a
+    // guess, so the author splits the step instead).
+    const minimal = smallestPositiveEquation(basis);
+    if (minimal) {
+      const coefficients = supplied.slice();
+      reduced.forEach(({ index }, position) => { coefficients[index] = minimal[position]; });
+      for (const index of removed) coefficients[index] = 1;
+      return coefficients;
+    }
     throw new Error('The declared species admit more than one balanced equation; name the intended byproducts, or split this transformation into consecutive balanced steps.');
   }
   const solved = toIntegerCoefficients(basis[0]);

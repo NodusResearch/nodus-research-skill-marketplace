@@ -542,9 +542,10 @@ test('a declared carrier is checked by identity, and unspecified stereochemistry
   });
   assert.equal(mismatch.artifacts[0].data.links[0].reason, 'declared-mismatch');
 
-  const unspecified = await worker.invoke({ invocationId: 'r7', toolId: 'verify-route', locale: 'en', input: { steps: ['CC=CC.[H][H]>>CCCC'] } });
+  // The unspecified centre is on the product the step makes, so it is the route's to specify.
+  const unspecified = await worker.invoke({ invocationId: 'r7', toolId: 'verify-route', locale: 'en', input: { steps: ['CC#CC.[H][H]>>CC=CC'] } });
   const audit = unspecified.artifacts[0].data;
-  assert.equal(audit.steps[0].unspecifiedStereocentres, 1, 'the unspecified double bond is counted');
+  assert.equal(audit.steps[0].unspecifiedStereocentres, 1, 'the unspecified double bond on the product is counted');
   assert.equal(audit.continuous, false);
   assert.match(audit.blocked.join(' '), /unspecified/);
 });
@@ -835,12 +836,13 @@ test('what cannot be balanced says what is missing', () => {
     () => lib.balanceReaction([MeOH, HCl, MeCl], ['reactant', 'reactant', 'product'], [1, 1, 1]),
     /cannot be balanced[\s\S]*O: reactants 1, products 0|cannot be balanced[\s\S]*H: reactants/);
 
-  // Ethanol burning can be written with carbon monoxide as well as carbon dioxide, and
-  // choosing between them would be inventing which reaction was meant.
+  // Ethanol with both CO and CO2 named: the smallest equation using every declared species is
+  // taken rather than refused (2 EtOH + 5 O2 -> 2 CO2 + 2 CO + 6 H2O). A step is only refused
+  // when two different positive equations tie for smallest.
   const EtOH = comp({ '6:0': 2, '1:0': 6, '8:0': 1 }), CO = comp({ '6:0': 1, '8:0': 1 });
-  assert.throws(
-    () => lib.balanceReaction([EtOH, O2, CO2, CO, H2O], ['reactant', 'reactant', 'product', 'product', 'product'], [1, 1, 1, 1, 1]),
-    /more than one balanced equation/);
+  assert.deepEqual(
+    lib.balanceReaction([EtOH, O2, CO2, CO, H2O], ['reactant', 'reactant', 'product', 'product', 'product'], [1, 1, 1, 1, 1]),
+    [2, 5, 2, 2, 6]);
 
   // One side missing entirely is not an equation.
   assert.throws(() => lib.balanceReaction([H2, O2], ['reactant', 'reactant'], [1, 1]), /at least one reactant and one product/);
@@ -1073,4 +1075,25 @@ test('a bare counterion does not downgrade the document, but a bonded out-of-set
   assert.ok(!(salt.partialReasons ?? []).includes('element-outside-cip-scope'), 'a bare Na+ is a spectator with no stereochemistry or implicit valence to certify');
   const bonded = await lib.validateChemicalReferences({ references: ['Cl[Sn](Cl)(Cl)Cl'] });
   assert.ok((bonded.partialReasons ?? []).includes('element-outside-cip-scope'), 'a bonded tin is still outside the certified set');
+});
+
+test('a step with several balanced equations takes the smallest that uses every species', async () => {
+  // Robinson tropinone assembly: 6 species over 4 elements, so the null space is 2-dimensional,
+  // but the smallest all-positive equation is unique (1,1,1,1,2,2) and the absurd
+  // spectator-dropping ones are ignored.
+  const audit = await lib.auditRoute({ steps: ['O=CCCC=O.O=C(O)CC(=O)CC(=O)O.CN>>CN1C2CCC1CC(=O)C2.O=C=O.O'] });
+  assert.equal(audit.steps[0].ok, true, 'the step parses');
+  assert.equal(audit.steps[0].balanced, true, 'the smallest all-positive equation is used');
+  assert.ok(!audit.blocked.join(' ').includes('more than one'), 'a unique smallest equation is not ambiguous');
+});
+
+test('only the species a step makes must specify their stereochemistry', async () => {
+  // Butan-2-ol carries an unspecified centre; as a purchased reactant the route does not have to
+  // fix it (the step that makes it would), but as a product it does.
+  const reactantStereo = await lib.auditRoute({ steps: ['CCC(C)O>>CCC(C)=O'] });
+  assert.equal(reactantStereo.steps[0].unspecifiedStereocentres, 0, 'a stereocentre only on a reactant is not the route\u2019s to specify');
+  const productStereo = await lib.auditRoute({ steps: ['CCC(C)=O>>CCC(C)O'] });
+  assert.ok(productStereo.steps[0].unspecifiedStereocentres > 0, 'a stereocentre on the product the step makes is flagged');
+  const declaredRacemic = await lib.auditRoute({ steps: ['CCC(C)=O>>CCC(C)O'], racemic: true });
+  assert.equal(declaredRacemic.steps[0].racemic, true, 'a racemic declaration opts the product out');
 });

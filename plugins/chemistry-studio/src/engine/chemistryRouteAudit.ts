@@ -143,7 +143,11 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       step.balanced = balance.balanced;
       step.chargeBalanced = balance.chargeBalanced;
       step.differences = balance.differences;
-      step.unspecifiedStereocentres = [...reactants, ...agents, ...products].reduce((sum, entry) => sum + entry.unspecifiedStereocentres, 0);
+      // Only the species the step makes are the route's responsibility to specify. A purchased
+      // reagent with stereocentres (a commercial mixture) is not something the author chose, and
+      // an intermediate is checked in the step that produces it, so products alone cover every
+      // species the route creates. Agents/solvents and starting materials are left out.
+      step.unspecifiedStereocentres = products.reduce((sum, entry) => sum + entry.unspecifiedStereocentres, 0);
       if (step.unspecifiedStereocentres > 0 && declaredRacemic(index)) step.racemic = true;
       step.ok = true;
     } catch (error) {
