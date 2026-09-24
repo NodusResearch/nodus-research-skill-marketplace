@@ -1308,3 +1308,17 @@ test('only the species a step makes must specify their stereochemistry', async (
   const declaredRacemic = await lib.auditRoute({ steps: ['CCC(C)=O>>CCC(C)O'], racemic: true });
   assert.equal(declaredRacemic.steps[0].racemic, true, 'a racemic declaration opts the product out');
 });
+
+// The package declares Nodus 5.3.2 or newer, and the synthesis output contract belongs to the
+// application: releases up to 5.6.0 append one `reactants>agents>products` string per step, later
+// ones append labelled name lines. The skill must defer to whichever contract was appended rather
+// than forbid the form an older application parses, or a route on 5.6.0 gets two contradictory
+// instructions and the checker parses neither.
+test('the synthesis instructions defer to the contract the application appends', () => {
+  const section = instructions.slice(instructions.indexOf('MULTI-STEP SYNTHESIS'), instructions.indexOf('A route is a proposal.'));
+  assert.ok(section.length > 0, 'the synthesis section exists');
+  assert.doesNotMatch(section, /do NOT write reaction SMILES or reaction lines/i, 'reaction lines are not forbidden outright');
+  assert.match(section, /follow that appended contract exactly/i);
+  assert.match(section, /reactants>agents>products/, 'the reaction-string contract of earlier releases is still honoured');
+  assert.match(section, /Reactants, Products, Byproducts, Agents/, 'the labelled names-first contract is still honoured');
+});

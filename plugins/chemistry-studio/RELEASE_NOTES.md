@@ -13,6 +13,12 @@ This lets the application name a species that the author could only supply as a 
 exotic fused polycycle, a cage, a named literature intermediate whose systematic name neither the
 model nor OPSIN can derive — instead of dead-ending the route on an unresolvable name.
 
+## Works with every supported Nodus version
+The synthesis instructions now follow whichever output contract the Research Assistant appends to a
+route request: labelled IUPAC name lines on Nodus releases that resolve names, one
+`reactants>agents>products` string per step on releases up to 5.6.0. Before this, the skill forbade
+the reaction lines those releases parse. The package still declares Nodus 5.3.2 or newer.
+
 # Chemistry Studio 2.5.5
 
 Drawing and resolution fixes. Nothing a route already reported as verified changes.
