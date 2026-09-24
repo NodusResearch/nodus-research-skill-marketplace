@@ -1,5 +1,5 @@
 import { bindHost, completeText, host, type CapabilityHost } from './engine/host';
-import { resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution } from './engine/chemistryIdentity';
+import { nameStructureBySmiles, resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution, type SpeciesStructureName } from './engine/chemistryIdentity';
 import { chemistryDependencies } from './deps';
 import type { RouteLabelInput } from './engine/chemistryRouteAudit';
 import { splitFences } from './engine/fences';
@@ -85,6 +85,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
 
     async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }; locale: string; chat?: { question?: string; nodeId?: string } }) {
       if (toolId === 'resolve-names') return resolveNames(input, referenceCache);
+      if (toolId === 'resolve-structure') return nameStructures(input);
       if (toolId === 'inspect') return inspectMolecule(input);
       if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache);
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
@@ -369,6 +370,56 @@ async function resolveNames(input: { names?: string[] }, cache: ReferenceCache) 
     ? `${resolved.length - unresolved} of ${resolved.length} name(s) resolved`
     : `${resolved.length} name(s) resolved`;
   return { artifacts: [{ artifactType: 'species-resolution', artifactVersion: 1, summary, data: { results: resolved } }], notices: [] };
+}
+
+/** Name a batch of structures (isomeric SMILES): RDKit canonicalises each and gives it a
+ *  formula, and PubChem supplies the IUPAC name and CID when it holds the structure. This is
+ *  the reverse of `resolve-names`, used to give a name back to a species the author could only
+ *  supply as a structure. */
+async function nameStructures(input: { smiles?: string[] }) {
+  const list = Array.isArray(input?.smiles) ? input.smiles : [];
+  const cleaned = [...new Set(list
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map((entry) => entry.trim().slice(0, 2000)))].slice(0, MAX_NAMES);
+  if (!cleaned.length) throw new Error(`Provide between one and ${MAX_NAMES} structures.`);
+  const base = chemistryDependencies();
+  const deps = { ...base, fetch: breakerFetch(base.fetch) };
+  const signal = host().signal;
+  const results: Array<SpeciesStructureName | undefined> = new Array(cleaned.length);
+  let cursor = 0;
+  const run = async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= cleaned.length) return;
+      signal.throwIfAborted();
+      results[index] = await nameStructureBySmiles(cleaned[index], deps, signal);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, cleaned.length) }, run));
+  const named = results.filter((entry): entry is SpeciesStructureName => entry !== undefined);
+  await attachCanonical(named, signal);
+  const namedCount = named.filter((entry) => entry.status === 'named').length;
+  const summary = namedCount
+    ? `${namedCount} of ${named.length} structure(s) named`
+    : `${named.length} structure(s) not held by PubChem`;
+  return { artifacts: [{ artifactType: 'structure-naming', artifactVersion: 1, summary, data: { results: named } }], notices: [] };
+}
+
+/** Parse each structure with RDKit and attach its canonical isomeric SMILES, so a structure
+ *  PubChem does not hold still travels with a checked identity. Best effort: the raw SMILES
+ *  stands when the subworker is unavailable. */
+async function attachCanonical(entries: SpeciesStructureName[], signal: AbortSignal): Promise<void> {
+  const smiles = [...new Set(entries.map((entry) => entry.smiles).filter(Boolean))];
+  if (!smiles.length) return;
+  try {
+    const checked = await chemistryDependencies().inspectBatch(smiles, signal);
+    const byInput = new Map(checked.filter((entry) => entry.ok && entry.graph).map((entry) => [entry.smiles, entry.graph!]));
+    for (const entry of entries) {
+      const graph = byInput.get(entry.smiles);
+      if (graph) entry.canonicalSmiles = graph.canonicalSmiles;
+    }
+  } catch { /* canonicalisation is best effort; the raw SMILES still stands */ }
 }
 
 const MAX_LABELS_PER_STEP = 24;

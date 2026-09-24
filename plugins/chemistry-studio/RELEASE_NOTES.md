@@ -1,3 +1,18 @@
+# Chemistry Studio 2.5.6
+
+A new tool. Nothing a route already reported as verified changes.
+
+## Name a structure, not only a name
+`resolve-structure` is the reverse of `resolve-names`: given isomeric SMILES it canonicalises each
+with RDKit and, when PubChem holds the structure, returns its IUPAC name and CID
+(`property/IUPACName,MolecularFormula`). A structure PubChem does not hold comes back `unnamed`
+with its RDKit-canonical SMILES, so a checked structure still travels. New `structure-naming`
+artifact.
+
+This lets the application name a species that the author could only supply as a structure — an
+exotic fused polycycle, a cage, a named literature intermediate whose systematic name neither the
+model nor OPSIN can derive — instead of dead-ending the route on an unresolvable name.
+
 # Chemistry Studio 2.5.5
 
 Drawing and resolution fixes. Nothing a route already reported as verified changes.

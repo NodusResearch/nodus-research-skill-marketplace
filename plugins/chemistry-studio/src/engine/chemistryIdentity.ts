@@ -261,6 +261,43 @@ export async function resolveNameReferences(name: string, deps: ChemistryIdentit
   }
 }
 
+/** A structure named by the reference service: the reverse of `resolveSpeciesName`. PubChem
+ *  supplies the IUPAC name and CID when it holds the structure; a structure PubChem does not
+ *  hold is returned unnamed, so the caller can keep the author's SMILES as the structure. */
+export interface SpeciesStructureName {
+  smiles: string;
+  status: 'named' | 'unnamed';
+  cid?: number;
+  name?: string;
+  formula?: string;
+  /** RDKit's canonical isomeric SMILES for the input, attached by the worker. */
+  canonicalSmiles?: string;
+  /** Why it could not be named, phrased for the caller. */
+  feedback?: string;
+}
+
+export async function nameStructureBySmiles(rawSmiles: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesStructureName> {
+  const smiles = typeof rawSmiles === 'string' ? rawSmiles.trim().slice(0, 2000) : '';
+  if (!smiles) return { smiles, status: 'unnamed', feedback: 'Not a structure.' };
+  let cid: number | undefined;
+  try {
+    const matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/cids/JSON`, deps, signal);
+    const cids = matches?.IdentifierList?.CID;
+    if (Array.isArray(cids) && cids.length && Number.isSafeInteger(cids[0]) && cids[0] > 0) cid = cids[0];
+  } catch { /* PubChem unavailable or no match: leave it unnamed */ }
+  if (cid === undefined) return { smiles, status: 'unnamed', feedback: 'PubChem does not hold this structure, so no systematic name is available.' };
+  try {
+    const record = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/IUPACName,MolecularFormula/JSON`, deps, signal);
+    const row = record?.PropertyTable?.Properties?.[0];
+    const name = typeof row?.IUPACName === 'string' && row.IUPACName.trim() ? row.IUPACName.trim().slice(0, 300) : '';
+    const formula = typeof row?.MolecularFormula === 'string' ? row.MolecularFormula : undefined;
+    if (!name) return { smiles, status: 'unnamed', cid, ...(formula ? { formula } : {}), feedback: 'PubChem holds this structure but reports no IUPAC name for it.' };
+    return { smiles, status: 'named', cid, name, ...(formula ? { formula } : {}) };
+  } catch {
+    return { smiles, status: 'unnamed', cid, feedback: 'PubChem did not return a name for the matched record.' };
+  }
+}
+
 /** A name resolved to a structure by the reference services. PubChem is tried first: its
  *  curated records are right about reagent names ("sodium acetylide" is the mono salt, not
  *  OPSIN's disodium) and about "hydrogen" (H2, not the radical), and OPSIN is the fallback for

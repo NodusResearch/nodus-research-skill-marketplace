@@ -1115,6 +1115,37 @@ test('the route label check reuses the resolve pass and does not hit the network
   assert.equal(result.artifacts[0].data.steps[0].reactants[0].nameOk, true, 'the cached reference still confirms the name');
 });
 
+test('resolve-structure names a structure PubChem holds and canonicalises it', async () => {
+  const host = resolveHost((endpointId, target) => {
+    if (endpointId === 'pubchem' && target.includes('/smiles/')) return { IdentifierList: { CID: [2244] } };
+    if (endpointId === 'pubchem' && target.includes('/cid/2244/property/')) return { PropertyTable: { Properties: [{ CID: 2244, IUPACName: '2-acetoxybenzoic acid', MolecularFormula: 'C9H8O4' }] } };
+    return undefined;
+  });
+  const result = await lib.createWorker(host).invoke({ invocationId: 'iso1', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['CC(=O)Oc1ccccc1C(=O)O'] } });
+  const artifact = result.artifacts.find(entry => entry.artifactType === 'structure-naming');
+  assert.ok(artifact, 'a structure-naming artifact is produced');
+  const entry = artifact.data.results[0];
+  assert.equal(entry.status, 'named');
+  assert.equal(entry.name, '2-acetoxybenzoic acid');
+  assert.equal(entry.cid, 2244);
+  assert.equal(entry.formula, 'C9H8O4');
+  assert.equal(entry.canonicalSmiles, 'CC(=O)Oc1ccccc1C(=O)O');
+});
+
+test('resolve-structure leaves a structure PubChem does not hold unnamed, with its canonical form', async () => {
+  const host = resolveHost(() => undefined); // every PubChem request 404s
+  const result = await lib.createWorker(host).invoke({ invocationId: 'iso2', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['CN1C2CCC1CC(=O)C2'] } });
+  const entry = result.artifacts[0].data.results[0];
+  assert.equal(entry.status, 'unnamed');
+  assert.equal(entry.cid, undefined);
+  assert.equal(entry.canonicalSmiles, 'CN1C2CCC1CC(=O)C2', 'the checked structure still travels');
+});
+
+test('resolve-structure rejects an empty request', async () => {
+  const worker = lib.createWorker(resolveHost(() => undefined));
+  await assert.rejects(() => worker.invoke({ invocationId: 'iso3', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['', '   '] } }), /between one and/);
+});
+
 test('the per-step species cap is a generous backstop, not the old 12', async () => {
   const worker = lib.createWorker(stubHost());
   // 21 components parses fine: a real dichromate step can exceed the old 12.
