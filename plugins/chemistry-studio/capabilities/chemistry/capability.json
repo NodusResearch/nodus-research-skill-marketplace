@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "chemistry",
   "provides": "nodus:chemistry",
-  "version": "2.5.1",
+  "version": "2.5.6",
   "description": "Resolve chemical identities against references, validate the structure, and draw it as a verified document.",
   "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
   "requires": [{ "id": "nodus:svg", "minVersion": "1.0.0", "maxVersionExclusive": "2.0.0" }],
@@ -57,6 +57,25 @@
         "additionalProperties": false
       },
       "artifactTypes": ["species-resolution"],
+      "timeoutMs": 180000,
+      "concurrency": 1,
+      "maxPerReply": 2,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
+      "id": "resolve-structure",
+      "description": "Name structures with the reference services: RDKit canonicalises each isomeric SMILES and PubChem supplies its IUPAC name and CID when it holds the structure.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 48 }
+        },
+        "required": ["smiles"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["structure-naming"],
       "timeoutMs": 180000,
       "concurrency": 1,
       "maxPerReply": 2,
@@ -142,6 +161,12 @@
       "type": "species-resolution",
       "version": 1,
       "label": { "en": "Species resolution", "es": "Resolución de especies", "fr": "Résolution des espèces", "de": "Spezies-Auflösung", "pt": "Resolução de espécies", "pt-BR": "Resolução de espécies", "it": "Risoluzione delle specie", "tr": "Tür çözümlemesi" },
+      "modelVisibility": "projection"
+    },
+    {
+      "type": "structure-naming",
+      "version": 1,
+      "label": { "en": "Structure naming", "es": "Nombrado de estructuras", "fr": "Nommage des structures", "de": "Struktur-Benennung", "pt": "Nomeação de estruturas", "pt-BR": "Nomeação de estruturas", "it": "Denominazione delle strutture", "tr": "Yapı adlandırma" },
       "modelVisibility": "projection"
     }
   ],

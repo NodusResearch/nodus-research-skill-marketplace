@@ -66,7 +66,7 @@ function sumSide(species: RouteSpeciesSummary[]): { composition: Record<string, 
 /** Whether the declared species admit a balanced equation, solved exactly as the drawing
  *  path solves it. Coefficients cannot be written inside a reaction SMILES, so a species
  *  list that balances only at 2:3:2:2 is balanced, not refused. Agents take no part. */
-function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): { balanced: boolean; chargeBalanced: boolean; differences: string[] } {
+function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): { balanced: boolean; chargeBalanced: boolean; differences: string[]; coefficients: number[] | null } {
   const chargeBalanced = sumSide(reactants).charge === sumSide(products).charge;
   const ordered = [...reactants, ...agents, ...products];
   const roles = [
@@ -76,11 +76,113 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
   ];
   const compositions = ordered.map(entry => ({ atoms: entry.composition, charge: entry.charge }));
   try {
-    balanceReaction(compositions, roles, ordered.map(() => 1));
-    return { balanced: true, chargeBalanced, differences: [] };
+    const coefficients = balanceReaction(compositions, roles, ordered.map(() => 1));
+    return { balanced: true, chargeBalanced, differences: [], coefficients };
   } catch (error) {
-    return { balanced: false, chargeBalanced, differences: [error instanceof Error ? error.message : 'The species cannot be balanced.'] };
+    const message = error instanceof Error ? error.message : 'The species cannot be balanced.';
+    return { balanced: false, chargeBalanced, differences: [message + agentMisplacementHint(reactants, agents, products)], coefficients: null };
   }
+}
+
+/** When a step will not balance and a species is listed under Agents that carries atoms the
+ *  reactants are short of, the usual cause is a consumed species mislabelled as a catalyst: a
+ *  "citric acid catalyst" that is really decarboxylated and consumed. Name it. Only fires when
+ *  an Agent actually contains a deficient element, so a plain solvent on an unrelated imbalance
+ *  is left alone. */
+function agentMisplacementHint(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+  if (!agents.length) return '';
+  const keys = new Set<string>();
+  for (const entry of [...reactants, ...products]) for (const key of Object.keys(entry.composition)) keys.add(key);
+  const total = (list: RouteSpeciesSummary[], key: string): number => list.reduce((sum, entry) => sum + (entry.composition[key] ?? 0), 0);
+  const deficient = [...keys].filter((key) => total(products, key) > total(reactants, key));
+  if (!deficient.length) return '';
+  const culprits = agents.filter((agent) => deficient.some((key) => (agent.composition[key] ?? 0) > 0));
+  if (!culprits.length) return '';
+  const labels = culprits.map((agent) => agent.formula || agent.canonicalSmiles).join(', ');
+  return ` ${labels} ${culprits.length > 1 ? 'are' : 'is'} listed under Agents, but the reactants are missing atoms that species contains: an Agent takes no part in the balance, so move it to Reactants if it is actually consumed.`;
+}
+
+/** A bound on the packing search and on the copies it will consider, so a pathological step
+ *  degrades to "unchecked" rather than stalling the killable subworker. */
+const PACKING_BUDGET = 20000;
+
+const speciesLabel = (entry: RouteSpeciesSummary): string => entry.formula || entry.canonicalSmiles;
+
+/** The per-molecule capacity a simple necessary condition exposes: for the largest product
+ *  size that is short, how many such molecules are needed and how many substrate molecules can
+ *  each supply one. This localises the refusal to the over-produced product. */
+function packingBottleneck(bins: number[], items: number[]): { size: number; needed: number; capacity: number } | null {
+  for (const size of [...new Set(items)].sort((a, b) => b - a)) {
+    const needed = items.filter((item) => item === size).length;
+    const capacity = bins.reduce((sum, bin) => sum + Math.floor(bin / size), 0);
+    if (needed > capacity) return { size, needed, capacity };
+  }
+  return null;
+}
+
+/** A fraction `n/d` reduced, or the whole number. */
+function formatFraction(numerator: number, denominator: number): string {
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  const divisor = gcd(numerator, denominator) || 1;
+  const n = numerator / divisor, d = denominator / divisor;
+  return d === 1 ? `${n}` : `${n}/${d}`;
+}
+
+/** A molecule cannot be assembled from fragments of more than one substrate: every product
+ *  molecule's carbons come from a single substrate molecule. Carbon packing tests that
+ *  directly — bins are the substrate molecules (capacity = their carbon count), items are the
+ *  product molecules (size = their carbon count, each item wholly in one bin), and a substrate
+ *  may host several products, which is fragmentation. A product larger than every substrate is
+ *  a multi-component coupling, which this does not model, so the step is left unchecked rather
+ *  than refused; and the test is symmetry-blind, so any assignment of equal carbons is fine. */
+function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: false; reason: string } | 'unchecked' {
+  const carbonOf = (entry: RouteSpeciesSummary): number => entry.composition['6:0'] ?? 0;
+  const substrates = step.reactants.filter((entry) => carbonOf(entry) > 0);
+  const products = step.products.filter((entry) => carbonOf(entry) > 0);
+  const maxBin = substrates.reduce((max, entry) => Math.max(max, carbonOf(entry)), 0);
+  if (!maxBin || !products.length) return 'unchecked';
+  for (const product of products) if (carbonOf(product) > maxBin) return 'unchecked'; // a coupling
+  const bins: number[] = [];
+  for (const reactant of substrates) for (let i = 0; i < (reactant.coefficient ?? 1); i += 1) bins.push(carbonOf(reactant));
+  const items: number[] = [];
+  for (const product of products) for (let i = 0; i < (product.coefficient ?? 1); i += 1) items.push(carbonOf(product));
+  if (!bins.length || !items.length) return 'unchecked';
+  if (bins.length + items.length > PACKING_BUDGET) return 'unchecked';
+  items.sort((a, b) => b - a);
+  let visited = 0;
+  const fit = (index: number): boolean => {
+    if (index >= items.length) return true;
+    if ((visited += 1) > PACKING_BUDGET) throw new Error('packing budget');
+    const size = items[index];
+    const tried = new Set<number>();
+    for (let bin = 0; bin < bins.length; bin += 1) {
+      if (bins[bin] < size || tried.has(bins[bin])) continue;
+      tried.add(bins[bin]);
+      bins[bin] -= size;
+      if (fit(index + 1)) return true;
+      bins[bin] += size;
+    }
+    return false;
+  };
+  let packed: boolean;
+  try { packed = fit(0); } catch { return 'unchecked'; }
+  if (packed) return { ok: true };
+
+  const bottleneck = packingBottleneck(bins, items);
+  const culprit = bottleneck ? products.find((entry) => carbonOf(entry) === bottleneck.size) : undefined;
+  const detail = bottleneck && culprit
+    ? `${bottleneck.needed} × ${speciesLabel(culprit)} need ${bottleneck.needed} substrate molecules, but only ${bottleneck.capacity} can each supply one`
+    : `${products.map((entry) => `${entry.coefficient ?? 1} × ${speciesLabel(entry)}`).join(' + ')} from ${substrates.map((entry) => `${entry.coefficient ?? 1} × ${speciesLabel(entry)}`).join(' + ')}`;
+  // The cheap version of the same test, and the most communicative: scale to one main substrate
+  // and show the coefficients that are not whole numbers.
+  const main = substrates.reduce((a, b) => (carbonOf(b) > carbonOf(a) ? b : a));
+  const mainCoefficient = main.coefficient ?? 1;
+  const fractions = [...step.reactants, ...step.products]
+    .map((entry) => ({ label: speciesLabel(entry), coefficient: entry.coefficient ?? 1 }))
+    .filter(({ coefficient }) => (coefficient / mainCoefficient) % 1 !== 0)
+    .map(({ label, coefficient }) => `${formatFraction(coefficient, mainCoefficient)} ${label}`);
+  const fractionNote = fractions.length ? ` At one ${speciesLabel(main)} the coefficients are ${fractions.join(', ')}.` : '';
+  return { ok: false, reason: `the equation can only balance by taking more product molecules than the substrate molecules can form: ${detail}. A product's carbons come from a single substrate molecule.${fractionNote}` };
 }
 
 /** A species the author named in the step prose: the systematic name, the isomeric SMILES
@@ -137,13 +239,23 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       totalSpecies += count;
       if (totalSpecies > MAX_SPECIES_TOTAL) throw new Error(`A route may name at most ${MAX_SPECIES_TOTAL} species.`);
       const balance = stepBalance(reactants, agents, products);
+      // The solved coefficients travel with the species so the report can show the equation
+      // that actually balanced, not the 1:1:1:1 the author likely meant.
+      [...reactants, ...agents, ...products].forEach((entry, position) => {
+        const coefficient = balance.coefficients?.[position];
+        if (typeof coefficient === 'number' && coefficient > 0) entry.coefficient = coefficient;
+      });
       step.reactants = reactants;
       step.agents = agents;
       step.products = products;
       step.balanced = balance.balanced;
       step.chargeBalanced = balance.chargeBalanced;
       step.differences = balance.differences;
-      step.unspecifiedStereocentres = [...reactants, ...agents, ...products].reduce((sum, entry) => sum + entry.unspecifiedStereocentres, 0);
+      // Only the species the step makes are the route's responsibility to specify. A purchased
+      // reagent with stereocentres (a commercial mixture) is not something the author chose, and
+      // an intermediate is checked in the step that produces it, so products alone cover every
+      // species the route creates. Agents/solvents and starting materials are left out.
+      step.unspecifiedStereocentres = products.reduce((sum, entry) => sum + entry.unspecifiedStereocentres, 0);
       if (step.unspecifiedStereocentres > 0 && declaredRacemic(index)) step.racemic = true;
       step.ok = true;
     } catch (error) {
@@ -321,8 +433,14 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
   for (const step of audited) {
     if (!step.ok) { blocked.push(`Step ${step.index + 1}: ${step.error ?? 'could not be parsed.'}`); continue; }
     for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${problem}.`);
-    if (!step.balanced) blocked.push(`Step ${step.index + 1} is not balanced: ${step.differences.join('; ')}.`);
-    else if (step.unspecifiedStereocentres > 0 && !step.racemic) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);
+    if (!step.balanced) { blocked.push(`Step ${step.index + 1} is not balanced: ${step.differences.join('; ')}.`); continue; }
+    const packing = checkPerMoleculePacking(step);
+    if (packing !== 'unchecked' && !packing.ok) {
+      step.assemblyProblem = packing.reason;
+      blocked.push(`Step ${step.index + 1}: ${packing.reason}.`);
+      continue;
+    }
+    if (step.unspecifiedStereocentres > 0 && !step.racemic) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);
   }
   for (const link of links) {
     if (link.ok) continue;

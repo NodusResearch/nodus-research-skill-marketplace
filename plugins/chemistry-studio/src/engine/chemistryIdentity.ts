@@ -19,15 +19,16 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
     throw new Error('Use the complete single reaction SMILES, including all species and agents; do not replace it with a partial species list.');
   }
   if (raw?.kind === 'reaction' && raw.reactionSmiles != null) {
-    if (raw.version !== 2 || raw.depiction !== 'skeletal' || Object.keys(raw).some(k => !['version', 'kind', 'depiction', 'reactionSmiles', 'conditions', 'racemic'].includes(k))
+    if (raw.version !== 2 || raw.depiction !== 'skeletal' || Object.keys(raw).some(k => !['version', 'kind', 'depiction', 'reactionSmiles', 'conditions', 'racemic', 'openStereo'].includes(k))
       || typeof raw.reactionSmiles !== 'string' || !question.includes(raw.reactionSmiles)) throw new Error('Reaction SMILES must be copied completely from the current request.');
     if (raw.conditions != null && (typeof raw.conditions !== 'string' || raw.conditions.length > 400)) throw new Error('Reaction conditions must be text of at most 400 characters.');
     if (raw.racemic != null && typeof raw.racemic !== 'boolean') throw new Error('The "racemic" flag must be a boolean.');
+    if (raw.openStereo != null && typeof raw.openStereo !== 'boolean') throw new Error('The "openStereo" flag must be a boolean.');
     const value = raw.reactionSmiles;
     const conditions = typeof raw.conditions === 'string' && raw.conditions.trim() ? raw.conditions : undefined;
     // A substring must not discard reactants, agents or products at either end.
     if (!question.split(/\s|`/).includes(value)) throw new Error('Provide the complete reaction SMILES on its own line or in a code fence.');
-    raw = { version: 2, kind: 'reaction', depiction: 'skeletal', species: reactionSmilesSpecies(value), ...(conditions ? { conditions } : {}), ...(raw.racemic ? { racemic: true } : {}) };
+    raw = { version: 2, kind: 'reaction', depiction: 'skeletal', species: reactionSmilesSpecies(value), ...(conditions ? { conditions } : {}), ...(raw.racemic ? { racemic: true } : {}), ...(raw.openStereo ? { openStereo: true } : {}) };
   }
   if (raw?.notes != null && (typeof raw.notes !== 'string' || raw.notes.length > 2000)) throw new Error('Reaction notes must be text of at most 2000 characters.');
   if (raw?.notes != null && raw.kind !== 'reaction') throw new Error('Notes describe a reaction; a structure carries no conditions.');
@@ -85,7 +86,7 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
   // Say which field is wrong and what was expected. A schema failure reported in
   // chemical vocabulary sends the model looking for a chemistry mistake it did not
   // make, and it will keep rewriting the chemistry instead of the JSON.
-  const allowed = ['version', 'kind', 'depiction', 'species', 'rule', 'conformation', 'approach', 'electronFlow', 'conditions', 'racemic'];
+  const allowed = ['version', 'kind', 'depiction', 'species', 'rule', 'conformation', 'approach', 'electronFlow', 'conditions', 'racemic', 'openStereo'];
   const unexpected = Object.keys(raw).filter(key => !allowed.includes(key));
   if (unexpected.length) throw new Error(`Unexpected field(s) ${unexpected.join(', ')} in the intent. Allowed fields are ${allowed.join(', ')}; the application supplies everything else.`);
   if (!Array.isArray(raw.species)) throw new Error('The intent needs a "species" array, one entry per chemical identity.');
@@ -260,10 +261,50 @@ export async function resolveNameReferences(name: string, deps: ChemistryIdentit
   }
 }
 
+/** A structure named by the reference service: the reverse of `resolveSpeciesName`. PubChem
+ *  supplies the IUPAC name and CID when it holds the structure; a structure PubChem does not
+ *  hold is returned unnamed, so the caller can keep the author's SMILES as the structure. */
+export interface SpeciesStructureName {
+  smiles: string;
+  status: 'named' | 'unnamed';
+  cid?: number;
+  name?: string;
+  formula?: string;
+  /** RDKit's canonical isomeric SMILES for the input, attached by the worker. */
+  canonicalSmiles?: string;
+  /** Why it could not be named, phrased for the caller. */
+  feedback?: string;
+}
+
+export async function nameStructureBySmiles(rawSmiles: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesStructureName> {
+  const smiles = typeof rawSmiles === 'string' ? rawSmiles.trim().slice(0, 2000) : '';
+  if (!smiles) return { smiles, status: 'unnamed', feedback: 'Not a structure.' };
+  let cid: number | undefined;
+  try {
+    const matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/cids/JSON`, deps, signal);
+    const cids = matches?.IdentifierList?.CID;
+    if (Array.isArray(cids) && cids.length && Number.isSafeInteger(cids[0]) && cids[0] > 0) cid = cids[0];
+  } catch { /* PubChem unavailable or no match: leave it unnamed */ }
+  if (cid === undefined) return { smiles, status: 'unnamed', feedback: 'PubChem does not hold this structure, so no systematic name is available.' };
+  try {
+    const record = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/IUPACName,MolecularFormula/JSON`, deps, signal);
+    const row = record?.PropertyTable?.Properties?.[0];
+    const name = typeof row?.IUPACName === 'string' && row.IUPACName.trim() ? row.IUPACName.trim().slice(0, 300) : '';
+    const formula = typeof row?.MolecularFormula === 'string' ? row.MolecularFormula : undefined;
+    if (!name) return { smiles, status: 'unnamed', cid, ...(formula ? { formula } : {}), feedback: 'PubChem holds this structure but reports no IUPAC name for it.' };
+    return { smiles, status: 'named', cid, name, ...(formula ? { formula } : {}) };
+  } catch {
+    return { smiles, status: 'unnamed', cid, feedback: 'PubChem did not return a name for the matched record.' };
+  }
+}
+
 /** A name resolved to a structure by the reference services. PubChem is tried first: its
  *  curated records are right about reagent names ("sodium acetylide" is the mono salt, not
- *  OPSIN's disodium) and about "hydrogen" (H2, not the radical). OPSIN is the fallback for
- *  systematic names PubChem does not hold. */
+ *  OPSIN's disodium) and about "hydrogen" (H2, not the radical), and OPSIN is the fallback for
+ *  systematic names PubChem does not hold. A name that mentions a metal is resolved against
+ *  both, and the reference that shows the metal as an ion is preferred, because PubChem
+ *  sometimes holds a curated record that writes a salt with a bare neutral atom
+ *  ("sodium phenoxide" as phenol + `[Na]`). */
 export interface SpeciesNameResolution {
   name: string;
   status: 'resolved' | 'ambiguous' | 'unresolved';
@@ -306,17 +347,65 @@ async function opsinByName(value: string, deps: ChemistryIdentityDependencies, s
   return { name: value, status: 'unresolved', source: 'opsin', feedback: record?.message ? `OPSIN: ${String(record.message).slice(0, 200)}` : 'Not a recognised systematic name.' };
 }
 
+/** The element a salt or organometallic name mentions, when it mentions one. */
+const METAL_WORDS: ReadonlyArray<readonly [string, string]> = [
+  ['sodium', 'Na'], ['potassium', 'K'], ['lithium', 'Li'], ['rubidium', 'Rb'], ['caesium', 'Cs'], ['cesium', 'Cs'],
+  ['magnesium', 'Mg'], ['calcium', 'Ca'], ['strontium', 'Sr'], ['barium', 'Ba'],
+  ['aluminium', 'Al'], ['aluminum', 'Al'], ['gallium', 'Ga'], ['indium', 'In'], ['thallium', 'Tl'],
+  ['tin', 'Sn'], ['lead', 'Pb'], ['bismuth', 'Bi'],
+  ['iron', 'Fe'], ['cobalt', 'Co'], ['nickel', 'Ni'], ['copper', 'Cu'], ['zinc', 'Zn'], ['silver', 'Ag'],
+  ['manganese', 'Mn'], ['chromium', 'Cr'], ['cadmium', 'Cd'], ['mercury', 'Hg'], ['platinum', 'Pt'], ['gold', 'Au'],
+];
+
+function metalElementForName(name: string): string | null {
+  const lower = name.toLowerCase();
+  for (const [word, symbol] of METAL_WORDS) {
+    if (new RegExp(`\\b${word}\\b`).test(lower)) return symbol;
+  }
+  return null;
+}
+
+/** Whether a SMILES shows the element as a charged ion, as a salt should (`[Na+]`, `[Fe+2]`),
+ *  rather than a bare neutral atom (`[Na]`). */
+function showsIonicMetal(smiles: string, symbol: string): boolean {
+  return new RegExp(`\\[${symbol}(?:[0-9]*[+-]+|[+-]+[0-9]*)\\]`).test(smiles);
+}
+
 /** Resolve one name to a structure: PubChem exact match first, OPSIN fallback, and a
- *  feedback sentence when neither resolves so the model can restate it as a true IUPAC name. */
+ *  feedback sentence when neither resolves so the model can restate it as a true IUPAC name.
+ *  When the name mentions a metal, both references are compared and the one that shows the
+ *  metal as an ion wins; a curated record with a bare neutral metal atom is not used for a
+ *  salt name. */
 export async function resolveSpeciesName(rawName: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
   const name = typeof rawName === 'string' ? rawName.trim().slice(0, 200) : '';
   if (!name || !/\p{L}/u.test(name)) return { name, status: 'unresolved', feedback: 'Not a chemical name.' };
+  const metal = metalElementForName(name);
   let pubchem: SpeciesNameResolution | null = null;
   try { pubchem = await pubchemByName(name, deps, signal); } catch { pubchem = null; }
-  if (pubchem?.status === 'resolved') return pubchem;
+
+  if (!metal) {
+    // No metal: PubChem first, OPSIN fallback.
+    if (pubchem?.status === 'resolved') return pubchem;
+    let opsin: SpeciesNameResolution | null = null;
+    try { opsin = await opsinByName(name, deps, signal); } catch { opsin = null; }
+    if (opsin?.status === 'resolved') return opsin;
+    if (pubchem?.status === 'ambiguous') return pubchem;
+    const feedback = [pubchem?.feedback, opsin?.feedback].filter((entry): entry is string => Boolean(entry)).join(' ');
+    return { name, status: 'unresolved', ...(feedback ? { feedback } : {}) };
+  }
+
+  // A metal is named: resolve both and prefer the reference that shows it as an ion.
   let opsin: SpeciesNameResolution | null = null;
   try { opsin = await opsinByName(name, deps, signal); } catch { opsin = null; }
-  if (opsin?.status === 'resolved') return opsin;
+  const pubchemResolved = pubchem?.status === 'resolved' && Boolean(pubchem.smiles);
+  const opsinResolved = opsin?.status === 'resolved' && Boolean(opsin.smiles);
+  if (pubchemResolved && opsinResolved) {
+    const opsinIonic = showsIonicMetal(opsin!.smiles!, metal);
+    const pubchemIonic = showsIonicMetal(pubchem!.smiles!, metal);
+    return opsinIonic && !pubchemIonic ? opsin! : pubchem!;
+  }
+  if (pubchemResolved) return pubchem!;
+  if (opsinResolved) return opsin!;
   if (pubchem?.status === 'ambiguous') return pubchem;
   const feedback = [pubchem?.feedback, opsin?.feedback].filter((entry): entry is string => Boolean(entry)).join(' ');
   return { name, status: 'unresolved', ...(feedback ? { feedback } : {}) };
@@ -347,7 +436,7 @@ export async function resolveChemistryIntent(source: string, question: string, d
       signal?.throwIfAborted();
       const evidence = await references(item.input, deps, signal);
       if (!evidence.length) throw new Error('No exact chemical reference was found; provide an isomeric SMILES or PubChem CID.');
-      const result = await deps.validate({ references: evidence.map(ref => ref.smiles), depiction: intent.depiction, conformation: intent.conformation, exportChemfig: intent.kind !== 'mechanism' && intent.kind !== 'reaction', ...(intent.racemic ? { racemic: true } : {}) }, signal);
+      const result = await deps.validate({ references: evidence.map(ref => ref.smiles), depiction: intent.depiction, conformation: intent.conformation, exportChemfig: intent.kind !== 'mechanism' && intent.kind !== 'reaction', ...(intent.racemic ? { racemic: true } : {}), ...(intent.kind === 'structure' || intent.openStereo ? { openStereo: true } : {}) }, signal);
       const axis = /\bC([1-6])\s*(?:[-–→]|to|a)\s*C([1-6])\b/i.exec(question);
       if (intent.depiction === 'newman' && axis && result.projection?.axis.join('-') !== `C${axis[1]}-C${axis[2]}`) throw new Error('That Newman viewing axis is outside the supported convention; use the displayed canonical chain axis.');
       engineVersion = result.engineVersion;
@@ -370,7 +459,7 @@ export async function resolveChemistryIntent(source: string, question: string, d
         : { rule: intent.rule!, inputs: species.map(s => s.graph.canonicalSmiles), approach: intent.approach },
     }, signal)).mechanism : undefined;
     if (wantsMechanism && !mechanism) throw new Error('The mechanism worker returned no checked rule result.');
-    const reaction = intent.kind === 'reaction' ? (await deps.validate({ references: [species[0].graph.canonicalSmiles], reaction: species.map(s => ({ id: s.id, smiles: s.graph.canonicalSmiles, role: s.role!, coefficient: s.coefficient! })), ...(intent.notes ? { notes: intent.notes } : {}), ...(intent.conditions ? { conditions: intent.conditions } : {}), ...(intent.racemic ? { racemic: true } : {}) }, signal)).reaction : undefined;
+    const reaction = intent.kind === 'reaction' ? (await deps.validate({ references: [species[0].graph.canonicalSmiles], reaction: species.map(s => ({ id: s.id, smiles: s.graph.canonicalSmiles, role: s.role!, coefficient: s.coefficient! })), ...(intent.notes ? { notes: intent.notes } : {}), ...(intent.conditions ? { conditions: intent.conditions } : {}), ...(intent.racemic ? { racemic: true } : {}), ...(intent.openStereo ? { openStereo: true } : {}) }, signal)).reaction : undefined;
     if (intent.kind === 'reaction' && !reaction) throw new Error('The worker returned no balanced reaction scheme.');
     // A scope limit is this build's boundary, not the user's mistake: the drawing is
     // still produced, and only the trust level it carries is reduced.

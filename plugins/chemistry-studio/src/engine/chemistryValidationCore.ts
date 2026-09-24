@@ -160,7 +160,7 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
       if (ocl.getBondParity(b) === Molecule.cBondParityUnknown && stereogenicRingBond(ocl, b, rings)) {
         // The inspector reports an unspecified double bond as a caveat instead of
         // refusing; drawing still requires the author to say which geometry is meant.
-        if (!request.inspect && !request.racemic && request.depiction !== 'lone-pairs') throw new Error('Bond stereochemistry is unspecified; provide the required E/Z isomer.');
+        if (!request.inspect && !request.racemic && !request.openStereo && request.depiction !== 'lone-pairs') throw new Error('Bond stereochemistry is unspecified; provide the required E/Z isomer.');
         unspecifiedBonds++;
       }
       if (ocl.isBINAPChiralityBond(b)) throw new Error('Axial stereochemistry is outside the validated scope.');
@@ -205,8 +205,9 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
     let unspecifiedAtoms = 0;
     for (const [index, tag] of stereo.CIP_atoms) {
       if (tag !== '(?)') continue;
-      if (!request.inspect && !request.racemic && ORGANIC_CIP_ELEMENTS.has(elementOf(index))) throw new Error('A stereocentre is unspecified; provide the required stereoisomer.');
-      partialReasons.add('stereochemistry-not-assignable');
+      if (!request.inspect && !request.racemic && !request.openStereo && ORGANIC_CIP_ELEMENTS.has(elementOf(index))) throw new Error('A stereocentre is unspecified; provide the required stereoisomer.');
+      // openStereo draws the centre as unspecified with no caveat: the caller checked the step.
+      if (!request.openStereo) partialReasons.add('stereochemistry-not-assignable');
       if (ORGANIC_CIP_ELEMENTS.has(elementOf(index))) unspecifiedAtoms++;
     }
     const atoms = raw.atoms.map((a: Record<string, number>, i: number) => {
@@ -215,7 +216,11 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
       // valence model are not dependable, so the drawing keeps its graph and its balance
       // check but stops claiming stereochemical verification. Refusing an element the
       // toolkits parse perfectly well was this validator's own limit, not chemistry's.
-      if (!ORGANIC_CIP_ELEMENTS.has(value.z)) partialReasons.add('element-outside-cip-scope');
+      // A bare counterion ([Na+], [K+]) is the exception: it has no stereochemistry and no
+      // implicit valence to certify, so only an out-of-set element actually bonded into the
+      // structure downgrades the document.
+      const bonded = raw.bonds.some((b: { atoms: [number, number] }) => b.atoms[0] === i || b.atoms[1] === i);
+      if (!ORGANIC_CIP_ELEMENTS.has(value.z) && bonded) partialReasons.add('element-outside-cip-scope');
       return { id: `a${i}`, atomicNumber: value.z, charge: value.chg, isotope: value.isotope, hydrogens: value.impHs,
         ...(stereo.CIP_atoms.find(([index]) => index === i) ? { cip: stereo.CIP_atoms.find(([index]) => index === i)![1].replace(/[()]/g, '') } : {}) };
     });
@@ -278,7 +283,7 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
     if (request.reaction) {
       if (request.mechanism) throw new Error('A balanced scheme cannot also claim mechanism verification.');
       const { renderBalancedReaction } = await import('./chemistryReaction');
-      result.reaction = await renderBalancedReaction(request.reaction, validateChemicalReferences, request.notes, request.conditions, request.racemic);
+      result.reaction = await renderBalancedReaction(request.reaction, validateChemicalReferences, request.notes, request.conditions, request.racemic, request.openStereo);
     }
     if (newman) result.projection = newmanEvidence(newman);
     if (request.exportChemfig) {
