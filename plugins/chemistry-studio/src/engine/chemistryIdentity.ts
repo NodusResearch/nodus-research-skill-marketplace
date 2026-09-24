@@ -19,15 +19,16 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
     throw new Error('Use the complete single reaction SMILES, including all species and agents; do not replace it with a partial species list.');
   }
   if (raw?.kind === 'reaction' && raw.reactionSmiles != null) {
-    if (raw.version !== 2 || raw.depiction !== 'skeletal' || Object.keys(raw).some(k => !['version', 'kind', 'depiction', 'reactionSmiles', 'conditions', 'racemic'].includes(k))
+    if (raw.version !== 2 || raw.depiction !== 'skeletal' || Object.keys(raw).some(k => !['version', 'kind', 'depiction', 'reactionSmiles', 'conditions', 'racemic', 'openStereo'].includes(k))
       || typeof raw.reactionSmiles !== 'string' || !question.includes(raw.reactionSmiles)) throw new Error('Reaction SMILES must be copied completely from the current request.');
     if (raw.conditions != null && (typeof raw.conditions !== 'string' || raw.conditions.length > 400)) throw new Error('Reaction conditions must be text of at most 400 characters.');
     if (raw.racemic != null && typeof raw.racemic !== 'boolean') throw new Error('The "racemic" flag must be a boolean.');
+    if (raw.openStereo != null && typeof raw.openStereo !== 'boolean') throw new Error('The "openStereo" flag must be a boolean.');
     const value = raw.reactionSmiles;
     const conditions = typeof raw.conditions === 'string' && raw.conditions.trim() ? raw.conditions : undefined;
     // A substring must not discard reactants, agents or products at either end.
     if (!question.split(/\s|`/).includes(value)) throw new Error('Provide the complete reaction SMILES on its own line or in a code fence.');
-    raw = { version: 2, kind: 'reaction', depiction: 'skeletal', species: reactionSmilesSpecies(value), ...(conditions ? { conditions } : {}), ...(raw.racemic ? { racemic: true } : {}) };
+    raw = { version: 2, kind: 'reaction', depiction: 'skeletal', species: reactionSmilesSpecies(value), ...(conditions ? { conditions } : {}), ...(raw.racemic ? { racemic: true } : {}), ...(raw.openStereo ? { openStereo: true } : {}) };
   }
   if (raw?.notes != null && (typeof raw.notes !== 'string' || raw.notes.length > 2000)) throw new Error('Reaction notes must be text of at most 2000 characters.');
   if (raw?.notes != null && raw.kind !== 'reaction') throw new Error('Notes describe a reaction; a structure carries no conditions.');
@@ -85,7 +86,7 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
   // Say which field is wrong and what was expected. A schema failure reported in
   // chemical vocabulary sends the model looking for a chemistry mistake it did not
   // make, and it will keep rewriting the chemistry instead of the JSON.
-  const allowed = ['version', 'kind', 'depiction', 'species', 'rule', 'conformation', 'approach', 'electronFlow', 'conditions', 'racemic'];
+  const allowed = ['version', 'kind', 'depiction', 'species', 'rule', 'conformation', 'approach', 'electronFlow', 'conditions', 'racemic', 'openStereo'];
   const unexpected = Object.keys(raw).filter(key => !allowed.includes(key));
   if (unexpected.length) throw new Error(`Unexpected field(s) ${unexpected.join(', ')} in the intent. Allowed fields are ${allowed.join(', ')}; the application supplies everything else.`);
   if (!Array.isArray(raw.species)) throw new Error('The intent needs a "species" array, one entry per chemical identity.');
@@ -398,7 +399,7 @@ export async function resolveChemistryIntent(source: string, question: string, d
       signal?.throwIfAborted();
       const evidence = await references(item.input, deps, signal);
       if (!evidence.length) throw new Error('No exact chemical reference was found; provide an isomeric SMILES or PubChem CID.');
-      const result = await deps.validate({ references: evidence.map(ref => ref.smiles), depiction: intent.depiction, conformation: intent.conformation, exportChemfig: intent.kind !== 'mechanism' && intent.kind !== 'reaction', ...(intent.racemic ? { racemic: true } : {}) }, signal);
+      const result = await deps.validate({ references: evidence.map(ref => ref.smiles), depiction: intent.depiction, conformation: intent.conformation, exportChemfig: intent.kind !== 'mechanism' && intent.kind !== 'reaction', ...(intent.racemic ? { racemic: true } : {}), ...(intent.kind === 'structure' || intent.openStereo ? { openStereo: true } : {}) }, signal);
       const axis = /\bC([1-6])\s*(?:[-–→]|to|a)\s*C([1-6])\b/i.exec(question);
       if (intent.depiction === 'newman' && axis && result.projection?.axis.join('-') !== `C${axis[1]}-C${axis[2]}`) throw new Error('That Newman viewing axis is outside the supported convention; use the displayed canonical chain axis.');
       engineVersion = result.engineVersion;
@@ -421,7 +422,7 @@ export async function resolveChemistryIntent(source: string, question: string, d
         : { rule: intent.rule!, inputs: species.map(s => s.graph.canonicalSmiles), approach: intent.approach },
     }, signal)).mechanism : undefined;
     if (wantsMechanism && !mechanism) throw new Error('The mechanism worker returned no checked rule result.');
-    const reaction = intent.kind === 'reaction' ? (await deps.validate({ references: [species[0].graph.canonicalSmiles], reaction: species.map(s => ({ id: s.id, smiles: s.graph.canonicalSmiles, role: s.role!, coefficient: s.coefficient! })), ...(intent.notes ? { notes: intent.notes } : {}), ...(intent.conditions ? { conditions: intent.conditions } : {}), ...(intent.racemic ? { racemic: true } : {}) }, signal)).reaction : undefined;
+    const reaction = intent.kind === 'reaction' ? (await deps.validate({ references: [species[0].graph.canonicalSmiles], reaction: species.map(s => ({ id: s.id, smiles: s.graph.canonicalSmiles, role: s.role!, coefficient: s.coefficient! })), ...(intent.notes ? { notes: intent.notes } : {}), ...(intent.conditions ? { conditions: intent.conditions } : {}), ...(intent.racemic ? { racemic: true } : {}), ...(intent.openStereo ? { openStereo: true } : {}) }, signal)).reaction : undefined;
     if (intent.kind === 'reaction' && !reaction) throw new Error('The worker returned no balanced reaction scheme.');
     // A scope limit is this build's boundary, not the user's mistake: the drawing is
     // still produced, and only the trust level it carries is reduced.

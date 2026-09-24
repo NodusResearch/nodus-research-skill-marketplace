@@ -70,7 +70,7 @@ function arrowCoefficient(lines: string[]): number {
 /** Each complete species and each disconnected component goes through the same
  *  independent graph/stereo checks as a standalone drawing. A balanced equation
  *  is not a prediction of chemical feasibility or a verified mechanism. */
-export async function renderBalancedReaction(species: ReactionSpecies[], validate: Validate, notes?: string, conditions?: string, racemic?: boolean): Promise<ChemistryReactionArtifact> {
+export async function renderBalancedReaction(species: ReactionSpecies[], validate: Validate, notes?: string, conditions?: string, racemic?: boolean, openStereo?: boolean): Promise<ChemistryReactionArtifact> {
   if (!Array.isArray(species) || species.length < 2 || species.length > 12) throw new Error('A scheme needs two to twelve species.');
   const ids = new Set<string>();
   const totals = { reactant: { atoms: {} as Record<string, number>, charge: 0 }, product: { atoms: {} as Record<string, number>, charge: 0 } };
@@ -85,7 +85,7 @@ export async function renderBalancedReaction(species: ReactionSpecies[], validat
       || !['reactant', 'product', 'agent'].includes(item.role) || !Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > 12
       || typeof item.smiles !== 'string' || !item.smiles || item.smiles.length > 2000) throw new Error('Invalid reaction species or coefficient.');
     ids.add(item.id);
-    const checked = await validate({ references: [item.smiles], ...(racemic ? { racemic: true } : {}) });
+    const checked = await validate({ references: [item.smiles], ...(racemic ? { racemic: true } : {}), ...(openStereo ? { openStereo: true } : {}) });
     canonical.push({ ...item, smiles: checked.graph.canonicalSmiles });
     const composition: Composition = { atoms: {}, charge: 0 };
     for (const atom of checked.graph.atoms) {
@@ -104,14 +104,19 @@ export async function renderBalancedReaction(species: ReactionSpecies[], validat
       const components = checked.graph.canonicalSmiles.split('.');
       if (components.length > 8) throw new Error('Too many disconnected components in a species.');
       const sources: string[] = [];
+      let drawn = true;
       for (const [index, component] of components.entries()) {
-        const result = await validate({ references: [component], exportChemfig: true, ...(racemic ? { racemic: true } : {}) });
-        if (result.chemfig?.status !== 'validated' || !result.chemfig.source) throw new Error(`Reaction component export failed: ${result.chemfig?.reason ?? 'missing checked export'}`);
+        const result = await validate({ references: [component], exportChemfig: true, ...(racemic ? { racemic: true } : {}), ...(openStereo ? { openStereo: true } : {}) });
+        if (result.chemfig?.status !== 'validated' || !result.chemfig.source) { drawn = false; break; }
         sources.push(result.chemfig.source.replace(/@\{([ab]\d+)\}/g, `@{${item.id}c${index}$1}`));
       }
+      // A species the ChemFig dialect cannot render — carbon monoxide's zero-hydrogen carbon,
+      // a carbene — is written as its formula rather than failing the whole scheme. The
+      // equation was already balanced and each graph checked; only the depiction degrades.
       // A salt's coefficient multiplies every ion, so a multi-component species is
       // parenthesised before the coefficient is applied.
-      drawings.push(sources.length > 1 ? `(${sources.join(' \\quad ')})` : sources.join(' \\quad '));
+      if (!drawn) drawings.push(formulaTex(composition));
+      else drawings.push(sources.length > 1 ? `(${sources.join(' \\quad ')})` : sources.join(' \\quad '));
     }
   }
   if (!species.some(s => s.role === 'reactant') || !species.some(s => s.role === 'product')) throw new Error('Both reaction sides are required.');

@@ -48,6 +48,13 @@ export interface ChemistryIntent {
    */
   racemic?: boolean;
   /**
+   * Draw any open stereocentre or double bond as unspecified instead of refusing the
+   * drawing, and without a caveat: the caller has already checked the step on its own terms
+   * (the route checker only requires the species a step makes to fix their stereochemistry).
+   * Used by the route-fix drawing path for a step the checker accepted.
+   */
+  openStereo?: boolean;
+  /**
    * Declared curved arrows. Present for a mechanism or resonance the bounded rule
    * library does not cover, which is most of them: the arrows are checked by applying
    * them and seeing whether the structure they build conserves atoms and charge.
@@ -164,6 +171,9 @@ export interface ChemistryValidationRequest {
   /** The step is a declared racemate: draw it with its open centres unspecified rather
    *  than refusing the unspecified stereocentre. Used by the route-fix drawing path. */
   racemic?: boolean;
+  /** Draw open centres as unspecified without refusing and without a caveat: the caller has
+   *  already checked the step. Used by the route-fix drawing path for an accepted step. */
+  openStereo?: boolean;
 }
 /** One entry of a batch inspection: the requested SMILES and what RDKit made of it. */
 export interface ChemistryInspectionResult {
@@ -199,6 +209,9 @@ export interface RouteSpeciesSummary extends ChemistryInspectionSummary {
   nameOk?: boolean;
   /** The author labelled this product a byproduct. A display flag only. */
   byproduct?: boolean;
+  /** The stoichiometric coefficient the checker solved for this species, when the step
+   *  balances. A coefficient far from 1 is a sign the declared species set is wrong. */
+  coefficient?: number;
 }
 export interface RouteStepAudit {
   index: number;
@@ -219,6 +232,9 @@ export interface RouteStepAudit {
   /** The request declared this step racemic: its open centres are a stated outcome, not a
    *  refusal. Nothing verifies the claim; it only stops the step being blocked for them. */
   racemic?: boolean;
+  /** Set when the equation balances only by assembling a product molecule from more than one
+   *  substrate molecule — chemically impossible for a single transformation. */
+  assemblyProblem?: string;
 }
 export interface RouteLinkAudit {
   from: number;

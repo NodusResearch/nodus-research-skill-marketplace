@@ -220,5 +220,19 @@ export function verifySceneChemfig(source: string, expected: ChemicalScene, cano
   }
   // Restore absolute coordinates for Haworth's fixed ring-plane projection.
   atoms.forEach(a => { a.x += origin.x; a.y += origin.y; });
-  if (canonicalScene({ atoms, bonds, convention: expected.convention }, kit) !== canonical) throw new Error('ChemFig round-trip changed the reference graph or stereochemistry.');
+  const roundtrip = canonicalScene({ atoms, bonds, convention: expected.convention }, kit);
+  if (roundtrip !== canonical) {
+    // A 2-D layout must place an open double bond's substituents somewhere, and RDKit reads
+    // that geometry back as E/Z. When the reference itself left the bond unspecified, that is
+    // not a change to the compound: compare the constitutions (stereochemistry removed). When
+    // the reference specifies stereochemistry, the round-trip must reproduce it exactly.
+    const skeleton = (smiles: string): string => {
+      const stripped = kit.get_mol(smiles.replace(/@/g, '').replace(/[\\/]/g, ''));
+      if (!stripped) return smiles;
+      try { return stripped.get_smiles(); } finally { stripped.delete(); }
+    };
+    if (/[@\\/]/.test(canonical) || skeleton(roundtrip) !== skeleton(canonical)) {
+      throw new Error('ChemFig round-trip changed the reference graph or stereochemistry.');
+    }
+  }
 }

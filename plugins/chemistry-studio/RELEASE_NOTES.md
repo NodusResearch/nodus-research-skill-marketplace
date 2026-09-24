@@ -1,3 +1,29 @@
+# Chemistry Studio 2.5.5
+
+Drawing and resolution fixes. Nothing a route already reported as verified changes.
+
+## A resolved name reports one canonical structure
+`resolve-names` now returns the RDKit-canonical isomeric SMILES rather than the reference
+service's own spelling. A whole route is built from those strings, so tropinone written
+`CN1C2CC(CC1CC2)=O` and the target's `CN1C2CCC1CC(=O)C2` are the same compound everywhere and are
+no longer reported as different connectivity.
+
+## Names resolve faster
+The reference lookups run a few at a time instead of one after another, the resolve pass and the
+route audit share one cache so a name is fetched once, and a PubChem outage opens a circuit that
+falls through to OPSIN instead of retrying every name.
+
+## Open centres are drawn, not refused
+A step the route checker accepted is drawn with its open centres left open: a purchased reactant's
+unspecified stereocentre, or a structure the request itself left under-specified, no longer fails
+the drawing. The ChemFig round-trip accepts a layout that adds a geometry to a bond the reference
+left unspecified (aconitic acid), and a species the dialect cannot represent at all — carbon
+monoxide's zero-hydrogen carbon — is written as its formula text rather than failing the scheme.
+
+## An application drawing call no longer asks the model for a fallback
+The unverified SVG fallback is a chat behaviour. A direct application call (a route-step scheme)
+now reports the refusal instead of spending a model call on a drawing it will discard.
+
 # Chemistry Studio 2.5.4
 
 Route-checking fixes. Nothing that was already drawn changes.

@@ -34,6 +34,9 @@ interface ChatNode { id: string; kind: 'prose' | 'fence'; fence?: string; conten
 
 export default function createWorker(capabilityHost: CapabilityHost) {
   bindHost(capabilityHost);
+  // One cache per worker: the resolve pass populates it and the route audit reuses it, so a
+  // name is looked up over the network once per turn.
+  const referenceCache: ReferenceCache = new Map();
 
   return {
     async health() { return { status: 'ready' as const, dataVersion: DATA_VERSION }; },
@@ -80,14 +83,18 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }; locale: string }) {
-      if (toolId === 'resolve-names') return resolveNames(input);
+    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }; locale: string; chat?: { question?: string; nodeId?: string } }) {
+      if (toolId === 'resolve-names') return resolveNames(input, referenceCache);
       if (toolId === 'inspect') return inspectMolecule(input);
-      if (toolId === 'verify-route') return verifySynthesisRoute(input);
+      if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache);
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
       const deps = chemistryDependencies();
+      // The model-SVG fallback is a chat feature: it draws something for the reply when the
+      // verified lane abstains. A direct application call (a route-step scheme, no chat node)
+      // reports the refusal instead of paying for a drawing the application will not use.
+      const allowFallback = Boolean(chat?.nodeId);
 
       let source = input.plan ?? '';
       for (let attempt = 0; ; attempt++) {
@@ -109,7 +116,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
         // `unsupported` means the intent's shape was wrong and the error names the field.
         // `needs-clarification` means the chemistry itself is underdetermined.
         if (document.status !== 'unsupported' || attempt >= REPAIR_ATTEMPTS) {
-          return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices);
+          return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback);
         }
         const { repairChemistryIntent } = await import('./engine/chemistryRepair');
         const repaired = await repairChemistryIntent({
@@ -117,7 +124,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
           instructions: CHEMISTRY_INSTRUCTIONS, final: attempt === REPAIR_ATTEMPTS - 1,
           signal: host().signal,
         });
-        if (!repaired) return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices);
+        if (!repaired) return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback);
         source = repaired;
       }
     },
@@ -178,9 +185,12 @@ function looksLikeIntent(content: string): boolean {
   } catch { return false; }
 }
 
-/** The verified lane produced nothing. Rather than leave the user with only a notice, ask
- *  once for a drawing in plain SVG — and label it, everywhere, as unverified. */
-async function abstain(reason: string, question: string, locale: string, notices: Array<Record<string, unknown>>) {
+/** The verified lane produced nothing. In a chat reply, rather than leave the user with only
+ *  a notice, ask once for a drawing in plain SVG — and label it, everywhere, as unverified.
+ *  A direct application call passes `allowFallback: false`: it wants the refusal, not a
+ *  drawing it will discard, so no model call is spent. */
+async function abstain(reason: string, question: string, locale: string, notices: Array<Record<string, unknown>>, allowFallback = true) {
+  if (!allowFallback) return { notices: [...notices, noticeView('not-drawn', locale, reason)] };
   const rescued = await rescueWithSvg(question, reason);
   if (!rescued) return { notices: [...notices, noticeView('not-drawn', locale, reason)] };
   return { notices, view: unverifiedSvgView(rescued, locale, reason) };
@@ -279,23 +289,86 @@ async function inspectMolecule(input: { smiles?: string[] }) {
  *  derivation calls this before building any equation, so the SMILES never come from the
  *  model. */
 const MAX_NAMES = 48;
-async function resolveNames(input: { names?: string[] }) {
+/** A few reference lookups at once: a long route resolves in a fraction of the time without
+ *  hammering two public services. */
+const NAME_CONCURRENCY = 4;
+
+/** Names resolved in this worker, so the route label check reuses the first pass instead of
+ *  paying for a second network round trip. It is scoped to one worker instance — one turn —
+ *  so a later turn can never read a stale reference. */
+type ReferenceCache = Map<string, string[]>;
+
+const PUBCHEM_ORIGIN = 'https://pubchem.ncbi.nlm.nih.gov';
+
+/** A per-run circuit breaker around the reference fetch: once PubChem fails as a service,
+ *  stop asking it and fall through to the OPSIN fallback. A 404 is a missing name, not an
+ *  outage, so only a thrown request or a 5xx opens the breaker. */
+function breakerFetch(base: typeof fetch): typeof fetch {
+  let open = false;
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const origin = new URL(raw).origin;
+    if (open && origin === PUBCHEM_ORIGIN) throw new Error('PubChem is unavailable; using the fallback reference.');
+    let response: Response;
+    try { response = await base(input, init); }
+    catch (error) { if (origin === PUBCHEM_ORIGIN) open = true; throw error; }
+    if (origin === PUBCHEM_ORIGIN && response.status >= 500) open = true;
+    return response;
+  }) as typeof fetch;
+}
+
+/** Canonicalise the resolved structures once and seed the shared cache, so every downstream
+ *  surface — the labels, the annotation, the derived equation, the drawing and the route
+ *  review — shows one canonical isomeric SMILES per compound. Identical compounds then read
+ *  identically, and a checker or reviewer cannot call them different connectivity. */
+async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cache: ReferenceCache, signal: AbortSignal): Promise<void> {
+  const inputs = [...new Set(resolutions
+    .filter((entry) => entry.status === 'resolved' && entry.smiles)
+    .map((entry) => entry.smiles!))];
+  const canonical = new Map<string, string>();
+  if (inputs.length) {
+    try {
+      const checked = await chemistryDependencies().inspectBatch(inputs, signal);
+      for (const entry of checked) {
+        if (entry.ok && entry.graph?.canonicalSmiles) canonical.set(entry.smiles, entry.graph.canonicalSmiles);
+      }
+    } catch { /* the raw writing still resolves; the route audit canonicalises it again */ }
+  }
+  for (const entry of resolutions) {
+    if (entry.status !== 'resolved' || !entry.smiles) continue;
+    entry.smiles = canonical.get(entry.smiles) ?? entry.smiles;
+    cache.set(entry.name, [entry.smiles]);
+  }
+}
+
+async function resolveNames(input: { names?: string[] }, cache: ReferenceCache) {
   const list = Array.isArray(input?.names) ? input.names : [];
   const cleaned = [...new Set(list
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     .map((entry) => entry.trim().slice(0, 200)))].slice(0, MAX_NAMES);
   if (!cleaned.length) throw new Error(`Provide between one and ${MAX_NAMES} chemical names.`);
-  const deps = chemistryDependencies();
-  const results: SpeciesNameResolution[] = [];
-  for (const name of cleaned) {
-    host().signal.throwIfAborted();
-    results.push(await resolveSpeciesName(name, deps, host().signal));
-  }
-  const unresolved = results.filter((entry) => entry.status !== 'resolved').length;
+  const base = chemistryDependencies();
+  const deps = { ...base, fetch: breakerFetch(base.fetch) };
+  const signal = host().signal;
+  const results: Array<SpeciesNameResolution | undefined> = new Array(cleaned.length);
+  let cursor = 0;
+  const run = async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= cleaned.length) return;
+      signal.throwIfAborted();
+      results[index] = await resolveSpeciesName(cleaned[index], deps, signal);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, cleaned.length) }, run));
+  const resolved = results.filter((entry): entry is SpeciesNameResolution => entry !== undefined);
+  await canonicalizeResolutions(resolved, cache, signal);
+  const unresolved = resolved.filter((entry) => entry.status !== 'resolved').length;
   const summary = unresolved
-    ? `${results.length - unresolved} of ${results.length} name(s) resolved`
-    : `${results.length} name(s) resolved`;
-  return { artifacts: [{ artifactType: 'species-resolution', artifactVersion: 1, summary, data: { results } }], notices: [] };
+    ? `${resolved.length - unresolved} of ${resolved.length} name(s) resolved`
+    : `${resolved.length} name(s) resolved`;
+  return { artifacts: [{ artifactType: 'species-resolution', artifactVersion: 1, summary, data: { results: resolved } }], notices: [] };
 }
 
 const MAX_LABELS_PER_STEP = 24;
@@ -310,12 +383,12 @@ const MAX_LABELS_TOTAL = 48;
 async function resolveRouteLabels(
   raw: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> | undefined,
   stepCount: number,
+  cache: ReferenceCache,
   signal?: AbortSignal,
 ): Promise<RouteLabelInput[][]> {
   const out: RouteLabelInput[][] = Array.from({ length: stepCount }, () => []);
   if (!Array.isArray(raw)) return out;
   const deps = chemistryDependencies();
-  const cache = new Map<string, string[]>();
   let resolved = 0;
   for (let index = 0; index < Math.min(stepCount, raw.length); index += 1) {
     const list = Array.isArray(raw[index]) ? raw[index]! : [];
@@ -325,8 +398,10 @@ async function resolveRouteLabels(
       const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, 200) : '';
       const smiles = typeof entry.smiles === 'string' ? entry.smiles.trim() : '';
       if (!role || !name || !smiles) continue;
+      // A name the resolve pass already looked up is reused here: the reference is the same
+      // network answer, and the label check only needs to compare canonical graphs.
       let nameSmiles = cache.get(name);
-      if (!nameSmiles) {
+      if (nameSmiles === undefined) {
         nameSmiles = resolved < MAX_LABELS_TOTAL ? await resolveNameReferences(name, deps, signal) : [];
         resolved += 1;
         cache.set(name, nameSmiles);
@@ -341,7 +416,7 @@ async function resolveRouteLabels(
  *  balanced, every intermediate leaving one step the same molecule as the one entering the
  *  next, and every supplied IUPAC name denoting the structure it was written beside. The
  *  result is a `route-audit` artifact the application renders deterministically. */
-async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }) {
+async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }, cache: ReferenceCache) {
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     .map(entry => entry.trim())
@@ -352,7 +427,7 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
     ? input.racemic
     : Array.isArray(input?.racemic) ? input.racemic.slice(0, steps.length) : undefined;
   const target = typeof input?.target === 'string' && input.target.trim() ? input.target.trim().slice(0, 2000) : undefined;
-  const labels = await resolveRouteLabels(input?.labels, steps.length, host().signal);
+  const labels = await resolveRouteLabels(input?.labels, steps.length, cache, host().signal);
   const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target, ...(labels.some(step => step.length) ? { labels } : {}) }, host().signal);
   if (!audit) throw new Error('The route could not be verified.');
   const summary = audit.continuous
