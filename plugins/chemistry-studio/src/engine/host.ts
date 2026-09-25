@@ -10,6 +10,10 @@ export interface CapabilityHost {
   model: { complete(request: { system?: string; prompt: string; maxTokens?: number }): Promise<string> };
   svg: { validate(svg: string): Promise<{ ok: boolean; errors: string[] }>; inspect(svg: string): Promise<{ width?: number; height?: number; elements: number }>; refine(request: { svg: string; instruction: string }): Promise<string> };
   subworker: { run(request: { entry: string; input: unknown; timeoutMs: number }): Promise<unknown> };
+  python: {
+    ensureRuntime(runtimeId: string): Promise<{ ready: boolean; detail?: string }>;
+    run(request: { runtimeId: string; args: string[]; stdin?: string; secretId?: string; timeoutMs: number }): Promise<{ code: number; stdout: string; stderr: string }>;
+  };
   attachments: { store(request: { bytes: Uint8Array; name: string; mimeType: string }): Promise<{ attachmentId: string; bytes: number }> };
   storage: { state: KeyValue; cache: KeyValue; temp: { dir(): Promise<string>; clear(): Promise<void> } };
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, detail?: Record<string, string | number | boolean>): void;
