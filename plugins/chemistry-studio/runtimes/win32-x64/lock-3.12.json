@@ -60,11 +60,11 @@
       "sha256": "20e6a87f786f768c092a721ad107fc9df0eb89347be9396cadf3f4abbd1fb78a"
     },
     {
-      "name": "nodeenv-1.10.0-py2.py3-none-any.whl",
-      "requirement": "nodeenv==1.10.0",
-      "url": "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl",
-      "bytes": 23438,
-      "sha256": "5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827"
+      "name": "nodeenv-1.11.0-py2.py3-none-any.whl",
+      "requirement": "nodeenv==1.11.0",
+      "url": "https://files.pythonhosted.org/packages/54/c8/12811c9b48fde162bb72b6f2e78fada9a247a09d7bb5be2050a5d099c77b/nodeenv-1.11.0-py2.py3-none-any.whl",
+      "bytes": 34277,
+      "sha256": "edaa16e6c14d7cf395d75d4bbd5a26390f4dc06501a33b4e76282b02cc688a25"
     },
     {
       "name": "numpy-2.3.5-cp312-cp312-win_amd64.whl",
@@ -95,11 +95,11 @@
       "sha256": "a2b55dd6b2a4c4b7d87ffa56bdb33fdc5fdb9a462173861a7bc097f17d91cb09"
     },
     {
-      "name": "platformdirs-4.11.14-py3-none-any.whl",
-      "requirement": "platformdirs==4.11.14",
-      "url": "https://files.pythonhosted.org/packages/dc/40/03f2c094178624d155b8d27a9b0c5ab1e39efa6cc9074b599e8c671b9db1/platformdirs-4.11.14-py3-none-any.whl",
-      "bytes": 26700,
-      "sha256": "c1b1a1eab4f4d1b0eb81754593f1c38de88e84ebe6f93bf6714706a6759074b1"
+      "name": "platformdirs-4.11.15-py3-none-any.whl",
+      "requirement": "platformdirs==4.11.15",
+      "url": "https://files.pythonhosted.org/packages/84/83/246d3052d043683cc5f400ab5748bd07a99fbdf311dc771cfad7e3f9e7e0/platformdirs-4.11.15-py3-none-any.whl",
+      "bytes": 26689,
+      "sha256": "84508421c77d3c6462e71dd8c0d2776c2ace0e94eb006dc4fd383bc1dcf5a176"
     },
     {
       "name": "pre_commit-4.6.2-py2.py3-none-any.whl",
@@ -121,6 +121,13 @@
       "url": "https://files.pythonhosted.org/packages/86/bf/899e81e4cce32febab4fb42bb97dcdf66bc135272882d1987881a4b519e9/pyyaml-6.0.3-cp312-cp312-win_amd64.whl",
       "bytes": 154003,
       "sha256": "5fcd34e47f6e0b794d17de1b4ff496c00986e1c83f7ab2fb8fcfe9616ff7477b"
+    },
+    {
+      "name": "rdchiral-1.1.0-py3-none-any.whl",
+      "requirement": "rdchiral==1.1.0",
+      "url": "https://files.pythonhosted.org/packages/a6/f6/8bff1f5b6fafef733f173540e61df74bf69265d3240a9617ed8c772cdf49/rdchiral-1.1.0-py3-none-any.whl",
+      "bytes": 32930,
+      "sha256": "9a0cc69cd8ed60cba61f55de70b36c93e6130208ab3c3911a819e46bf0f50e91"
     },
     {
       "name": "rdkit-2026.3.6-cp312-cp312-win_amd64.whl",
