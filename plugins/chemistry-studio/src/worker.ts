@@ -90,12 +90,13 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[] }; locale: string; chat?: { question?: string; nodeId?: string } }) {
+    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number }; locale: string; chat?: { question?: string; nodeId?: string } }) {
       if (toolId === 'resolve-names') return resolveNames(input, referenceCache);
       if (toolId === 'resolve-structure') return nameStructures(input);
       if (toolId === 'inspect') return inspectMolecule(input);
       if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache);
       if (toolId === 'known-reactions') return knownReactions(input);
+      if (toolId === 'propose-disconnections') return proposeDisconnections(input);
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
@@ -522,6 +523,37 @@ async function knownReactions(input: { indexDir?: string; reactions?: string[]; 
   const made = data.products?.filter(entry => entry.count > 0).length ?? 0;
   const summary = `Known reactions: ${exact} exact, ${made} with a recorded route to the product.`;
   return { artifacts: [{ artifactType: 'reaction-precedent', artifactVersion: 1, summary, data }], notices: [] };
+}
+
+/** Propose one-step disconnections for route targets from the same local index: the recorded
+ *  reactions that make each target, then retro templates extracted from the index and applied
+ *  with RDChiral, ranked by recorded precedent, precursor availability and (when a route's
+ *  starting materials are given) closeness to them. Application-invoked only, like the lookup. */
+async function proposeDisconnections(input: { indexDir?: string; targets?: string[]; startingMaterials?: string[]; limit?: number }) {
+  const indexDir = typeof input?.indexDir === 'string' ? input.indexDir : '';
+  if (!indexDir) throw new Error('A disconnection search needs the index directory.');
+  const targets = Array.isArray(input.targets) ? input.targets.filter(t => typeof t === 'string' && t.trim()).slice(0, 16) : [];
+  if (targets.length === 0) throw new Error('A disconnection search needs at least one target.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT],
+    stdin: JSON.stringify({
+      indexDir,
+      disconnect: targets,
+      startingMaterials: Array.isArray(input.startingMaterials) ? input.startingMaterials.slice(0, 16) : [],
+      limit: typeof input.limit === 'number' ? input.limit : 8,
+    }),
+    timeoutMs: 240_000,
+  });
+  if (run.code !== 0) throw new Error('The disconnection search failed.');
+  const data = JSON.parse(run.stdout) as { disconnections?: Array<{ madeBy?: unknown[]; proposals?: unknown[] }> };
+  const entries = data.disconnections ?? [];
+  const recorded = entries.filter(entry => (entry.madeBy?.length ?? 0) > 0).length;
+  const proposals = entries.reduce((sum, entry) => sum + (entry.proposals?.length ?? 0), 0);
+  const summary = `Disconnections: ${proposals} proposal(s) for ${entries.length} target(s), ${recorded} with a recorded reaction that makes it.`;
+  return { artifacts: [{ artifactType: 'reaction-disconnections', artifactVersion: 1, summary, data }], notices: [] };
 }
 
 export { isChemistrySvgRequest };
