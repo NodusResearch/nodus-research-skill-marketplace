@@ -1323,6 +1323,20 @@ test('the synthesis instructions defer to the contract the application appends',
   assert.match(section, /Reactants, Products, Byproducts, Agents/, 'the labelled names-first contract is still honoured');
 });
 
+test('a reaction scheme is drawn in the element palette while its exported source stays plain', async () => {
+  const worker = lib.createWorker(stubHost());
+  const smiles = 'O=C(O)c1ccccc1O.CC(=O)OC(C)=O>>CC(=O)Oc1ccccc1C(=O)O.CC(=O)O';
+  const result = await worker.invoke({
+    invocationId: 'col1', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles }), question: smiles },
+  });
+  const reaction = result.artifacts?.[0]?.data?.reaction;
+  assert.ok(reaction, JSON.stringify(result.notices ?? result.view));
+  assert.match(reaction.svg, /fill="(?:red|#ff0000)"[^>]*>O</i, 'oxygen is drawn red, as RDKit draws it');
+  assert.match(reaction.svg, /<text(?![^>]*fill=)[^>]*>C</, 'carbon stays black');
+  assert.doesNotMatch(reaction.chemfig.source, /\\color/, 'the exported ChemFig carries no colour commands');
+});
+
 test('an unbuilt step keeps its place, so later steps keep their numbers', async () => {
   const worker = lib.createWorker(stubHost());
   const result = await worker.invoke({ invocationId: 'gap1', toolId: 'verify-route', locale: 'en', input: { steps: ['CCO>>CC=O.[H][H]', '', 'CC=O.O>>CC(O)O'] } });
