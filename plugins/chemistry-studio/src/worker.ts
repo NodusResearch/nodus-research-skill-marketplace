@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { bindHost, completeText, host, type CapabilityHost } from './engine/host';
 import { nameStructureBySmiles, resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution, type SpeciesStructureName } from './engine/chemistryIdentity';
 import { chemistryDependencies } from './deps';
@@ -29,6 +31,11 @@ const DATA_VERSION = 1;
 /** Structural rejections name a JSON field and are worth one more attempt; chemical ones
  *  are not, because no amount of re-prompting makes a reference say something else. */
 const REPAIR_ATTEMPTS = 2;
+
+/** The shared Python runtime the reaction lookup runs in, and the adapter it runs. The runtime
+ *  is app-managed and shared by lock digest; the adapter is this package's own. */
+const REACTIONS_RUNTIME_ID = 'chemistry';
+const REACTIONS_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'python', 'reactions_worker.py');
 
 interface ChatNode { id: string; kind: 'prose' | 'fence'; fence?: string; content: string; complete: boolean }
 
@@ -83,11 +90,12 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }; locale: string; chat?: { question?: string; nodeId?: string } }) {
+    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[] }; locale: string; chat?: { question?: string; nodeId?: string } }) {
       if (toolId === 'resolve-names') return resolveNames(input, referenceCache);
       if (toolId === 'resolve-structure') return nameStructures(input);
       if (toolId === 'inspect') return inspectMolecule(input);
       if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache);
+      if (toolId === 'known-reactions') return knownReactions(input);
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
@@ -468,11 +476,12 @@ async function resolveRouteLabels(
  *  next, and every supplied IUPAC name denoting the structure it was written beside. The
  *  result is a `route-audit` artifact the application renders deterministically. */
 async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }, cache: ReferenceCache) {
+  // An empty entry is a step the application could not build. It is kept, not dropped, so the
+  // labels, carriers and racemic flags — all indexed by step — stay aligned with the steps.
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
-    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    .map(entry => entry.trim())
+    .map(entry => typeof entry === 'string' ? entry.trim() : '')
     .slice(0, 16);
-  if (!steps.length) throw new Error('Provide between one and sixteen reaction SMILES steps.');
+  if (!steps.some(Boolean)) throw new Error('Provide between one and sixteen reaction SMILES steps.');
   const carriers = Array.isArray(input?.carriers) ? input.carriers.slice(0, steps.length) : undefined;
   const racemic = typeof input?.racemic === 'boolean'
     ? input.racemic
@@ -485,6 +494,34 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
     ? `Route verified: ${audit.steps.length} step(s), every intermediate carried over unchanged`
     : `Route has ${audit.blocked.length} problem(s)`;
   return { artifacts: [{ artifactType: 'route-audit', artifactVersion: 1, summary, data: audit }], notices: [] };
+}
+
+/** Look up proposed reactions and products in the local Open Reaction Database index. The
+ *  application supplies the index directory (it owns the downloaded artifact); the lookup
+ *  itself runs in the shared chemistry Python runtime. Application-invoked only: there is no
+ *  chat fence, so the model never sees the index path. */
+async function knownReactions(input: { indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[] }) {
+  const indexDir = typeof input?.indexDir === 'string' ? input.indexDir : '';
+  if (!indexDir) throw new Error('A reaction lookup needs the index directory.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT],
+    stdin: JSON.stringify({
+      indexDir,
+      reactions: Array.isArray(input.reactions) ? input.reactions.slice(0, 32) : [],
+      products: Array.isArray(input.products) ? input.products.slice(0, 32) : [],
+      similar: Array.isArray(input.similar) ? input.similar.slice(0, 16) : [],
+    }),
+    timeoutMs: 240_000,
+  });
+  if (run.code !== 0) throw new Error('The reaction lookup failed.');
+  const data = JSON.parse(run.stdout) as { reactions?: Array<{ count: number }>; products?: Array<{ count: number }> };
+  const exact = data.reactions?.filter(entry => entry.count > 0).length ?? 0;
+  const made = data.products?.filter(entry => entry.count > 0).length ?? 0;
+  const summary = `Known reactions: ${exact} exact, ${made} with a recorded route to the product.`;
+  return { artifacts: [{ artifactType: 'reaction-precedent', artifactVersion: 1, summary, data }], notices: [] };
 }
 
 export { isChemistrySvgRequest };

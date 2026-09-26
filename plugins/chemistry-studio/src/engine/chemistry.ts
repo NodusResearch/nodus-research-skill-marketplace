@@ -11,7 +11,7 @@ type Tex2Svg = (input: string, options?: {
 
 let chemfigEngine: Tex2Svg | null = null;
 
-const MAX_CHEMFIG_SOURCE = 8_000;
+export const MAX_CHEMFIG_SOURCE = 8_000;
 const MAX_SMILES_SOURCE = 1_000;
 const COMPILE_TIMEOUT_MS = 15_000;
 const MAX_CACHE_ENTRIES = 160;
