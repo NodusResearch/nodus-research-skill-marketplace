@@ -205,7 +205,7 @@
       { "id": "wheels", "origin": "https://files.pythonhosted.org", "pathPrefixes": ["/packages/"], "methods": ["GET"], "maxResponseBytes": 268435456, "timeoutMs": 240000 }
     ],
     "runtimes": [
-      { "id": "chemistry", "kind": "python", "minVersion": "3.10" }
+      { "id": "chemistry", "kind": "python", "minVersion": "3.11" }
     ],
     "model": { "maxCalls": 2, "purpose": "Repair a structurally invalid plan, or draw an explicitly unverified fallback when the verified lane abstains." },
     "svg": true,

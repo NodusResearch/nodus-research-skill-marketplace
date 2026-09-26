@@ -67,11 +67,11 @@
       "sha256": "5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827"
     },
     {
-      "name": "numpy-2.2.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-      "requirement": "numpy==2.2.6",
-      "url": "https://files.pythonhosted.org/packages/8c/3d/1e1db36cfd41f895d266b103df00ca5b3cbe965184df824dec5c08c6b803/numpy-2.2.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-      "bytes": 16527618,
-      "sha256": "fd83c01228a688733f1ded5201c678f0c53ecc1006ffbc404db9f7a899ac6249"
+      "name": "numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "requirement": "numpy==2.3.5",
+      "url": "https://files.pythonhosted.org/packages/b6/23/2a1b231b8ff672b4c450dac27164a8b2ca7d9b7144f9c02d2396518352eb/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 16606086,
+      "sha256": "0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28"
     },
     {
       "name": "openpyxl-3.1.5-py2.py3-none-any.whl",
@@ -95,11 +95,11 @@
       "sha256": "78cb2c6865a35ab8ff8b75fd122f6033b92a62c82801110e48ddd6c936a45d91"
     },
     {
-      "name": "platformdirs-4.11.13-py3-none-any.whl",
-      "requirement": "platformdirs==4.11.13",
-      "url": "https://files.pythonhosted.org/packages/29/a6/76a492f6a937e196641b3abd1588c504c71438e243daf1bebde4d3bb8ee9/platformdirs-4.11.13-py3-none-any.whl",
-      "bytes": 25054,
-      "sha256": "228b2283af5c1f32673cdf55271216a52bbd8258cb31374e302ad7bd26cd7513"
+      "name": "platformdirs-4.11.14-py3-none-any.whl",
+      "requirement": "platformdirs==4.11.14",
+      "url": "https://files.pythonhosted.org/packages/dc/40/03f2c094178624d155b8d27a9b0c5ab1e39efa6cc9074b599e8c671b9db1/platformdirs-4.11.14-py3-none-any.whl",
+      "bytes": 26700,
+      "sha256": "c1b1a1eab4f4d1b0eb81754593f1c38de88e84ebe6f93bf6714706a6759074b1"
     },
     {
       "name": "pre_commit-4.6.2-py2.py3-none-any.whl",

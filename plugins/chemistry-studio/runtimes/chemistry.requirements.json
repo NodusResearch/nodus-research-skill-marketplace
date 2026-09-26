@@ -1,5 +1,5 @@
 {
   "comment": "What the shared chemistry runtime needs. Resolved locks are generated per target and interpreter by scripts/build-runtime-lock.mjs; they pin every wheel by URL, size and SHA-256 and are fetched through files.pythonhosted.org. Versions match the offline index builder so fingerprints and canonical structures agree.",
-  "requirements": ["rdkit==2026.3.6", "drfp==0.3.7", "faiss-cpu==1.15.1", "zstandard==0.25.0", "numpy==2.2.6"],
-  "pythonVersions": ["3.10", "3.11", "3.12", "3.13"]
+  "requirements": ["rdkit==2026.3.6", "drfp==0.3.7", "faiss-cpu==1.15.1", "zstandard==0.25.0", "numpy==2.3.5"],
+  "pythonVersions": ["3.11", "3.12", "3.13", "3.14"]
 }
