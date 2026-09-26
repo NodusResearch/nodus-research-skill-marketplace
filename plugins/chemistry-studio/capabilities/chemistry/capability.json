@@ -126,7 +126,7 @@
     },
     {
       "id": "known-reactions",
-      "description": "Look up a proposed reaction or a product in the local Open Reaction Database index: exact precedents, the reactions that make a product, and the most similar known reactions. The application supplies the index directory; this tool is not offered to the model.",
+      "description": "Look up a proposed reaction or a product in the local Open Reaction Database index: exact precedents, the reactions that make a product, and the most similar known reactions, with a drawing of the closest one exactly as recorded (unbalanced). The application supplies the index directory; this tool is not offered to the model.",
       "inputSchema": {
         "type": "object",
         "properties": {
