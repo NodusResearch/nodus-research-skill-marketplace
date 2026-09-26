@@ -476,11 +476,12 @@ async function resolveRouteLabels(
  *  next, and every supplied IUPAC name denoting the structure it was written beside. The
  *  result is a `route-audit` artifact the application renders deterministically. */
 async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }, cache: ReferenceCache) {
+  // An empty entry is a step the application could not build. It is kept, not dropped, so the
+  // labels, carriers and racemic flags — all indexed by step — stay aligned with the steps.
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
-    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    .map(entry => entry.trim())
+    .map(entry => typeof entry === 'string' ? entry.trim() : '')
     .slice(0, 16);
-  if (!steps.length) throw new Error('Provide between one and sixteen reaction SMILES steps.');
+  if (!steps.some(Boolean)) throw new Error('Provide between one and sixteen reaction SMILES steps.');
   const carriers = Array.isArray(input?.carriers) ? input.carriers.slice(0, steps.length) : undefined;
   const racemic = typeof input?.racemic === 'boolean'
     ? input.racemic

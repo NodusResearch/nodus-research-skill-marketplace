@@ -9,10 +9,15 @@ export interface ChemistryIdentityDependencies {
 /** No model-generated structures, status, captions, URLs or projection arrays. */
 export function parseChemistryIntent(source: string, question: string): ChemistryIntent {
   if (source.length > 8000) throw new Error('Chemical intent is too large.');
-  if (/\b(sawhorse|nitration|nitraci[oó]n|chair|silla|dehydration|deshidrataci[oó]n)\b/i.test(question)) {
+  let raw = JSON.parse(source);
+  // The depiction guards below read the request's words ("chair", "mechanism", "aldol", "endo")
+  // as a request for that kind of drawing. In a synthesis route those words describe the route's
+  // chemistry, and its one drawing is the target's plain structure, so that plan is exempt.
+  const routeTarget = raw?.kind === 'structure' && Array.isArray(raw?.species) && raw.species.length === 1
+    && /\b(?:synthes[ie]s|synthesi[sz]e|retrosynthe\w*|route)\b|correction needed for/i.test(question);
+  if (!routeTarget && /\b(sawhorse|nitration|nitraci[oó]n|chair|silla|dehydration|deshidrataci[oó]n)\b/i.test(question)) {
     throw new Error('The requested specialized depiction is outside the current verified scope; a skeletal drawing will not be substituted.');
   }
-  let raw = JSON.parse(source);
   if (raw?.kind === 'reaction' && /\b(equilibrium|equilibrio|reversible)\b|⇌|↔|<=>/.test(question.toLowerCase())) throw new Error('Only forward reaction schemes are supported; an equilibrium or reversible arrow will not be substituted.');
   const reactionTokens = question.split(/\s|`/).filter(token => token.split('>').length >= 3);
   if (raw?.kind === 'reaction' && reactionTokens.length && (reactionTokens.length !== 1 || raw.reactionSmiles !== reactionTokens[0])) {
@@ -50,16 +55,16 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
   // hydrogens expanded from the canonical graph, pairs counted from valence electrons,
   // formal charge and bond order — so what has to be guarded is the opposite case: that a
   // request for one is not quietly answered with a drawing that leaves them out.
-  const wantsExplicitHydrogens = /wedge[\s\S]{0,40}(?:dash|hash)|solid wedge[\s\S]{0,60}hashed|\b(explicit hydrogens?|hidrógenos? explícitos?)\b/i.test(question);
+  const wantsExplicitHydrogens = !routeTarget && /wedge[\s\S]{0,40}(?:dash|hash)|solid wedge[\s\S]{0,60}hashed|\b(explicit hydrogens?|hidrógenos? explícitos?)\b/i.test(question);
   if (wantsExplicitHydrogens && raw.depiction !== 'wedge-dash') {
     throw new Error('The requested wedge-and-dash or explicit-hydrogen depiction must not be replaced with a skeletal drawing.');
   }
-  const wantsLonePairs = /\b(lone pairs?|pares? libres?|nonbonding pairs?|lewis structures?|estructuras? de lewis)\b/i.test(question);
+  const wantsLonePairs = !routeTarget && /\b(lone pairs?|pares? libres?|nonbonding pairs?|lewis structures?|estructuras? de lewis)\b/i.test(question);
   if (!declaredFlow && wantsLonePairs && raw.depiction !== 'lone-pairs') {
     throw new Error('The requested lone-pair depiction must not be replaced with a drawing that omits the nonbonding pairs.');
   }
-  if (/\bfischer\b/i.test(question) && raw.depiction !== 'fischer' || /\bhaworth\b/i.test(question) && raw.depiction !== 'haworth' || /\bnewman\b/i.test(question) && raw.depiction !== 'newman') throw new Error('The requested specialized depiction must not be replaced with another projection.');
-  if (/\b(mechanism|mecanismo|resonance|resonancia)\b/i.test(question) && !['mechanism', 'resonance'].includes(raw.kind)) throw new Error('The requested mechanism must not be replaced with an isolated structure.');
+  if (!routeTarget && (/\bfischer\b/i.test(question) && raw.depiction !== 'fischer' || /\bhaworth\b/i.test(question) && raw.depiction !== 'haworth' || /\bnewman\b/i.test(question) && raw.depiction !== 'newman')) throw new Error('The requested specialized depiction must not be replaced with another projection.');
+  if (!routeTarget && /\b(mechanism|mecanismo|resonance|resonancia)\b/i.test(question) && !['mechanism', 'resonance'].includes(raw.kind)) throw new Error('The requested mechanism must not be replaced with an isolated structure.');
   const rules: Record<string, RegExp> = { sn2: /\bSN2\b/i, e2: /\bE2\b/i, aldol: /\baldol\w*\b/i, 'diels-alder': /\bdiels.alder\b/i, 'amide-resonance': /\b(resonance|resonancia)\b/i };
   if (declaredFlow) {
     if (!['mechanism', 'resonance'].includes(raw.kind)) throw new Error('"electronFlow" belongs to a "mechanism" or "resonance" intent.');
@@ -68,7 +73,7 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
   } else {
     if (raw.kind === 'resonance') throw new Error('A "resonance" intent needs "electronFlow" describing the arrows between contributors.');
     if (raw.kind === 'mechanism' ? raw.depiction !== 'skeletal' || !rules[raw.rule]?.test(question) : raw.rule != null) throw new Error('The mechanism rule must be explicitly requested and supported, or declare "electronFlow" instead.');
-    for (const [rule, pattern] of Object.entries(rules)) if (pattern.test(question) && raw.rule !== rule) throw new Error('The requested reaction rule must not be substituted.');
+    for (const [rule, pattern] of Object.entries(rules)) if (!routeTarget && pattern.test(question) && raw.rule !== rule) throw new Error('The requested reaction rule must not be substituted.');
   }
   const conformationWords: Record<string, RegExp> = { anti: /\banti\b/i, gauche: /\bgauche\b/i, eclipsed: /\b(?:eclipsed|eclipsad[ao])\b/i, staggered: /\b(?:staggered|alternad[ao]|escalonad[ao])\b/i };
   const conformations = Object.keys(conformationWords).filter(c => conformationWords[c].test(question));
@@ -79,7 +84,7 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
   if (raw.conformation != null && (raw.depiction !== 'newman' || !conformations.includes(raw.conformation))) throw new Error('Newman conformation must be copied from the request.');
   if (raw.depiction === 'newman' && (conformations.length > 1 || conformations.length === 1 && raw.conformation !== conformations[0])) throw new Error('Specify one Newman conformation per request; do not replace the requested torsion.');
   if (raw.depiction === 'newman' && /-?\d+(?:\.\d+)?\s*(?:°|degrees|grados)/i.test(question)) throw new Error('Numeric Newman torsions are not accepted yet; specify anti, gauche, eclipsed or staggered explicitly.');
-  const approaches = ['endo', 'exo'].filter(c => new RegExp(`\\b${c}\\b`, 'i').test(question));
+  const approaches = routeTarget ? [] : ['endo', 'exo'].filter(c => new RegExp(`\\b${c}\\b`, 'i').test(question));
   if (raw.rule === 'diels-alder' && raw.approach == null && approaches.length === 1) raw.approach = approaches[0];
   if (raw.approach != null && (raw.rule !== 'diels-alder' || !approaches.includes(raw.approach))) throw new Error('Endo/exo approach must be explicitly requested for Diels–Alder.');
   if (approaches.length && (raw.rule !== 'diels-alder' || approaches.length === 1 && raw.approach !== approaches[0] || approaches.length === 2 && raw.approach != null)) throw new Error('Preserve the requested endo/exo alternatives.');
