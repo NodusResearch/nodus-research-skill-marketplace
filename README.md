@@ -14,7 +14,7 @@ Catalog updates do not change installed **skill packages**: installing a replace
 
 ## Browse the catalog
 
-18 skills across 10 categories.
+19 skills across 10 categories.
 
 - [Data and statistics (3)](#data-and-statistics)
 - [Design and visual communication (2)](#design-and-visual-communication)
@@ -25,7 +25,7 @@ Catalog updates do not change installed **skill packages**: installing a replace
 - [Physical sciences (1)](#physical-sciences)
 - [Planning and productivity (1)](#planning-and-productivity)
 - [Thinking and decision-making (5)](#thinking-and-decision-making)
-- [Writing and communication (2)](#writing-and-communication)
+- [Writing and communication (3)](#writing-and-communication)
 
 <!-- catalog-index:end -->
 
@@ -174,6 +174,7 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
 <tr><td><a href="make-it-simple/">Make It Simple</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Explain complex material clearly with concrete examples and useful analogies.</td><td>❌</td></tr>
+<tr><td><a href="natural-writing/">Natural Writing</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Draft, polish and paraphrase natural prose in the user’s language while preserving voice, meaning, qualifications and citations.</td><td>❌</td></tr>
 <tr><td><a href="writing-partner/">Writing Partner</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Draft and refine clear, purposeful writing while preserving your voice and intent.</td><td>❌</td></tr>
 </tbody>
 </table>
