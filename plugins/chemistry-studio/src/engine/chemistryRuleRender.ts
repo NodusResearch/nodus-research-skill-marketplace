@@ -6,6 +6,7 @@ import { deriveE2 } from './chemistryE2';
 import { deriveAldol } from './chemistryAldol';
 import { deriveDielsAlder } from './chemistryDielsAlder';
 import { compileChemfig } from './chemistry';
+import { colourChemfigAtoms } from './elementColours';
 
 export async function renderCheckedMechanism(checked: CheckedMechanism, kit: RDKitModule): Promise<ChemistryMechanismArtifact> {
   const parts = checked.scenes.map((s, i) => { const source = exportSceneChemfig(s); verifySceneChemfig(source, s, canonicalScene(s, kit), kit); return source.replace(/@\{([ab]\d+)\}/g, `@{m${i}$1}`); });
@@ -29,7 +30,7 @@ export async function renderCheckedMechanism(checked: CheckedMechanism, kit: RDK
   // double-headed arrow; anything else is a transformation and takes a forward one.
   const resonanceArrow = checked.rule === 'amide-resonance' || checked.resonance;
   const source = `\\schemestart ${group(checked.reactants)} \\arrow{${resonanceArrow ? '<->' : `->[${labels[checked.rule]}${suffix}]`}} ${group(checked.products)} \\schemestop\\chemmove{${flows}}`;
-  const svg = await compileChemfig(source);
+  const svg = await compileChemfig(colourChemfigAtoms(source));
   const { scenes: _scenes, reactants: _reactants, products: _products, ...metadata } = checked;
   const molecules = checked.scenes.map((s, i) => ({ id: `m${i}`, role: checked.reactants.includes(i) ? 'reactant' as const : 'product' as const, canonicalSmiles: canonicalScene(s, kit), molfile: sceneMolfile(s) }));
   return { ...metadata, molecules, svg, chemfig: { status: 'validated', source, checks: ['Rule applicability', 'Complete atom mapping and atom/isotope/charge conservation', 'Deterministic bond edits; stated stereo outcome', 'Every molecular ChemFig fragment round-tripped; whole scheme compiled'] } };
@@ -56,7 +57,7 @@ export async function renderExtendedMechanism(rule: ChemistryRule, inputs: strin
   // panel, avoiding an apparent mapping between alternative products.
   const aggregate: ChemistryMechanismArtifact = { rule, scope: 'conditional-elementary-rule-not-product-prediction', source: panels[0].source, title: rule === 'aldol' ? 'Aldol addition: three elementary steps' : `${rule}: alternative pathways`, svg: '', chemfig: { status: 'unsupported' }, canonicalProducts: derived.finalProducts, limitations: derived.limitations, molecules: [], atomMap: [], electronFlow: [], bondEdits: [], panels };
   try {
-    aggregate.svg = await compileChemfig(source);
+    aggregate.svg = await compileChemfig(colourChemfigAtoms(source));
     aggregate.chemfig = { status: 'validated', source, checks: ['Each panel has independent graph, atom map and charge checks', 'Unique arrow anchors across panels', 'Actual combined ChemFig compilation'] };
   } catch (error) {
     // A large collection may exceed the 8 KB TeX cap. Individual diagrams and

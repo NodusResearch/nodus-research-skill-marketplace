@@ -1322,3 +1322,39 @@ test('the synthesis instructions defer to the contract the application appends',
   assert.match(section, /reactants>agents>products/, 'the reaction-string contract of earlier releases is still honoured');
   assert.match(section, /Reactants, Products, Byproducts, Agents/, 'the labelled names-first contract is still honoured');
 });
+
+test('a reaction scheme is drawn in the element palette while its exported source stays plain', async () => {
+  const worker = lib.createWorker(stubHost());
+  const smiles = 'O=C(O)c1ccccc1O.CC(=O)OC(C)=O>>CC(=O)Oc1ccccc1C(=O)O.CC(=O)O';
+  const result = await worker.invoke({
+    invocationId: 'col1', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles }), question: smiles },
+  });
+  const reaction = result.artifacts?.[0]?.data?.reaction;
+  assert.ok(reaction, JSON.stringify(result.notices ?? result.view));
+  assert.match(reaction.svg, /fill="(?:red|#ff0000)"[^>]*>O</i, 'oxygen is drawn red, as RDKit draws it');
+  assert.match(reaction.svg, /<text(?![^>]*fill=)[^>]*>C</, 'carbon stays black');
+  assert.doesNotMatch(reaction.chemfig.source, /\\color/, 'the exported ChemFig carries no colour commands');
+});
+
+test('an unbuilt step keeps its place, so later steps keep their numbers', async () => {
+  const worker = lib.createWorker(stubHost());
+  const result = await worker.invoke({ invocationId: 'gap1', toolId: 'verify-route', locale: 'en', input: { steps: ['CCO>>CC=O.[H][H]', '', 'CC=O.O>>CC(O)O'] } });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.steps.length, 3, 'three steps, not two');
+  assert.equal(audit.steps[1].ok, false);
+  assert.match(audit.steps[1].error, /could not be built/);
+  assert.equal(audit.steps[2].index, 2, 'step 3 is still step 3');
+});
+
+test('a synthesis route draws its target even when the route names a mechanism or a dehydration', async () => {
+  const worker = lib.createWorker(stubHost());
+  const smiles = 'CC(=O)Oc1ccccc1C(=O)O';
+  const plan = JSON.stringify({ version: 2, kind: 'structure', depiction: 'skeletal', species: [{ id: 'target', input: { kind: 'smiles', value: smiles } }] });
+  const route = `Propose a synthesis of aspirin (SMILES: ${smiles}) via an aldol-free route; explain the mechanism of the dehydration step and any endo selectivity.`;
+  const drawn = await worker.invoke({ invocationId: 'rt1', toolId: 'compile', locale: 'en', input: { plan, question: route } });
+  assert.ok(drawn.artifacts?.length, JSON.stringify(drawn.notices ?? drawn.view));
+  // Outside a route the same words still ask for that kind of drawing, and a plain structure is refused.
+  const plain = await worker.invoke({ invocationId: 'rt2', toolId: 'compile', locale: 'en', input: { plan, question: `Show the dehydration of ${smiles}` } });
+  assert.ok(!plain.artifacts?.length, 'a depiction request is still not answered with a skeletal drawing');
+});

@@ -35,7 +35,16 @@ for (const id of fs.readdirSync(pluginsDir).sort()) {
       if (!fs.existsSync(spec)) throw new Error(`the ${runtimeId} runtime has no requirements file`);
       const versions = read(spec).pythonVersions ?? [];
       if (!versions.length) throw new Error(`the ${runtimeId} runtime declares no interpreter versions`);
-      for (const target of manifest.compatibility.targets) {
+      // A target-independent archive (`compatibility.targets: ["any"]`) still carries wheels built
+      // for specific platforms, so its locks live under a `<platform>-<arch>` subdirectory. Check
+      // every platform it actually ships for, rather than the single `any` target. A per-target
+      // archive keeps the flat layout, one lock set per declared target.
+      const targets = manifest.compatibility.targets.includes('any')
+        ? fs.readdirSync(path.join(dir, 'runtimes')).filter(name =>
+            name !== 'any' && fs.statSync(path.join(dir, 'runtimes', name)).isDirectory())
+        : manifest.compatibility.targets;
+      if (!targets.length) throw new Error(`the ${runtimeId} runtime has no lock for any platform`);
+      for (const target of targets) {
         for (const version of versions) {
           const lock = path.join(dir, 'runtimes', target, `lock-${version}.json`);
           if (!fs.existsSync(lock)) throw new Error(`the ${runtimeId} runtime has no lock for ${target} on Python ${version}`);

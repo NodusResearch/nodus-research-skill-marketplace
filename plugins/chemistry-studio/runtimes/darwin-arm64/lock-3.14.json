@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "python": "3.14",
+  "platform": "darwin-arm64",
+  "packages": [
+    {
+      "name": "cfgv-3.5.0-py2.py3-none-any.whl",
+      "requirement": "cfgv==3.5.0",
+      "url": "https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl",
+      "bytes": 7445,
+      "sha256": "a8dc6b26ad22ff227d2634a65cb388215ce6cc96bbcc5cfde7641ae87e8dacc0"
+    },
+    {
+      "name": "click-8.5.0-py3-none-any.whl",
+      "requirement": "click==8.5.0",
+      "url": "https://files.pythonhosted.org/packages/58/50/6c0d534c5f134586a8e1ba4e330569e32f057e33372ae556463212fb4cd3/click-8.5.0-py3-none-any.whl",
+      "bytes": 125251,
+      "sha256": "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360"
+    },
+    {
+      "name": "distlib-0.4.3-py2.py3-none-any.whl",
+      "requirement": "distlib==0.4.3",
+      "url": "https://files.pythonhosted.org/packages/02/08/9c41fb51ab5b43eb21674aff13df270e8ba6c4b29c8624e328dc7a9482af/distlib-0.4.3-py2.py3-none-any.whl",
+      "bytes": 470628,
+      "sha256": "4b0ce306c966eb73bc3a7b6abad017c556dadd92c44701562cd528ac7fde4d5b"
+    },
+    {
+      "name": "drfp-0.3.7-py3-none-any.whl",
+      "requirement": "drfp==0.3.7",
+      "url": "https://files.pythonhosted.org/packages/04/fd/69370aef6bebb14d39ac9dbd3bf626938fb6b04a5322cb882b4522f063d8/drfp-0.3.7-py3-none-any.whl",
+      "bytes": 9507,
+      "sha256": "6766bba126a296e9898930803432929e344ca306147f047be5a8b621279cc779"
+    },
+    {
+      "name": "et_xmlfile-2.0.0-py3-none-any.whl",
+      "requirement": "et_xmlfile==2.0.0",
+      "url": "https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl",
+      "bytes": 18059,
+      "sha256": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa"
+    },
+    {
+      "name": "faiss_cpu-1.15.1-cp310-abi3-macosx_14_0_arm64.whl",
+      "requirement": "faiss-cpu==1.15.1",
+      "url": "https://files.pythonhosted.org/packages/9b/ed/d1b8e6720e9947469cab45dbfbf1b82e1d5acf9fe063dc97a6e82db83094/faiss_cpu-1.15.1-cp310-abi3-macosx_14_0_arm64.whl",
+      "bytes": 4987669,
+      "sha256": "ea9e12d540ca8ac0347b831d034c0f6d7ff5eed20523a247db44b3543ad2aad4"
+    },
+    {
+      "name": "filelock-4.0.3-py3-none-any.whl",
+      "requirement": "filelock==4.0.3",
+      "url": "https://files.pythonhosted.org/packages/7a/6d/db8b86e168fef0cf904737e275bccb683558088ef971e92d3b41ce980699/filelock-4.0.3-py3-none-any.whl",
+      "bytes": 108444,
+      "sha256": "30cd166e2aee2c7534ce2c33c6367c4cd051b8368e20e2c4eb0c34f699bacfab"
+    },
+    {
+      "name": "identify-2.6.19-py2.py3-none-any.whl",
+      "requirement": "identify==2.6.19",
+      "url": "https://files.pythonhosted.org/packages/94/84/d9273cd09688070a6523c4aee4663a8538721b2b755c4962aafae0011e72/identify-2.6.19-py2.py3-none-any.whl",
+      "bytes": 99397,
+      "sha256": "20e6a87f786f768c092a721ad107fc9df0eb89347be9396cadf3f4abbd1fb78a"
+    },
+    {
+      "name": "nodeenv-1.10.0-py2.py3-none-any.whl",
+      "requirement": "nodeenv==1.10.0",
+      "url": "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl",
+      "bytes": 23438,
+      "sha256": "5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827"
+    },
+    {
+      "name": "numpy-2.3.5-cp314-cp314-macosx_11_0_arm64.whl",
+      "requirement": "numpy==2.3.5",
+      "url": "https://files.pythonhosted.org/packages/57/d4/51233b1c1b13ecd796311216ae417796b88b0616cfd8a33ae4536330748a/numpy-2.3.5-cp314-cp314-macosx_11_0_arm64.whl",
+      "bytes": 12264507,
+      "sha256": "052e8c42e0c49d2575621c158934920524f6c5da05a1d3b9bab5d8e259e045f0"
+    },
+    {
+      "name": "openpyxl-3.1.5-py2.py3-none-any.whl",
+      "requirement": "openpyxl==3.1.5",
+      "url": "https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl",
+      "bytes": 250910,
+      "sha256": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2"
+    },
+    {
+      "name": "packaging-26.3-py3-none-any.whl",
+      "requirement": "packaging==26.3",
+      "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+      "bytes": 129956,
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c"
+    },
+    {
+      "name": "pillow-12.3.0-cp314-cp314-macosx_11_0_arm64.whl",
+      "requirement": "pillow==12.3.0",
+      "url": "https://files.pythonhosted.org/packages/c7/da/32c752228ae345f489e3a42499d817b6c3996da7e8a3bc7a04fc806b243b/pillow-12.3.0-cp314-cp314-macosx_11_0_arm64.whl",
+      "bytes": 4780131,
+      "sha256": "e158cb00350dc278f3b91551101aa7d12415a66ebf2c91d8d5ac14e56ddd3ad0"
+    },
+    {
+      "name": "platformdirs-4.11.14-py3-none-any.whl",
+      "requirement": "platformdirs==4.11.14",
+      "url": "https://files.pythonhosted.org/packages/dc/40/03f2c094178624d155b8d27a9b0c5ab1e39efa6cc9074b599e8c671b9db1/platformdirs-4.11.14-py3-none-any.whl",
+      "bytes": 26700,
+      "sha256": "c1b1a1eab4f4d1b0eb81754593f1c38de88e84ebe6f93bf6714706a6759074b1"
+    },
+    {
+      "name": "pre_commit-4.6.2-py2.py3-none-any.whl",
+      "requirement": "pre_commit==4.6.2",
+      "url": "https://files.pythonhosted.org/packages/45/e2/bbb7129c9e7999a6b8ee9cca3b66486c25c423ab5a75f34071798b74ce94/pre_commit-4.6.2-py2.py3-none-any.whl",
+      "bytes": 226202,
+      "sha256": "e2dde9a75d3bce11bd3831c26d134df00a2803c1d818be6a0383c3dcda25dc4e"
+    },
+    {
+      "name": "python_discovery-1.6.1-py3-none-any.whl",
+      "requirement": "python-discovery==1.6.1",
+      "url": "https://files.pythonhosted.org/packages/16/7d/e9ffbadfbf89c93848412d04594135c4ae8c1d37d9e053b9c3ed718fabc4/python_discovery-1.6.1-py3-none-any.whl",
+      "bytes": 38664,
+      "sha256": "d43fcdef879fe795352bd13ccf8d185ba5a9f86f36cfcd00529f596e737442b3"
+    },
+    {
+      "name": "pyyaml-6.0.3-cp314-cp314-macosx_11_0_arm64.whl",
+      "requirement": "PyYAML==6.0.3",
+      "url": "https://files.pythonhosted.org/packages/bd/9c/4d95bb87eb2063d20db7b60faa3840c1b18025517ae857371c4dd55a6b3a/pyyaml-6.0.3-cp314-cp314-macosx_11_0_arm64.whl",
+      "bytes": 173809,
+      "sha256": "34d5fcd24b8445fadc33f9cf348c1047101756fd760b4dacb5c3e99755703310"
+    },
+    {
+      "name": "rdkit-2026.3.6-cp314-cp314-macosx_11_0_arm64.whl",
+      "requirement": "rdkit==2026.3.6",
+      "url": "https://files.pythonhosted.org/packages/15/04/555b7e23d201fd1721a0f0f5d058fcdb88b3f0b0a4082882905f6ef4f21b/rdkit-2026.3.6-cp314-cp314-macosx_11_0_arm64.whl",
+      "bytes": 30302795,
+      "sha256": "5a48f11dda561d25db1df4b49b41f1e2533c24fb53139491413dd05f51205fbc"
+    },
+    {
+      "name": "scipy-1.18.1-cp314-cp314-macosx_12_0_arm64.whl",
+      "requirement": "scipy==1.18.1",
+      "url": "https://files.pythonhosted.org/packages/2a/49/59ea385dc3a62ff498ddf3cfff7c2b41b0f9f9d3c4122b3f1dcb6d6327fe/scipy-1.18.1-cp314-cp314-macosx_12_0_arm64.whl",
+      "bytes": 28725221,
+      "sha256": "9554bcc6d715ee87a633a3cc8e7703c6628b100dd29cb8a2efc4c0533c7ff729"
+    },
+    {
+      "name": "tqdm-4.70.1-py3-none-any.whl",
+      "requirement": "tqdm==4.70.1",
+      "url": "https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl",
+      "bytes": 80199,
+      "sha256": "c293e525e6fef9c20e8728fd4612df02a0aa31bb5fe91ecd93e123b1b7bffa73"
+    },
+    {
+      "name": "virtualenv-21.12.1-py3-none-any.whl",
+      "requirement": "virtualenv==21.12.1",
+      "url": "https://files.pythonhosted.org/packages/f5/8c/692cf235722ee45c612630d2b49b3d1765892f7e440055365ea1b59c659e/virtualenv-21.12.1-py3-none-any.whl",
+      "bytes": 5486096,
+      "sha256": "878db9e963d0ef0b38561a344a4f9b12dc5c7741b6245d7ed10e9291cfea28bc"
+    },
+    {
+      "name": "xgboost-3.4.1-py3-none-macosx_12_0_arm64.whl",
+      "requirement": "xgboost==3.4.1",
+      "url": "https://files.pythonhosted.org/packages/f7/94/e5c37a8972ad780edc1d8459d1931356344ca133f7f99ba9cfda516b5bba/xgboost-3.4.1-py3-none-macosx_12_0_arm64.whl",
+      "bytes": 2365501,
+      "sha256": "a7afd7dbace0951c93aa85ffe046e54bc40893f5b51cd3e7991eb157bf9c7c7c"
+    },
+    {
+      "name": "zstandard-0.25.0-cp314-cp314-macosx_11_0_arm64.whl",
+      "requirement": "zstandard==0.25.0",
+      "url": "https://files.pythonhosted.org/packages/8d/09/d0a2a14fc3439c5f874042dca72a79c70a532090b7ba0003be73fee37ae2/zstandard-0.25.0-cp314-cp314-macosx_11_0_arm64.whl",
+      "bytes": 640658,
+      "sha256": "05df5136bc5a011f33cd25bc9f506e7426c0c9b3f9954f056831ce68f3b6689f"
+    }
+  ]
+}

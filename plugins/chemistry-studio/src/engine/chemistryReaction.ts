@@ -1,5 +1,6 @@
 import type { ChemistryReactionArtifact, ChemistryValidationRequest, ChemistryValidationResult, ReactionSpecies } from './chemistryDocument';
 import { compileChemfig } from './chemistry';
+import { colourChemfigAtoms } from './elementColours';
 import { formulaOf } from './chemistryElements';
 
 type Validate = (request: ChemistryValidationRequest) => Promise<ChemistryValidationResult>;
@@ -153,13 +154,13 @@ export async function renderBalancedReaction(species: ReactionSpecies[], validat
   let svg: string;
   let conditionsRendered = Boolean(conditionLabel);
   try {
-    svg = await compileChemfig(source);
+    svg = await compileChemfig(colourChemfigAtoms(source));
   } catch (error) {
     // The scheme and its balance are the deliverable. Conditions are model prose that can
     // still defeat TeX after sanitizing, so drop the annotation rather than the drawing.
     if (!conditionLabel) throw error;
     source = buildSource('', 1);
-    svg = await compileChemfig(source);
+    svg = await compileChemfig(colourChemfigAtoms(source));
     conditionsRendered = false;
   }
   return { scope: 'balanced-scheme-not-mechanism', svg, species: canonical, balance: totals.reactant, ...(notes ? { notes } : {}), ...(conditionsRendered && conditions ? { conditions } : {}),

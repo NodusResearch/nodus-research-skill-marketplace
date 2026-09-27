@@ -228,7 +228,10 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       balanced: null, chargeBalanced: null, differences: [], unspecifiedStereocentres: 0,
     };
     try {
-      if (!reaction || reaction.length > MAX_REACTION_CHARS) throw new Error(`A step must be a reaction SMILES under ${MAX_REACTION_CHARS} characters.`);
+      // An empty step is one the application could not build: a species on it has no resolved
+      // structure. It keeps its place so later steps keep their numbers.
+      if (!reaction) throw new Error('This step could not be built: a species it names has no resolved structure.');
+      if (reaction.length > MAX_REACTION_CHARS) throw new Error(`A step must be a reaction SMILES under ${MAX_REACTION_CHARS} characters.`);
       const { reactants: reactantField, agents: agentField, products: productField } = splitReactionSmiles(reaction);
       const reactants = await summarizeField(reactantField);
       const agents = await summarizeField(agentField);

@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "id": "chemistry",
   "provides": "nodus:chemistry",
-  "version": "2.5.6",
-  "description": "Resolve chemical identities against references, validate the structure, and draw it as a verified document.",
+  "version": "2.5.7",
+  "description": "Resolve chemical identities against references, validate the structure, draw it as a verified document, and check a step against known reactions.",
   "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
   "requires": [{ "id": "nodus:svg", "minVersion": "1.0.0", "maxVersionExclusive": "2.0.0" }],
   "tools": [
@@ -123,6 +123,28 @@
       "answerMode": "replace-block",
       "metered": false,
       "billing": "none"
+    },
+    {
+      "id": "known-reactions",
+      "description": "Look up a proposed reaction or a product in the local Open Reaction Database index: exact precedents, the reactions that make a product, and the most similar known reactions, with a drawing of the closest one exactly as recorded (unbalanced). The application supplies the index directory; this tool is not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "indexDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "reactions": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "maxItems": 32 },
+          "products": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "maxItems": 32 },
+          "similar": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "maxItems": 16 }
+        },
+        "required": ["indexDir"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["reaction-precedent"],
+      "timeoutMs": 300000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
     }
   ],
   "chat": {
@@ -168,12 +190,22 @@
       "version": 1,
       "label": { "en": "Structure naming", "es": "Nombrado de estructuras", "fr": "Nommage des structures", "de": "Struktur-Benennung", "pt": "Nomeação de estruturas", "pt-BR": "Nomeação de estruturas", "it": "Denominazione delle strutture", "tr": "Yapı adlandırma" },
       "modelVisibility": "projection"
+    },
+    {
+      "type": "reaction-precedent",
+      "version": 1,
+      "label": { "en": "Reaction precedent", "es": "Precedente de reacción", "fr": "Précédent de réaction", "de": "Reaktionspräzedenz", "pt": "Precedente de reação", "pt-BR": "Precedente de reação", "it": "Precedente di reazione", "tr": "Reaksiyon örneği" },
+      "modelVisibility": "none"
     }
   ],
   "permissions": {
     "network": [
       { "id": "opsin", "origin": "https://www.ebi.ac.uk", "pathPrefixes": ["/opsin/ws/"], "methods": ["GET"], "maxResponseBytes": 1048576, "timeoutMs": 30000 },
-      { "id": "pubchem", "origin": "https://pubchem.ncbi.nlm.nih.gov", "pathPrefixes": ["/rest/pug/compound/"], "methods": ["GET"], "maxResponseBytes": 4194304, "timeoutMs": 30000 }
+      { "id": "pubchem", "origin": "https://pubchem.ncbi.nlm.nih.gov", "pathPrefixes": ["/rest/pug/compound/"], "methods": ["GET"], "maxResponseBytes": 4194304, "timeoutMs": 30000 },
+      { "id": "wheels", "origin": "https://files.pythonhosted.org", "pathPrefixes": ["/packages/"], "methods": ["GET"], "maxResponseBytes": 268435456, "timeoutMs": 240000 }
+    ],
+    "runtimes": [
+      { "id": "chemistry", "kind": "python", "minVersion": "3.11" }
     ],
     "model": { "maxCalls": 2, "purpose": "Repair a structurally invalid plan, or draw an explicitly unverified fallback when the verified lane abstains." },
     "svg": true,

@@ -3,6 +3,7 @@ import type { RDKitLoader, RDKitModule, JSMol } from '@rdkit/rdkit';
 import { requireVendored } from './vendor';
 import type { ChemistryGraph, ChemistryInspectionSummary, ChemistryPartialReason, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
 import { formulaOf } from './chemistryElements';
+import { rdkitAtomPalette } from './elementColours';
 import { sceneFromMolfile, sceneMolfile, renderScene, exportSceneChemfig, verifySceneChemfig, forceTetrahedralPerspective, assignLonePairs } from './chemistryScene';
 import { deriveProjection } from './chemistryProjections';
 import { deriveMechanism } from './chemistryMechanisms';
@@ -247,9 +248,9 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
     })() : undefined;
     // Render the exact round-tripped scene, not the original text or another layout.
     const size = atoms.length > 40 ? { width: 1000, height: 650 } : { width: 640, height: 420 };
-    // Monochrome textbook notation for whatever elements the structure actually
-    // contains, so a metal does not arrive in RDKit's default CPK colour.
-    const atomColourPalette = Object.fromEntries([0, ...new Set(atoms.map((a: { atomicNumber: number }) => a.atomicNumber))].map(z => [z, [0, 0, 0]]));
+    // The package's one element palette (heteroatoms coloured, carbon and metals black), set
+    // for exactly the elements present so RDKit's fuller CPK defaults never leak in.
+    const atomColourPalette = rdkitAtomPalette(atoms.map((a: { atomicNumber: number }) => a.atomicNumber));
     // CIP remains in the graph metadata; drawing it on every crowded centre can
     // obscure the bonds which actually carry stereochemistry. The two explicit-hydrogen
     // depictions below are opt-ins: they expand the drawing only, and the graph recorded
