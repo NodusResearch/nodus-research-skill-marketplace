@@ -1093,6 +1093,20 @@ test('resolve-names falls back to OPSIN when PubChem has no exact match', async 
   assert.equal(entry.smiles, 'C#CCC');
 });
 
+test('a salt name that resolves to unbalanced charges is refused with feedback', async () => {
+  // "sodium diethyl propanedioate" resolved to the neutral diester beside a sodium ion (net +1):
+  // a malonic ester synthesis could then never balance, through every correction.
+  const wrong = lib.createWorker(resolveHost((endpointId) => (endpointId === 'opsin' ? { status: 'SUCCESS', smiles: 'CCOC(=O)CC(=O)OCC.[Na+]' } : undefined)));
+  const refused = (await wrong.invoke({ invocationId: 'salt1', toolId: 'resolve-names', locale: 'en', input: { names: ['sodium diethyl propanedioate'] } })).artifacts[0].data.results[0];
+  assert.equal(refused.status, 'unresolved');
+  assert.match(refused.feedback, /charges do not balance \(net \+1\)/);
+  assert.equal(refused.smiles, undefined);
+  // The enolate written with its carbanion balances and resolves.
+  const right = lib.createWorker(resolveHost((endpointId) => (endpointId === 'opsin' ? { status: 'SUCCESS', smiles: 'CCOC(=O)[CH-]C(=O)OCC.[Na+]' } : undefined)));
+  const resolved = (await right.invoke({ invocationId: 'salt2', toolId: 'resolve-names', locale: 'en', input: { names: ['sodium diethyl propanedioate'] } })).artifacts[0].data.results[0];
+  assert.equal(resolved.status, 'resolved');
+});
+
 test('an ambiguous PubChem match and a partial OPSIN parse are reported with feedback', async () => {
   const ambiguous = lib.createWorker(resolveHost((endpointId, target) => {
     if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [1, 2] } };
