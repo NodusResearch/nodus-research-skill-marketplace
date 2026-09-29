@@ -317,6 +317,20 @@ test('a species listed on the wrong side is named when moving it balances the st
   assert.match(step.differences.join(' '), /"H2O" is listed as a reactant, but the step forms it: list it under Byproducts \(5 H2O\)\./);
 });
 
+test('hydrogenation with H2 is checked, and a permanganate oxidation needing 14 water balances', async () => {
+  const worker = lib.createWorker(stubHost());
+  const hydrogenation = await worker.invoke({ invocationId: 'h2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCOC(=O)c1ccc([N+](=O)[O-])cc1.[H][H]>>CCOC(=O)c1ccc(N)cc1.O'] } });
+  const h2 = hydrogenation.artifacts[0].data.steps[0];
+  assert.equal(h2.ok, true, h2.error);
+  assert.equal(h2.balanced, true, JSON.stringify(h2.differences));
+  // 5 ArCH3 + 6 MnO4- + 9 H2SO4 → 5 ArCOOH + 6 Mn2+ + 9 SO4 2- + 14 H2O: a coefficient above 12.
+  const permanganate = 'Cc1ccc([N+](=O)[O-])cc1.[K+].[O-][Mn](=O)(=O)=O.OS(=O)(=O)O>>O=C(O)c1ccc([N+](=O)[O-])cc1.[O-]S(=O)(=O)[O-].[Mn+2].[K+].O';
+  const oxidation = await worker.invoke({ invocationId: 'kmno4', toolId: 'verify-route', locale: 'en', input: { steps: [permanganate] } });
+  const step = oxidation.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, true, JSON.stringify(step.differences));
+  assert.equal(step.products.find(entry => entry.formula === 'H2O').coefficient, 14);
+});
+
 test('a step that cannot be parsed names the offending species', async () => {
   const worker = lib.createWorker(stubHost());
   const result = await worker.invoke({
@@ -1105,6 +1119,13 @@ test('a salt name that resolves to unbalanced charges is refused with feedback',
   const right = lib.createWorker(resolveHost((endpointId) => (endpointId === 'opsin' ? { status: 'SUCCESS', smiles: 'CCOC(=O)[CH-]C(=O)OCC.[Na+]' } : undefined)));
   const resolved = (await right.invoke({ invocationId: 'salt2', toolId: 'resolve-names', locale: 'en', input: { names: ['sodium diethyl propanedioate'] } })).artifacts[0].data.results[0];
   assert.equal(resolved.status, 'resolved');
+});
+
+test('"hydrogen" resolves to dihydrogen, not the hydrogen atom', async () => {
+  const worker = lib.createWorker(resolveHost((endpointId) => (endpointId === 'opsin' ? { status: 'SUCCESS', smiles: '[H]' } : undefined)));
+  const [h2, atom] = (await worker.invoke({ invocationId: 'hyd', toolId: 'resolve-names', locale: 'en', input: { names: ['hydrogen', 'hydrogen atom'] } })).artifacts[0].data.results;
+  assert.equal(h2.smiles, '[H][H]');
+  assert.equal(atom.smiles, '[H]', 'a name that asks for the atom keeps it');
 });
 
 test('an ambiguous PubChem match and a partial OPSIN parse are reported with feedback', async () => {

@@ -83,7 +83,7 @@ export async function renderBalancedReaction(species: ReactionSpecies[], validat
   const drawings: string[] = [];
   for (const item of species) {
     if (!item || !/^[a-z][a-z0-9-]{0,39}$/.test(item.id) || ids.has(item.id)
-      || !['reactant', 'product', 'agent'].includes(item.role) || !Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > 12
+      || !['reactant', 'product', 'agent'].includes(item.role) || !Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > MAX_COEFFICIENT
       || typeof item.smiles !== 'string' || !item.smiles || item.smiles.length > 2000) throw new Error('Invalid reaction species or coefficient.');
     ids.add(item.id);
     const checked = await validate({ references: [item.smiles], ...(racemic ? { racemic: true } : {}), ...(openStereo ? { openStereo: true } : {}) });
@@ -177,6 +177,13 @@ interface Composition { atoms: Record<string, number>; charge: number }
 
 // Exact rational arithmetic over bigint. Stoichiometric coefficients are integers, and a
 // balance decided in floating point would be a balance decided by rounding.
+/** The largest coefficient a solved equation may carry. Redox steps reach the teens: a
+ *  permanganate oxidation of a methylarene forms 14 water per 5 substrate. Above this a
+ *  balance is more likely a wrong species set than a real equation. The multi-solution search
+ *  keeps its own smaller ceiling, since its cost grows with the ceiling to the power of the
+ *  solution-space dimension. */
+export const MAX_COEFFICIENT = 30;
+
 type Frac = [bigint, bigint];
 const gcd = (a: bigint, b: bigint): bigint => { a = a < 0n ? -a : a; b = b < 0n ? -b : b; while (b) { const t = a % b; a = b; b = t; } return a; };
 const norm = (n: bigint, d: bigint): Frac => { if (d < 0n) { n = -n; d = -d; } const g = gcd(n, d) || 1n; return [n / g, d / g]; };
@@ -269,7 +276,7 @@ function toIntegerCoefficients(vector: Frac[]): number[] | null {
   for (const value of scaled) divisor = gcd(divisor, value);
   if (divisor === 0n) return null;
   const whole = scaled.map(value => Number(value / divisor));
-  return whole.some(value => value > 12) ? null : whole;
+  return whole.some(value => value > MAX_COEFFICIENT) ? null : whole;
 }
 
 const ELEMENT_SYMBOLS: Record<number, string> = { 1: 'H', 3: 'Li', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 19: 'K', 35: 'Br', 53: 'I' };
@@ -372,7 +379,7 @@ function netColumnBalance(compositions: Composition[], roles: ReactionSpecies['r
   for (const value of scaled) divisor = gcd(divisor, value < 0n ? -value : value);
   if (divisor === 0n) return null;
   const whole = scaled.map(value => Number(value / divisor));
-  if (whole.some((value, position) => (columns[position].free ? Math.abs(value) > 24 : value > 12))) return null;
+  if (whole.some((value, position) => (columns[position].free ? Math.abs(value) > 2 * MAX_COEFFICIENT : value > MAX_COEFFICIENT))) return null;
   const coefficients = supplied.slice();
   columns.forEach(({ index, free }, position) => {
     if (!free) { coefficients[index] = whole[position]; return; }
