@@ -452,7 +452,8 @@ def _lookup(path, wanted):
     import bisect
 
     wanted = set(wanted)
-    if not wanted:
+    if not wanted or not os.path.isfile(path):
+        # A table an older index does not ship (format 3 has no molecules table) reads as empty.
         return {}
     blocks_path = path + ".blocks"
     if not os.path.isfile(blocks_path):
@@ -497,7 +498,12 @@ def _retro_templates(index_dir):
     from rdkit import Chem
 
     rows = []
-    for line in _zst_lines(os.path.join(index_dir, "retro-templates.tsv.zst")):
+    path = os.path.join(index_dir, "retro-templates.tsv.zst")
+    if not os.path.isfile(path):
+        # A format-3 index has no retro templates: proposals then come only from recorded reactions.
+        _retro_cache[index_dir] = rows
+        return rows
+    for line in _zst_lines(path):
         count, rdchiral, smarts = line.split("\t", 2)
         query = Chem.MolFromSmarts(smarts.split(">>")[0])
         if query is not None:
@@ -732,7 +738,8 @@ def handle(request):
         targets = [t for t in request.get("disconnect", []) if isinstance(t, str) and t.strip()][:16]
         limit = max(1, min(int(request.get("limit", 8) or 8), 32))
         starting = [s for s in request.get("startingMaterials", []) if isinstance(s, str) and s.strip()][:16]
-        return {"disconnections": _disconnect(index_dir, targets, limit, starting)}
+        missing = [name for name in ("retro-templates.tsv.zst", "molecules.tsv.zst") if not os.path.isfile(os.path.join(index_dir, name))]
+        return {"disconnections": _disconnect(index_dir, targets, limit, starting), **({"indexLacks": missing} if missing else {})}
     store = _load(index_dir)
 
     reactions = []
