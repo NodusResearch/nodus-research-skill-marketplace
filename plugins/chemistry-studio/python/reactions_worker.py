@@ -372,7 +372,10 @@ def _reaction_classes(precursors, product):
     if up("acyl_halide") and before["acid"]: classes.append("acid chloride formation with thionyl chloride")
     if up("acid") and before["phenol"] and after["phenol"]: classes.append("Kolbe-Schmitt carboxylation of a phenol")
     elif up("acid") and not down("ester") and not down("nitrile") and not down("ketone") and (before["alcohol"] or before["aldehyde"] or down("benzylic_methyl")): classes.append("oxidation to a carboxylic acid")
-    if up("aldehyde") or (up("ketone") and down("alcohol")): classes.append("oxidation of an alcohol")
+    # Only an alcohol consumed makes it an alcohol oxidation; a methylarene oxidised to the aldehyde
+    # is a benzylic oxidation (4-nitrotoluene → 4-nitrobenzaldehyde named "oxidation of an alcohol").
+    if (up("aldehyde") or up("ketone")) and down("alcohol"): classes.append("oxidation of an alcohol")
+    elif up("aldehyde") and down("benzylic_methyl"): classes.append("benzylic oxidation")
     if up("alcohol") and (down("ketone") or down("aldehyde")): classes.append("reduction of a carbonyl compound")
     if up("biaryl") and before["boron"]: classes.append("Suzuki cross-coupling")
     if down("aryl_halide") and (up("arylamine") or up("amine") or up("ether")) and before["nitro"]: classes.append("nucleophilic aromatic substitution")
