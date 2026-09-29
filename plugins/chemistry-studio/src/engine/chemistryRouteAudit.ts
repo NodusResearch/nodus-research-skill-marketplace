@@ -84,6 +84,29 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
   }
 }
 
+/** The sentence naming a single species listed on the wrong side, when moving it across
+ *  balances the step; empty otherwise. A species on both sides is left alone. */
+function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+  const same = (a: RouteSpeciesSummary, b: RouteSpeciesSummary) => a.canonicalSmiles === b.canonicalSmiles;
+  const tryMove = (from: RouteSpeciesSummary[], to: RouteSpeciesSummary[], position: number, toProducts: boolean): string => {
+    const species = from[position];
+    if (to.some(entry => same(entry, species)) || from.length < 2) return '';
+    const nextFrom = from.filter((_, i) => i !== position);
+    const nextTo = [...to, species];
+    const result = toProducts ? stepBalance(nextFrom, agents, nextTo) : stepBalance(nextTo, agents, nextFrom);
+    if (!result.balanced || !result.coefficients) return '';
+    const ordered = toProducts ? [...nextFrom, ...agents, ...nextTo] : [...nextTo, ...agents, ...nextFrom];
+    const count = result.coefficients[ordered.indexOf(species)];
+    const label = speciesLabel(species);
+    return toProducts
+      ? `"${label}" is listed as a reactant, but the step forms it: list it under Byproducts (${count} ${label}).`
+      : `"${label}" is listed on the product side, but the step consumes it: list it under Reactants (${count} ${label}).`;
+  };
+  for (let i = 0; i < reactants.length; i++) { const hint = tryMove(reactants, products, i, true); if (hint) return hint; }
+  for (let i = 0; i < products.length; i++) { const hint = tryMove(products, reactants, i, false); if (hint) return hint; }
+  return '';
+}
+
 /** The reactant-side species (one, else a pair) that, filed as agents, let the step balance.
  *  Only an idle species can go: at least one reactant must remain. */
 function agentsThatBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): number[] | null {
@@ -271,6 +294,13 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
             balance = retried;
           }
         }
+      }
+      // Still refused: when moving one species to the other side makes the step balance (water
+      // written as a reactant in an oxidation that forms it), say so — the totals alone did not
+      // tell the author which species or which way.
+      if (!balance.balanced) {
+        const flip = sideFlipThatBalances(reactants, agents, products);
+        if (flip) balance.differences = balance.differences.map(entry => `${entry} ${flip}`);
       }
       // The solved coefficients travel with the species so the report can show the equation
       // that actually balanced, not the 1:1:1:1 the author likely meant.
