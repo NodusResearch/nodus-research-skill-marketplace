@@ -894,6 +894,24 @@ test('the coefficients are solved, not taken on trust', () => {
     [1, 1, 1]);
 });
 
+test('water written on both sides is named when it is why a step cannot balance', () => {
+  // A dichromate oxidation the model wrote with water as a reactant ("aqueous") and as a
+  // byproduct. Water cancels as a spectator, and without it nothing balances; the old message
+  // only listed unit-coefficient totals, and four corrections in a row repeated the mistake.
+  const toluene = comp({ '6:0': 7, '1:0': 7, '7:0': 1, '8:0': 2 }), acid = comp({ '6:0': 7, '1:0': 5, '7:0': 1, '8:0': 4 });
+  const Na = comp({ '11:0': 1 }, 1), Cr2O7 = comp({ '24:0': 2, '8:0': 7 }, -2), H2SO4 = comp({ '1:0': 2, '16:0': 1, '8:0': 4 });
+  const SO4 = comp({ '16:0': 1, '8:0': 4 }, -2), Cr = comp({ '24:0': 1 }, 3);
+  const both = [toluene, Na, Cr2O7, H2SO4, H2O, acid, SO4, Cr, Na, H2O];
+  const roles = ['reactant', 'reactant', 'reactant', 'reactant', 'reactant', 'product', 'product', 'product', 'product', 'product'];
+  assert.throws(() => lib.balanceReaction(both, roles, both.map(() => 1)),
+    /"H2O" is listed as both a reactant and a product, so it cancels out and takes no part; the equation balances with it only as a product \(5 H2O\)\. List it once/);
+  // Written once, as a product, the same species balance.
+  const once = [toluene, Na, Cr2O7, H2SO4, acid, SO4, Cr, Na, H2O];
+  assert.deepEqual(lib.balanceReaction(once, roles.filter((_, i) => i !== 4), once.map(() => 1)), [1, 1, 1, 4, 1, 4, 2, 1, 5]);
+  // A genuine imbalance with no both-sides species keeps the old advice.
+  assert.throws(() => lib.balanceReaction([toluene, acid], ['reactant', 'product'], [1, 1]), /Add the missing reagent or byproduct/);
+});
+
 test('an agent takes no part in the balance', () => {
   // A catalyst is recovered and a solvent is not consumed, so neither belongs in the
   // matrix — and a platinum atom on one side only must not make the equation unsolvable.

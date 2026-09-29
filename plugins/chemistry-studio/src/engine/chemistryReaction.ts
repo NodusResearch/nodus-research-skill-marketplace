@@ -334,7 +334,31 @@ function cancelledSpectators(active: Array<{ composition: Composition; index: nu
  *  A single basis vector is a unique balance. Several means the species admit more than one
  *  equation — ethanol combustion written with both CO and CO2, say — and choosing one would
  *  be inventing a claim about which reaction is meant. */
-export function balanceReaction(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[]): number[] {
+/** When a step fails only because a species it lists on both sides was cancelled as a
+ *  spectator (water written as "aqueous" and as a byproduct, say), the sentence that says so.
+ *  Each cancelled species is tried once on one side only; a balance found that way is named. */
+function oneSidedHint(compositions: Composition[], roles: ReactionSpecies['role'][], active: Array<{ composition: Composition; index: number }>, removed: Set<number>): string {
+  const reactantSide = [...removed].filter(index => roles[index] === 'reactant');
+  for (const index of reactantSide) {
+    const key = JSON.stringify([compositions[index].atoms, compositions[index].charge]);
+    const twin = [...removed].find(other => roles[other] === 'product' && JSON.stringify([compositions[other].atoms, compositions[other].charge]) === key);
+    if (twin === undefined) continue;
+    for (const [drop, keep, side] of [[index, twin, 'product'], [twin, index, 'reactant']] as const) {
+      const kept = active.map(({ index: i }) => i).filter(i => i !== drop);
+      try {
+        const solved = balanceReaction(kept.map(i => compositions[i]), kept.map(i => roles[i]), kept.map(() => 1), true);
+        const count = solved[kept.indexOf(keep)];
+        const name = formulaOf(compositions[index].atoms);
+        return ` "${name}" is listed as both a reactant and a product, so it cancels out and takes no part; the equation balances with it only as a ${side} (${count} ${name}). List it once, on the side where it is ${side === 'product' ? 'formed' : 'consumed'}.`;
+      } catch {
+        /* Not this side. */
+      }
+    }
+  }
+  return '';
+}
+
+export function balanceReaction(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[], hinting = false): number[] {
   const active = compositions.map((composition, index) => ({ composition, index })).filter(({ index }) => roles[index] !== 'agent');
   if (!active.some(({ index }) => roles[index] === 'reactant') || !active.some(({ index }) => roles[index] === 'product')) {
     throw new Error('A balanced scheme needs at least one reactant and one product.');
@@ -356,12 +380,13 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
   // adds a degree of freedom and a correct equation is reported as "more than one balance".
   const removed = cancelledSpectators(active, roles);
   const reduced = active.filter(({ index }) => !removed.has(index));
+  const hint = () => (hinting || !removed.size ? '' : oneSidedHint(compositions, roles, active, removed));
   if (!reduced.some(({ index }) => roles[index] === 'reactant') || !reduced.some(({ index }) => roles[index] === 'product')) {
-    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.`);
+    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}.${hint() || ' Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.'}`);
   }
   const basis = nullSpace(matrixFor(reduced), reduced.length);
   if (!basis.length) {
-    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.`);
+    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}.${hint() || ' Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.'}`);
   }
   // The dimension of the null space is the question, not whether a particular basis vector
   // happens to come out positive. Two dimensions means infinitely many balanced equations —
