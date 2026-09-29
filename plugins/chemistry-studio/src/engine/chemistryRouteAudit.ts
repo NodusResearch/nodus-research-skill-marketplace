@@ -349,9 +349,17 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       // RDKit's labeller counts every unassigned centre, including bridgeheads a small cage fixes
       // (tropinone's two, which make it meso) — a question the author cannot answer. Where the
       // enumeration says fewer real choices remain, use that.
+      // A reactant that is itself stereo-open (α-pinene given without descriptors) is racemic, so a
+      // product whose only open choice is its mirror image is racemic too: racemic in, racemic out.
+      const racemicReactant = reactants.some((entry) => {
+        const open = input.stereoChoices?.[entry.input];
+        return typeof open === 'number' ? open >= 1 : false;
+      });
       for (const entry of products) {
         const choices = input.stereoChoices?.[entry.input];
-        if (typeof choices === 'number' && choices >= 0 && choices < entry.unspecifiedStereocentres) entry.unspecifiedStereocentres = choices;
+        if (typeof choices !== 'number' || choices < 0) continue;
+        const effective = choices === 1 && racemicReactant ? 0 : choices;
+        if (effective < entry.unspecifiedStereocentres) entry.unspecifiedStereocentres = effective;
       }
       step.unspecifiedStereocentres = products.reduce((sum, entry) => sum + entry.unspecifiedStereocentres, 0);
       if (step.unspecifiedStereocentres > 0 && declaredRacemic(index)) step.racemic = true;

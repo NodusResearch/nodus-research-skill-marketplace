@@ -345,7 +345,8 @@ test('fixed bridgeheads are not unspecified stereocentres: the Robinson tropinon
   };
   const enumerated = await lib.createWorker(host).invoke({ invocationId: 'trop2', toolId: 'verify-route', locale: 'en', input: { steps: [step], enumerateStereo: true } });
   const checked = enumerated.artifacts[0].data.steps[0];
-  assert.deepEqual(sent[0].stereoChoices.sort(), ['CN1C2CCC1CC(=O)C2', 'O', 'O=C=O'].sort());
+  // Organic products and reactants (a stereo-open reactant makes a product racemic); no water.
+  assert.deepEqual(sent[0].stereoChoices.sort(), ['CN', 'CN1C2CCC1CC(=O)C2', 'O=C(O)CC(=O)CC(=O)O', 'O=C=O', 'O=CCCC=O'].sort());
   assert.equal(checked.unspecifiedStereocentres, 0);
   assert.equal(checked.balanced, true);
   // Without the flag the runtime is never touched (a route check must not install it).
@@ -353,6 +354,22 @@ test('fixed bridgeheads are not unspecified stereocentres: the Robinson tropinon
   untouched.python = { ensureRuntime: async () => { throw new Error('must not be called'); }, run: async () => { throw new Error('must not be called'); } };
   const skipped = await lib.createWorker(untouched).invoke({ invocationId: 'trop3', toolId: 'verify-route', locale: 'en', input: { steps: [step] } });
   assert.equal(skipped.artifacts[0].data.steps[0].unspecifiedStereocentres, 2);
+});
+
+test('racemic in, racemic out: α-pinene without descriptors makes camphene racemic', async () => {
+  const step = 'CC1=CCC2CC1C2(C)C>O>C=C1C2CCC(C2)C1(C)C';
+  const run = async (choices) => {
+    const host = stubHost();
+    host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 0, stdout: JSON.stringify({ stereoChoices: choices }), stderr: '' }) };
+    const result = await lib.createWorker(host).invoke({ invocationId: 'pin', toolId: 'verify-route', locale: 'en', input: { steps: [step], enumerateStereo: true } });
+    return result.artifacts[0].data.steps[0].unspecifiedStereocentres;
+  };
+  // The reactant is itself an enantiomer-only choice (racemic as given): nothing is left open.
+  assert.equal(await run({ 'CC1=CCC2CC1C2(C)C': 1, 'C=C1C2CCC(C2)C1(C)C': 1 }), 0);
+  // A settled reactant: the product's mirror-image choice is the author's to state.
+  assert.equal(await run({ 'CC1=CCC2CC1C2(C)C': 0, 'C=C1C2CCC(C2)C1(C)C': 1 }), 1);
+  // Real diastereomers (no enumeration result) keep the labeller's count.
+  assert.ok(await run({ 'CC1=CCC2CC1C2(C)C': 1 }) >= 2);
 });
 
 test('hydrogenation with H2 is checked, and a permanganate oxidation needing 14 water balances', async () => {
