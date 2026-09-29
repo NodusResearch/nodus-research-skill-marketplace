@@ -317,6 +317,19 @@ test('a species listed on the wrong side is named when moving it balances the st
   assert.match(step.differences.join(' '), /"H2O" is listed as a reactant, but the step forms it: list it under Byproducts \(5 H2O\)\./);
 });
 
+test('a solvent the step also forms is named: ethanol in a malonic ester alkylation', async () => {
+  const worker = lib.createWorker(stubHost());
+  // Sodium ethoxide in ethanol, iodomethane: the step forms ethanol, but it is listed only as the solvent.
+  const alkylation = 'CCOC(=O)CC(=O)OCC.CC[O-].[Na+].CI>CCO>CCOC(=O)C(C)C(=O)OCC.[I-].[Na+]';
+  const result = await worker.invoke({ invocationId: 'solv1', toolId: 'verify-route', locale: 'en', input: { steps: [alkylation] } });
+  const step = result.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, false);
+  assert.match(step.differences.join(' '), /"C2H6O" is listed under Agents, and the step also forms it: keep it under Agents if it is the solvent, and also list it under Byproducts \(1 C2H6O\)\./);
+  // Listed on both, it balances.
+  const fixed = await worker.invoke({ invocationId: 'solv2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCOC(=O)CC(=O)OCC.CC[O-].[Na+].CI>CCO>CCOC(=O)C(C)C(=O)OCC.[I-].[Na+].CCO'] } });
+  assert.equal(fixed.artifacts[0].data.steps[0].balanced, true);
+});
+
 test('hydrogenation with H2 is checked, and a permanganate oxidation needing 14 water balances', async () => {
   const worker = lib.createWorker(stubHost());
   const hydrogenation = await worker.invoke({ invocationId: 'h2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCOC(=O)c1ccc([N+](=O)[O-])cc1.[H][H]>>CCOC(=O)c1ccc(N)cc1.O'] } });
