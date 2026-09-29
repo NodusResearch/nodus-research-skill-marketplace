@@ -729,7 +729,60 @@ def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, bran
     return {"target": target, "routes": done, "expanded": expanded}
 
 
+def _stereo_choices(smiles, max_isomers=64):
+    """How many stereo choices a structure written without them really leaves open.
+
+    0 when only one stereoisomer can exist (tropinone: its bridgeheads can only be cis, and the
+    cis form is meso), 1 when the only choice is between two mirror images (a camphor written
+    without descriptors, which "racemic" covers), None when there are real diastereomers to
+    choose between or the structure is too large to enumerate. Unassigned centres and double
+    bonds are enumerated with 3D embedding, so a trans-bridged cage that cannot be built is not
+    counted as a choice."""
+    from rdkit import Chem
+    from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnumerationOptions
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None or mol.GetNumHeavyAtoms() > 60:
+        return None
+    from rdkit.Chem import AllChem
+
+    def buildable(isomer):
+        # A quick embedding with two seeds: RDKit's own tryEmbedding retries an impossible cage
+        # for seconds. Both seeds failing marks the isomer as one that cannot exist.
+        with_h = Chem.AddHs(isomer)
+        for seed in (7, 11):
+            params = AllChem.ETKDGv3()
+            params.randomSeed = seed
+            params.maxIterations = 20
+            params.useRandomCoords = True
+            if AllChem.EmbedMolecule(with_h, params) == 0:
+                return True
+        return False
+
+    options = StereoEnumerationOptions(onlyUnassigned=True, unique=True, maxIsomers=max_isomers)
+    isomers = sorted({Chem.MolToSmiles(m) for m in EnumerateStereoisomers(mol, options=options) if buildable(m)})
+    if len(isomers) >= max_isomers:
+        return None
+    if len(isomers) <= 1:
+        return 0
+    if len(isomers) == 2:
+        mirror = Chem.MolFromSmiles(isomers[0])
+        for atom in mirror.GetAtoms():
+            atom.InvertChirality()
+        if Chem.MolToSmiles(mirror) == isomers[1]:
+            return 1
+    return None
+
+
 def handle(request):
+    if "stereoChoices" in request:
+        out = {}
+        for smiles in [s for s in request.get("stereoChoices", []) if isinstance(s, str) and s.strip()][:48]:
+            try:
+                out[smiles] = _stereo_choices(smiles)
+            except Exception:
+                out[smiles] = None
+        return {"stereoChoices": out}
     index_dir = request.get("indexDir")
     if not isinstance(index_dir, str) or not index_dir:
         raise SystemExit("indexDir is required")

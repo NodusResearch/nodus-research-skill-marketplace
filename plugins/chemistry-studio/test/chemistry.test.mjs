@@ -330,6 +330,31 @@ test('a solvent the step also forms is named: ethanol in a malonic ester alkylat
   assert.equal(fixed.artifacts[0].data.steps[0].balanced, true);
 });
 
+test('fixed bridgeheads are not unspecified stereocentres: the Robinson tropinone synthesis', async () => {
+  // Butanedial + methylamine + acetonedicarboxylic acid -> tropinone + 2 CO2 + 2 H2O. RDKit's
+  // labeller reports tropinone's two bridgeheads as unassigned; they can only be cis, and cis is
+  // meso, so nothing is left to specify. The full RDKit (Python) says so when asked.
+  const step = 'O=CCCC=O.CN.O=C(O)CC(=O)CC(=O)O>>CN1C2CCC1CC(=O)C2.O.O=C=O';
+  const plain = await lib.createWorker(stubHost()).invoke({ invocationId: 'trop1', toolId: 'verify-route', locale: 'en', input: { steps: [step] } });
+  assert.equal(plain.artifacts[0].data.steps[0].unspecifiedStereocentres, 2, 'the labeller alone counts both bridgeheads');
+  const host = stubHost();
+  const sent = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => { sent.push(JSON.parse(request.stdin)); return { code: 0, stdout: JSON.stringify({ stereoChoices: { 'CN1C2CCC1CC(=O)C2': 0, O: 0, 'O=C=O': 0 } }), stderr: '' }; },
+  };
+  const enumerated = await lib.createWorker(host).invoke({ invocationId: 'trop2', toolId: 'verify-route', locale: 'en', input: { steps: [step], enumerateStereo: true } });
+  const checked = enumerated.artifacts[0].data.steps[0];
+  assert.deepEqual(sent[0].stereoChoices.sort(), ['CN1C2CCC1CC(=O)C2', 'O', 'O=C=O'].sort());
+  assert.equal(checked.unspecifiedStereocentres, 0);
+  assert.equal(checked.balanced, true);
+  // Without the flag the runtime is never touched (a route check must not install it).
+  const untouched = stubHost();
+  untouched.python = { ensureRuntime: async () => { throw new Error('must not be called'); }, run: async () => { throw new Error('must not be called'); } };
+  const skipped = await lib.createWorker(untouched).invoke({ invocationId: 'trop3', toolId: 'verify-route', locale: 'en', input: { steps: [step] } });
+  assert.equal(skipped.artifacts[0].data.steps[0].unspecifiedStereocentres, 2);
+});
+
 test('hydrogenation with H2 is checked, and a permanganate oxidation needing 14 water balances', async () => {
   const worker = lib.createWorker(stubHost());
   const hydrogenation = await worker.invoke({ invocationId: 'h2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCOC(=O)c1ccc([N+](=O)[O-])cc1.[H][H]>>CCOC(=O)c1ccc(N)cc1.O'] } });

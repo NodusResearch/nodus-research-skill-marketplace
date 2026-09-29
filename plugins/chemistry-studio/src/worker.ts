@@ -518,7 +518,24 @@ async function resolveRouteLabels(
  *  balanced, every intermediate leaving one step the same molecule as the one entering the
  *  next, and every supplied IUPAC name denoting the structure it was written beside. The
  *  result is a `route-audit` artifact the application renders deterministically. */
-async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }, cache: ReferenceCache) {
+/** The stereo choices each product really leaves open, from the full RDKit in the shared
+ *  Python runtime (see `_stereo_choices`). Best-effort: an empty map when the runtime is not
+ *  installed or the call fails, and the labeller's own counts stand. */
+async function productStereoChoices(steps: string[]): Promise<Record<string, number | null>> {
+  const products = [...new Set(steps.flatMap(step => (step.split('>')[2] ?? '').split('.')).map(part => part.trim()).filter(Boolean))].slice(0, 48);
+  if (!products.length) return {};
+  try {
+    const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+    if (!ready.ready) return {};
+    const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT], stdin: JSON.stringify({ stereoChoices: products }), timeoutMs: 60_000 });
+    if (run.code !== 0) return {};
+    return (JSON.parse(run.stdout) as { stereoChoices?: Record<string, number | null> }).stereoChoices ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; enumerateStereo?: boolean }, cache: ReferenceCache) {
   // An empty entry is a step the application could not build. It is kept, not dropped, so the
   // labels, carriers and racemic flags — all indexed by step — stay aligned with the steps.
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
@@ -531,7 +548,10 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
     : Array.isArray(input?.racemic) ? input.racemic.slice(0, steps.length) : undefined;
   const target = typeof input?.target === 'string' && input.target.trim() ? input.target.trim().slice(0, 2000) : undefined;
   const labels = await resolveRouteLabels(input?.labels, steps.length, cache, host().signal);
-  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target, ...(labels.some(step => step.length) ? { labels } : {}) }, host().signal);
+  // The enumeration needs the shared Python runtime; the application asks for it only where that
+  // runtime is already installed (the reaction index is), so a route check never installs it.
+  const stereoChoices = input?.enumerateStereo === true ? await productStereoChoices(steps) : {};
+  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target, ...(labels.some(step => step.length) ? { labels } : {}), ...(Object.keys(stereoChoices).length ? { stereoChoices } : {}) }, host().signal);
   if (!audit) throw new Error('The route could not be verified.');
   const summary = audit.continuous
     ? `Route verified: ${audit.steps.length} step(s), every intermediate carried over unchanged`
