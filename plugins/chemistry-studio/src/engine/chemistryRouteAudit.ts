@@ -267,6 +267,11 @@ export interface RouteAuditInput {
   /** Per-step species labels. Each label's name is checked against the structure its SMILES
    *  denotes, so a name for a different compound is refused alongside an unbalanced step. */
   labels?: Array<Array<RouteLabelInput | null | undefined> | null | undefined>;
+  /** For a product SMILES as written in a step: the stereo choices it really leaves open, when
+   *  the full RDKit could enumerate them (0: only one stereoisomer can exist, as for tropinone's
+   *  fixed, meso bridgeheads; 1: only a choice between mirror images). Caps the product's
+   *  unspecified count; a product not listed keeps the labeller's count. */
+  stereoChoices?: Record<string, number | null | undefined>;
 }
 
 export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
@@ -341,6 +346,13 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       // reagent with stereocentres (a commercial mixture) is not something the author chose, and
       // an intermediate is checked in the step that produces it, so products alone cover every
       // species the route creates. Agents/solvents and starting materials are left out.
+      // RDKit's labeller counts every unassigned centre, including bridgeheads a small cage fixes
+      // (tropinone's two, which make it meso) — a question the author cannot answer. Where the
+      // enumeration says fewer real choices remain, use that.
+      for (const entry of products) {
+        const choices = input.stereoChoices?.[entry.input];
+        if (typeof choices === 'number' && choices >= 0 && choices < entry.unspecifiedStereocentres) entry.unspecifiedStereocentres = choices;
+      }
       step.unspecifiedStereocentres = products.reduce((sum, entry) => sum + entry.unspecifiedStereocentres, 0);
       if (step.unspecifiedStereocentres > 0 && declaredRacemic(index)) step.racemic = true;
       step.ok = true;
