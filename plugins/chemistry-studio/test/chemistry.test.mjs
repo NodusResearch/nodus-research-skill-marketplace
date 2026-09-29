@@ -372,6 +372,21 @@ test('racemic in, racemic out: α-pinene without descriptors makes camphene race
   assert.ok(await run({ 'CC1=CCC2CC1C2(C)C': 1 }) >= 2);
 });
 
+test('an unbalanced step gets advice from its actual difference', async () => {
+  const worker = lib.createWorker(stubHost());
+  const check = async (step) => (await worker.invoke({ invocationId: 'adv', toolId: 'verify-route', locale: 'en', input: { steps: [step] } })).artifacts[0].data.steps[0].differences.join(' ');
+  // Wieland–Miescher, flash off: the aldol product named as the hydroxy-enone (one O short).
+  const aldol = await check('CC(=O)CCC1(C)C(=O)CCCC1=O>>CC12CCC(O)C=C1CCCC2=O');
+  assert.match(aldol, /No common molecule accounts for the difference \(the products lack 1 O\)/);
+  assert.match(aldol, /the named product \(or reactant\) is probably not the compound intended/);
+  assert.doesNotMatch(aldol, /hydrogen halide/);
+  // A Fischer esterification written without its water: name the molecule and the side.
+  const ester = await check('O=C(O)c1ccccc1.CCO>>CCOC(=O)c1ccccc1');
+  assert.match(ester, /the products lack exactly H2O: if the step releases it, list it under Byproducts/);
+  // A decarboxylation written without its CO2.
+  assert.match(await check('OC(=O)CC(=O)CC(=O)O>>CC(=O)CC(=O)O'), /the products lack exactly CO2/);
+});
+
 test('hydrogenation with H2 is checked, and a permanganate oxidation needing 14 water balances', async () => {
   const worker = lib.createWorker(stubHost());
   const hydrogenation = await worker.invoke({ invocationId: 'h2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCOC(=O)c1ccc([N+](=O)[O-])cc1.[H][H]>>CCOC(=O)c1ccc(N)cc1.O'] } });
