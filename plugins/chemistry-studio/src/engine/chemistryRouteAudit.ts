@@ -107,6 +107,29 @@ function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpe
   return '';
 }
 
+/** The sentence naming an Agent that the step also forms or also consumes, when listing it on
+ *  that side too balances the step: a solvent the reaction makes (ethanol from sodium ethoxide in
+ *  ethanol, water in an aqueous oxidation) or a "catalyst" that is really used up. The agent keeps
+ *  its place as the solvent; the step only lacks it as a byproduct or reactant. Empty otherwise. */
+function agentRoleThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+  for (let i = 0; i < agents.length; i++) {
+    const species = agents[i];
+    const others = agents.filter((_, position) => position !== i);
+    const label = speciesLabel(species);
+    const formed = stepBalance(reactants, others, [...products, species]);
+    if (formed.balanced && formed.coefficients) {
+      const count = formed.coefficients[reactants.length + others.length + products.length];
+      return `"${label}" is listed under Agents, and the step also forms it: keep it under Agents if it is the solvent, and also list it under Byproducts (${count} ${label}).`;
+    }
+    const consumed = stepBalance([...reactants, species], others, products);
+    if (consumed.balanced && consumed.coefficients) {
+      const count = consumed.coefficients[reactants.length];
+      return `"${label}" is listed under Agents, but the step consumes it: list it under Reactants (${count} ${label}).`;
+    }
+  }
+  return '';
+}
+
 /** The reactant-side species (one, else a pair) that, filed as agents, let the step balance.
  *  Only an idle species can go: at least one reactant must remain. */
 function agentsThatBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): number[] | null {
@@ -299,7 +322,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       // written as a reactant in an oxidation that forms it), say so — the totals alone did not
       // tell the author which species or which way.
       if (!balance.balanced) {
-        const flip = sideFlipThatBalances(reactants, agents, products);
+        const flip = agentRoleThatBalances(reactants, agents, products) || sideFlipThatBalances(reactants, agents, products);
         if (flip) balance.differences = balance.differences.map(entry => `${entry} ${flip}`);
       }
       // The solved coefficients travel with the species so the report can show the equation
