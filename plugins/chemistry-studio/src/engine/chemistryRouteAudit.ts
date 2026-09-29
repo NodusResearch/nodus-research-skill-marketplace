@@ -84,6 +84,19 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
   }
 }
 
+/** The reactant-side species (one, else a pair) that, filed as agents, let the step balance.
+ *  Only an idle species can go: at least one reactant must remain. */
+function agentsThatBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): number[] | null {
+  const tries: number[][] = reactants.map((_, position) => [position]);
+  for (let a = 0; a < reactants.length; a++) for (let b = a + 1; b < reactants.length; b++) tries.push([a, b]);
+  for (const moved of tries) {
+    if (moved.length >= reactants.length) continue;
+    const kept = reactants.filter((_, position) => !moved.includes(position));
+    if (stepBalance(kept, [...agents, ...moved.map(position => reactants[position])], products).balanced) return moved;
+  }
+  return null;
+}
+
 /** When a step will not balance and a species is listed under Agents that carries atoms the
  *  reactants are short of, the usual cause is a consumed species mislabelled as a catalyst: a
  *  "citric acid catalyst" that is really decarboxylated and consumed. Name it. Only fires when
@@ -241,7 +254,24 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       if (count > MAX_SPECIES_PER_STEP) throw new Error(`A step may name at most ${MAX_SPECIES_PER_STEP} species.`);
       totalSpecies += count;
       if (totalSpecies > MAX_SPECIES_TOTAL) throw new Error(`A route may name at most ${MAX_SPECIES_TOTAL} species.`);
-      const balance = stepBalance(reactants, agents, products);
+      let balance = stepBalance(reactants, agents, products);
+      // A reactant-side species that takes no part in the only balance is a reagent or a
+      // condition (a catalyst, a solvent) the author listed with the reactants: file it under
+      // agents and check again, rather than refusing an otherwise balanced step. Products are
+      // never moved — a product that takes no part is a real error.
+      if (!balance.balanced && reactants.length > 1) {
+        const moved = agentsThatBalance(reactants, agents, products);
+        if (moved) {
+          const kept = reactants.filter((_, position) => !moved.includes(position));
+          const asAgents = [...agents, ...moved.map(position => reactants[position])];
+          const retried = stepBalance(kept, asAgents, products);
+          if (retried.balanced) {
+            reactants.splice(0, reactants.length, ...kept);
+            agents.splice(0, agents.length, ...asAgents);
+            balance = retried;
+          }
+        }
+      }
       // The solved coefficients travel with the species so the report can show the equation
       // that actually balanced, not the 1:1:1:1 the author likely meant.
       [...reactants, ...agents, ...products].forEach((entry, position) => {

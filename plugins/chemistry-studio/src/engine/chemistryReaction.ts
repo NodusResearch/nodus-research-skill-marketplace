@@ -334,31 +334,57 @@ function cancelledSpectators(active: Array<{ composition: Composition; index: nu
  *  A single basis vector is a unique balance. Several means the species admit more than one
  *  equation — ethanol combustion written with both CO and CO2, say — and choosing one would
  *  be inventing a claim about which reaction is meant. */
-/** When a step fails only because a species it lists on both sides was cancelled as a
- *  spectator (water written as "aqueous" and as a byproduct, say), the sentence that says so.
- *  Each cancelled species is tried once on one side only; a balance found that way is named. */
-function oneSidedHint(compositions: Composition[], roles: ReactionSpecies['role'][], active: Array<{ composition: Composition; index: number }>, removed: Set<number>): string {
-  const reactantSide = [...removed].filter(index => roles[index] === 'reactant');
-  for (const index of reactantSide) {
-    const key = JSON.stringify([compositions[index].atoms, compositions[index].charge]);
-    const twin = [...removed].find(other => roles[other] === 'product' && JSON.stringify([compositions[other].atoms, compositions[other].charge]) === key);
-    if (twin === undefined) continue;
-    for (const [drop, keep, side] of [[index, twin, 'product'], [twin, index, 'reactant']] as const) {
-      const kept = active.map(({ index: i }) => i).filter(i => i !== drop);
-      try {
-        const solved = balanceReaction(kept.map(i => compositions[i]), kept.map(i => roles[i]), kept.map(() => 1), true);
-        const count = solved[kept.indexOf(keep)];
-        const name = formulaOf(compositions[index].atoms);
-        return ` "${name}" is listed as both a reactant and a product, so it cancels out and takes no part; the equation balances with it only as a ${side} (${count} ${name}). List it once, on the side where it is ${side === 'product' ? 'formed' : 'consumed'}.`;
-      } catch {
-        /* Not this side. */
-      }
-    }
+/** A species listed on both sides is cancelled as a spectator, which is right when it is one
+ *  (a counterion carried through). When the step then cannot balance, the species takes part
+ *  after all: the hydrochloride of a product written as `amine.Cl` puts HCl on the product side
+ *  while the reaction consumes HCl, and water written as "aqueous" is also formed. Solve again
+ *  with each such pair as one net column that may come out consumed or formed; every other
+ *  species must still take part. Written back as net + 1 on its side and 1 on the other. */
+function netColumnBalance(compositions: Composition[], roles: ReactionSpecies['role'][], active: Array<{ composition: Composition; index: number }>, removed: Set<number>, supplied: number[]): number[] | null {
+  const key = (index: number) => JSON.stringify([Object.entries(compositions[index].atoms).sort(), compositions[index].charge]);
+  const pairs: Array<[number, number]> = [];
+  const used = new Set<number>();
+  for (const reactant of [...removed].filter(index => roles[index] === 'reactant')) {
+    const product = [...removed].find(index => roles[index] === 'product' && !used.has(index) && key(index) === key(reactant));
+    if (product === undefined) continue;
+    used.add(product);
+    pairs.push([reactant, product]);
   }
-  return '';
+  if (!pairs.length) return null;
+  const fixed = active.filter(({ index }) => !removed.has(index) || (!pairs.some(([r, p]) => r === index || p === index)));
+  const columns = [...fixed.map(({ index }) => ({ index, sign: roles[index] === 'reactant' ? 1 : -1, free: false })),
+    ...pairs.map(([reactant]) => ({ index: reactant, sign: 1, free: true }))];
+  const keys = new Set<string>();
+  for (const { index } of columns) for (const atom of Object.keys(compositions[index].atoms)) keys.add(atom);
+  const matrix = [...keys].map(atom => columns.map(({ index, sign }) => BigInt(sign * (compositions[index].atoms[atom] ?? 0))));
+  matrix.push(columns.map(({ index, sign }) => BigInt(sign * compositions[index].charge)));
+  const basis = nullSpace(matrix, columns.length);
+  if (basis.length !== 1) return null;
+  const vector = basis[0];
+  const fixedValues = vector.filter((_, position) => !columns[position].free);
+  if (!fixedValues.length || fixedValues.some(fZero)) return null;
+  const positive = fixedValues[0][0] > 0n;
+  if (fixedValues.some(value => (value[0] > 0n) !== positive)) return null;
+  let lcm = 1n;
+  for (const value of vector) lcm = (lcm / gcd(lcm, value[1])) * value[1];
+  const scaled = vector.map(value => ((value[0] * lcm) / value[1]) * (positive ? 1n : -1n));
+  let divisor = 0n;
+  for (const value of scaled) divisor = gcd(divisor, value < 0n ? -value : value);
+  if (divisor === 0n) return null;
+  const whole = scaled.map(value => Number(value / divisor));
+  if (whole.some((value, position) => (columns[position].free ? Math.abs(value) > 24 : value > 12))) return null;
+  const coefficients = supplied.slice();
+  columns.forEach(({ index, free }, position) => {
+    if (!free) { coefficients[index] = whole[position]; return; }
+    const [reactant, product] = pairs.find(([r]) => r === index)!;
+    const net = whole[position];
+    coefficients[reactant] = net > 0 ? net + 1 : 1;
+    coefficients[product] = net < 0 ? -net + 1 : 1;
+  });
+  return coefficients;
 }
 
-export function balanceReaction(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[], hinting = false): number[] {
+export function balanceReaction(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[]): number[] {
   const active = compositions.map((composition, index) => ({ composition, index })).filter(({ index }) => roles[index] !== 'agent');
   if (!active.some(({ index }) => roles[index] === 'reactant') || !active.some(({ index }) => roles[index] === 'product')) {
     throw new Error('A balanced scheme needs at least one reactant and one product.');
@@ -380,13 +406,17 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
   // adds a degree of freedom and a correct equation is reported as "more than one balance".
   const removed = cancelledSpectators(active, roles);
   const reduced = active.filter(({ index }) => !removed.has(index));
-  const hint = () => (hinting || !removed.size ? '' : oneSidedHint(compositions, roles, active, removed));
+  const net = () => (removed.size ? netColumnBalance(compositions, roles, active, removed, supplied) : null);
   if (!reduced.some(({ index }) => roles[index] === 'reactant') || !reduced.some(({ index }) => roles[index] === 'product')) {
-    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}.${hint() || ' Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.'}`);
+    const balancedNet = net();
+    if (balancedNet) return balancedNet;
+    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.`);
   }
   const basis = nullSpace(matrixFor(reduced), reduced.length);
   if (!basis.length) {
-    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}.${hint() || ' Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.'}`);
+    const balancedNet = net();
+    if (balancedNet) return balancedNet;
+    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.`);
   }
   // The dimension of the null space is the question, not whether a particular basis vector
   // happens to come out positive. Two dimensions means infinitely many balanced equations —
