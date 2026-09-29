@@ -331,7 +331,36 @@ function breakerFetch(base: typeof fetch): typeof fetch {
  *  surface — the labels, the annotation, the derived equation, the drawing and the route
  *  review — shows one canonical isomeric SMILES per compound. Identical compounds then read
  *  identically, and a checker or reviewer cannot call them different connectivity. */
+/** The net formal charge a SMILES writes: the sum of its bracket-atom charges (`[Na+]`, `[O-]`,
+ *  `[Cr+3]`, `[Fe++]`). */
+export function smilesNetCharge(smiles: string): number {
+  let total = 0;
+  for (const match of smiles.matchAll(/\[[^\]]*?([+-])(\d+|[+-]*)\]/g)) {
+    const sign = match[1] === '+' ? 1 : -1;
+    const tail = match[2];
+    total += sign * (/^\d+$/.test(tail) ? Number(tail) : 1 + tail.length);
+  }
+  return total;
+}
+
+/** A salt — a structure of several parts — whose charges do not sum to zero is not a compound:
+ *  a name such as "sodium diethyl propanedioate" can resolve to the neutral diester beside a
+ *  sodium ion. Refused with feedback, so the author gives the structure instead of a route
+ *  step that can never balance. A single charged species (an ion named as one) is left alone. */
+function refuseUnbalancedSalts(resolutions: SpeciesNameResolution[]): void {
+  for (const entry of resolutions) {
+    if (entry.status !== 'resolved' || !entry.smiles || !entry.smiles.includes('.')) continue;
+    const charge = smilesNetCharge(entry.smiles);
+    if (charge === 0) continue;
+    entry.status = 'unresolved';
+    entry.feedback = `The name resolved to ${entry.smiles}, a salt whose charges do not balance (net ${charge > 0 ? '+' : ''}${charge}), so it is not the compound meant. Give the salt's isomeric SMILES with the charged atom written explicitly (for an enolate or carbanion, the deprotonated carbon as [CH-] or [C-]).`;
+    delete entry.smiles;
+    delete entry.formula;
+  }
+}
+
 async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cache: ReferenceCache, signal: AbortSignal): Promise<void> {
+  refuseUnbalancedSalts(resolutions);
   const inputs = [...new Set(resolutions
     .filter((entry) => entry.status === 'resolved' && entry.smiles)
     .map((entry) => entry.smiles!))];
