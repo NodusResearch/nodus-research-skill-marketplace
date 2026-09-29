@@ -281,20 +281,29 @@ test('charge balance is enforced even when the element totals match', async () =
   assert.ok(audit.steps[0].differences.some(entry => /charge/.test(entry)), JSON.stringify(audit.steps[0].differences));
 });
 
-test('a species that takes no part is named, and removing it balances the step', async () => {
+test('a reactant-side species that takes no part is filed as an agent; an idle product is refused', async () => {
   const worker = lib.createWorker(stubHost());
-  // Saponification written with an extra water. Water has coefficient 0 in the only balance —
-  // it is neither consumed nor produced — so the step is refused and the idle molecule named.
+  // Saponification written with water among the reactants: it is the solvent, neither consumed
+  // nor produced. It is filed under agents (a condition) and the step balances, instead of the
+  // step being refused — the correction loops this caused are the reason.
   const withWater = 'CCOC(=O)C(C)(CC)C(=O)OCC.[Na+].[OH-].O>>[Na+].CC(C(=O)[O-])(CC)C(=O)[O-].CCO';
-  const refused = await worker.invoke({ invocationId: 'idle1', toolId: 'verify-route', locale: 'en', input: { steps: [withWater] } });
-  const audit = refused.artifacts[0].data;
-  assert.equal(audit.steps[0].balanced, false);
-  assert.match(audit.steps[0].differences.join(' '), /take\(s\) no part/);
+  const filed = await worker.invoke({ invocationId: 'idle1', toolId: 'verify-route', locale: 'en', input: { steps: [withWater] } });
+  const step = filed.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, true, JSON.stringify(step.differences));
+  assert.deepEqual(step.agents.map(entry => entry.formula), ['H2O']);
+  assert.ok(!step.reactants.some(entry => entry.formula === 'H2O'));
 
-  // The same step without the water balances.
-  const without = 'CCOC(=O)C(C)(CC)C(=O)OCC.[Na+].[OH-]>>[Na+].CC(C(=O)[O-])(CC)C(=O)[O-].CCO';
-  const ok = await worker.invoke({ invocationId: 'idle2', toolId: 'verify-route', locale: 'en', input: { steps: [without] } });
-  assert.equal(ok.artifacts[0].data.steps[0].balanced, true, JSON.stringify(ok.artifacts[0].data.steps[0].differences));
+  // A catalyst listed as a reactant (sulfuric acid in a Fischer esterification) is filed the same way.
+  const fischer = await worker.invoke({ invocationId: 'idle3', toolId: 'verify-route', locale: 'en', input: { steps: ['O=C(O)c1ccccc1.CCO.O=S(=O)(O)O>>CCOC(=O)c1ccccc1.O'] } });
+  const esterification = fischer.artifacts[0].data.steps[0];
+  assert.equal(esterification.balanced, true);
+  assert.deepEqual(esterification.agents.map(entry => entry.formula), ['H2SO4']);
+
+  // An idle product is not moved: water written as a byproduct of a step that forms none.
+  const idleProduct = 'CCOC(=O)C(C)(CC)C(=O)OCC.[Na+].[OH-]>>[Na+].CC(C(=O)[O-])(CC)C(=O)[O-].CCO.O';
+  const refused = await worker.invoke({ invocationId: 'idle2', toolId: 'verify-route', locale: 'en', input: { steps: [idleProduct] } });
+  assert.equal(refused.artifacts[0].data.steps[0].balanced, false);
+  assert.match(refused.artifacts[0].data.steps[0].differences.join(' '), /take\(s\) no part/);
 });
 
 test('a step that cannot be parsed names the offending species', async () => {
@@ -894,21 +903,24 @@ test('the coefficients are solved, not taken on trust', () => {
     [1, 1, 1]);
 });
 
-test('water written on both sides is named when it is why a step cannot balance', () => {
-  // A dichromate oxidation the model wrote with water as a reactant ("aqueous") and as a
-  // byproduct. Water cancels as a spectator, and without it nothing balances; the old message
-  // only listed unit-coefficient totals, and four corrections in a row repeated the mistake.
+test('a species on both sides that takes part is balanced by its net amount', () => {
+  // Both came from a real route that looped through four corrections. A species on both sides
+  // was cancelled as a spectator, and without it the step could not balance:
+  //   water written as "aqueous" and as a byproduct in a dichromate oxidation (5 formed, net);
+  //   HCl consumed by a tin reduction whose product is the hydrochloride, written `amine.Cl`.
   const toluene = comp({ '6:0': 7, '1:0': 7, '7:0': 1, '8:0': 2 }), acid = comp({ '6:0': 7, '1:0': 5, '7:0': 1, '8:0': 4 });
   const Na = comp({ '11:0': 1 }, 1), Cr2O7 = comp({ '24:0': 2, '8:0': 7 }, -2), H2SO4 = comp({ '1:0': 2, '16:0': 1, '8:0': 4 });
   const SO4 = comp({ '16:0': 1, '8:0': 4 }, -2), Cr = comp({ '24:0': 1 }, 3);
-  const both = [toluene, Na, Cr2O7, H2SO4, H2O, acid, SO4, Cr, Na, H2O];
-  const roles = ['reactant', 'reactant', 'reactant', 'reactant', 'reactant', 'product', 'product', 'product', 'product', 'product'];
-  assert.throws(() => lib.balanceReaction(both, roles, both.map(() => 1)),
-    /"H2O" is listed as both a reactant and a product, so it cancels out and takes no part; the equation balances with it only as a product \(5 H2O\)\. List it once/);
-  // Written once, as a product, the same species balance.
-  const once = [toluene, Na, Cr2O7, H2SO4, acid, SO4, Cr, Na, H2O];
-  assert.deepEqual(lib.balanceReaction(once, roles.filter((_, i) => i !== 4), once.map(() => 1)), [1, 1, 1, 4, 1, 4, 2, 1, 5]);
-  // A genuine imbalance with no both-sides species keeps the old advice.
+  const five = ['reactant', 'reactant', 'reactant', 'reactant', 'reactant'], products = (n) => Array(n).fill('product');
+  assert.deepEqual(lib.balanceReaction([toluene, Na, Cr2O7, H2SO4, H2O, acid, SO4, Cr, Na, H2O], [...five, ...products(5)], Array(10).fill(1)),
+    [1, 1, 1, 4, 1, 1, 4, 2, 1, 6], 'one water in as solvent, six out: five formed');
+  const nitro = comp({ '6:0': 9, '1:0': 9, '7:0': 1, '8:0': 4 }), Sn = comp({ '50:0': 1 }), HCl = comp({ '1:0': 1, '17:0': 1 });
+  const amine = comp({ '6:0': 9, '1:0': 11, '7:0': 1, '8:0': 2 }), SnCl2 = comp({ '50:0': 1, '17:0': 2 });
+  assert.deepEqual(lib.balanceReaction([nitro, Sn, HCl, amine, HCl, SnCl2, H2O], ['reactant', 'reactant', 'reactant', ...products(4)], Array(7).fill(1)),
+    [1, 3, 7, 1, 1, 3, 2], 'ArNO2 + 3 Sn + 7 HCl → ArNH2·HCl + 3 SnCl2 + 2 H2O');
+  // A true spectator is still cancelled, and a genuine imbalance still fails with the advice.
+  const OH = comp({ '1:0': 1, '8:0': 1 }, -1), H = comp({ '1:0': 1 }, 1);
+  assert.deepEqual(lib.balanceReaction([Na, OH, H, Na, H2O], ['reactant', 'reactant', 'reactant', 'product', 'product'], Array(5).fill(1)), [1, 1, 1, 1, 1]);
   assert.throws(() => lib.balanceReaction([toluene, acid], ['reactant', 'product'], [1, 1]), /Add the missing reagent or byproduct/);
 });
 
