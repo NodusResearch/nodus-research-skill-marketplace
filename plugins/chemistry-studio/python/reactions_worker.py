@@ -336,6 +336,22 @@ def _counts(smiles):
     return counts
 
 
+def _step_classes(reaction):
+    """Reaction classes for a route step written as reactants>agents>products (or r>>p): the
+    reactants against its main (largest organic) product. Agents are left out, since a solvent
+    listed as an agent would read as a reactant group."""
+    parts = reaction.split(">")
+    if len(parts) != 3 or not parts[0] or not parts[2]:
+        return []
+    products = [m for m in parts[2].split(".") if m and _is_organic(m)]
+    if not products:
+        return []
+    try:
+        return _reaction_classes(parts[0], max(products, key=len))
+    except Exception:
+        return []
+
+
 def _reaction_classes(precursors, product):
     """Named reaction classes for a step, from functional-group changes (heuristic, for search terms)."""
     before, after = _counts(precursors), _counts(product)
@@ -727,6 +743,10 @@ def handle(request):
             entry["form"] = form
         if unchanged:
             entry["unchanged"] = True
+        else:
+            classes = _step_classes(reaction)
+            if classes:
+                entry["classes"] = classes
         reactions.append(entry)
 
     products = []
