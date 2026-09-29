@@ -518,11 +518,13 @@ async function resolveRouteLabels(
  *  balanced, every intermediate leaving one step the same molecule as the one entering the
  *  next, and every supplied IUPAC name denoting the structure it was written beside. The
  *  result is a `route-audit` artifact the application renders deterministically. */
-/** The stereo choices each product really leaves open, from the full RDKit in the shared
+/** The stereo choices each product (and organic reactant) really leaves open, from the full RDKit in the shared
  *  Python runtime (see `_stereo_choices`). Best-effort: an empty map when the runtime is not
  *  installed or the call fails, and the labeller's own counts stand. */
 async function productStereoChoices(steps: string[]): Promise<Record<string, number | null>> {
-  const products = [...new Set(steps.flatMap(step => (step.split('>')[2] ?? '').split('.')).map(part => part.trim()).filter(Boolean))].slice(0, 48);
+  // Products, and reactants too: a racemic (stereo-open) reactant makes an enantiomer-only
+  // product racemic, not an omission of the author's.
+  const products = [...new Set(steps.flatMap(step => [...(step.split('>')[2] ?? '').split('.'), ...(step.split('>')[0] ?? '').split('.')]).map(part => part.trim()).filter(part => part && /[Cc]/.test(part)))].slice(0, 48);
   if (!products.length) return {};
   try {
     const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
