@@ -306,6 +306,17 @@ test('a reactant-side species that takes no part is filed as an agent; an idle p
   assert.match(refused.artifacts[0].data.steps[0].differences.join(' '), /take\(s\) no part/);
 });
 
+test('a species listed on the wrong side is named when moving it balances the step', async () => {
+  const worker = lib.createWorker(stubHost());
+  // A dichromate oxidation written with water among the reactants only: the step forms water.
+  // As the application sends it: each ion once per side, the solver finds the counts.
+  const oxidation = 'Cc1ccc([N+](=O)[O-])cc1.[Na+].[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-].OS(=O)(=O)O.O>>O=C(O)c1ccc([N+](=O)[O-])cc1.[O-]S(=O)(=O)[O-].[Cr+3].[Na+]';
+  const result = await worker.invoke({ invocationId: 'flip1', toolId: 'verify-route', locale: 'en', input: { steps: [oxidation] } });
+  const step = result.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, false);
+  assert.match(step.differences.join(' '), /"H2O" is listed as a reactant, but the step forms it: list it under Byproducts \(5 H2O\)\./);
+});
+
 test('a step that cannot be parsed names the offending species', async () => {
   const worker = lib.createWorker(stubHost());
   const result = await worker.invoke({
