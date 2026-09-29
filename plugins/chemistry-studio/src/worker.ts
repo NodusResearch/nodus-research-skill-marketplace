@@ -359,8 +359,21 @@ function refuseUnbalancedSalts(resolutions: SpeciesNameResolution[]): void {
   }
 }
 
+/** "hydrogen" as a reagent is dihydrogen, but a reference can return the hydrogen atom `[H]`, a
+ *  radical no step uses and the checker cannot even lay out. Only a name that says atom or
+ *  radical keeps the atom. */
+function dihydrogenForHydrogen(resolutions: SpeciesNameResolution[]): void {
+  for (const entry of resolutions) {
+    if (entry.status !== 'resolved' || !entry.smiles || !/^\[H\]$/.test(entry.smiles.trim())) continue;
+    if (!/\b(?:di)?hydrogen\b/i.test(entry.name) || /\b(?:atom|atomic|radical)\b/i.test(entry.name)) continue;
+    entry.smiles = '[H][H]';
+    entry.formula = 'H2';
+  }
+}
+
 async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cache: ReferenceCache, signal: AbortSignal): Promise<void> {
   refuseUnbalancedSalts(resolutions);
+  dihydrogenForHydrogen(resolutions);
   const inputs = [...new Set(resolutions
     .filter((entry) => entry.status === 'resolved' && entry.smiles)
     .map((entry) => entry.smiles!))];
