@@ -271,7 +271,18 @@ export interface RouteAuditInput {
    *  the full RDKit could enumerate them (0: only one stereoisomer can exist, as for tropinone's
    *  fixed, meso bridgeheads; 1: only a choice between mirror images). Caps the product's
    *  unspecified count; a product not listed keeps the labeller's count. */
-  stereoChoices?: Record<string, number | null | undefined>;
+  stereoChoices?: Record<string, StereoChoice | number | null | undefined>;
+}
+
+/** What the full RDKit says a species written without stereo really leaves open. */
+export interface StereoChoice { open: number; mirrorOnly: boolean }
+
+/** A stereoChoices entry as given: the current object, or a bare count from an older runtime
+ *  (where 1 meant an enantiomer pair). */
+function stereoChoiceOf(value: StereoChoice | number | null | undefined): StereoChoice | null {
+  if (typeof value === 'number') return value >= 0 ? { open: value, mirrorOnly: value === 1 } : null;
+  if (value && typeof value === 'object' && typeof value.open === 'number' && value.open >= 0) return { open: value.open, mirrorOnly: value.mirrorOnly === true };
+  return null;
 }
 
 export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
@@ -351,14 +362,11 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       // enumeration says fewer real choices remain, use that.
       // A reactant that is itself stereo-open (α-pinene given without descriptors) is racemic, so a
       // product whose only open choice is its mirror image is racemic too: racemic in, racemic out.
-      const racemicReactant = reactants.some((entry) => {
-        const open = input.stereoChoices?.[entry.input];
-        return typeof open === 'number' ? open >= 1 : false;
-      });
+      const racemicReactant = reactants.some((entry) => (stereoChoiceOf(input.stereoChoices?.[entry.input])?.open ?? 0) >= 1);
       for (const entry of products) {
-        const choices = input.stereoChoices?.[entry.input];
-        if (typeof choices !== 'number' || choices < 0) continue;
-        const effective = choices === 1 && racemicReactant ? 0 : choices;
+        const choice = stereoChoiceOf(input.stereoChoices?.[entry.input]);
+        if (!choice) continue;
+        const effective = choice.mirrorOnly && racemicReactant ? 0 : choice.open;
         if (effective < entry.unspecifiedStereocentres) entry.unspecifiedStereocentres = effective;
       }
       step.unspecifiedStereocentres = products.reduce((sum, entry) => sum + entry.unspecifiedStereocentres, 0);
@@ -513,6 +521,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
   // The target, when the request named one, must be a product of some step. Matching the
   // constitution only is a stereochemistry failure unless the target leaves its stereo open.
   let target: RouteTargetAudit | undefined;
+  let requestedWithoutStereo = false;
   const requested = typeof input?.target === 'string' ? input.target.trim() : '';
   if (requested) {
     target = { input: requested, canonicalSmiles: null, formula: null, formedAt: null, reason: 'unparsed' };
@@ -522,6 +531,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
         audited.filter(step => step.ok && step.products.some(match)).map(step => step.index);
       const exact = formedBy(product => product.canonicalSmiles === wanted.canonicalSmiles);
       const skeleton = formedBy(product => product.skeletonSmiles === wanted.skeletonSmiles);
+      requestedWithoutStereo = wanted.stereocentres === 0;
       const formed = exact.length ? exact : wanted.stereocentres === 0 ? skeleton : [];
       target = {
         input: requested, canonicalSmiles: wanted.canonicalSmiles, formula: wanted.formula,
@@ -535,6 +545,35 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
 
   const links = [...linkByKey.values()].sort((a, b) => a.to - b.to || a.from - b.from);
 
+  // Stereochemistry only has to be stated where it can reach the target. When the target was
+  // requested without stereo, an intermediate whose configuration is lost before the target —
+  // the step consuming it makes a product with nothing open (tropinone-2,4-dicarboxylic acid →
+  // tropinone, meso), or makes the target whose only open choice is its mirror image (the
+  // aldol adduct → the Wieland–Miescher ketone), or makes an intermediate that is itself lost
+  // (isobornyl acetate → isoborneol → camphor) — need not be specified or declared racemic.
+  // A target requested with stereo keeps every step held to it.
+  if (target?.reason === 'formed' && target.formedAt !== null && input.stereoChoices && requestedWithoutStereo) {
+    const organicMains = (step: RouteStepAudit) => step.products.filter(product => !product.byproduct && /C/.test(product.formula ?? ''));
+    const lost = new Map<number, boolean>();
+    for (let index = audited.length - 1; index >= 0; index -= 1) {
+      const step = audited[index];
+      if (!step.ok) continue;
+      const mains = organicMains(step);
+      const settled = mains.length > 0 && mains.every((product) => {
+        const choice = stereoChoiceOf(input.stereoChoices?.[product.input]);
+        if (!choice) return false;
+        return choice.open === 0 || (index === target!.formedAt && choice.mirrorOnly);
+      });
+      const consumers = links.filter(item => item.from === index && item.to > index && item.ok).map(item => item.to);
+      lost.set(index, settled || (consumers.length > 0 && consumers.every(to => lost.get(to) === true)));
+    }
+    for (const step of audited) {
+      if (!step.ok || step.index === target.formedAt || step.unspecifiedStereocentres === 0 || step.racemic) continue;
+      const consumers = links.filter(item => item.from === step.index && item.to > step.index && item.ok).map(item => item.to);
+      if (consumers.length && consumers.every(to => lost.get(to) === true)) step.stereoNotRequired = true;
+    }
+  }
+
   const blocked: string[] = [];
   for (const step of audited) {
     if (!step.ok) { blocked.push(`Step ${step.index + 1}: ${step.error ?? 'could not be parsed.'}`); continue; }
@@ -546,7 +585,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       blocked.push(`Step ${step.index + 1}: ${packing.reason}.`);
       continue;
     }
-    if (step.unspecifiedStereocentres > 0 && !step.racemic) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);
+    if (step.unspecifiedStereocentres > 0 && !step.racemic && !step.stereoNotRequired) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);
   }
   for (const link of links) {
     if (link.ok) continue;

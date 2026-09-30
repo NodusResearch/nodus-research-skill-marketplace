@@ -387,6 +387,40 @@ test('an unbalanced step gets advice from its actual difference', async () => {
   assert.match(await check('OC(=O)CC(=O)CC(=O)O>>CC(=O)CC(=O)O'), /the products lack exactly CO2/);
 });
 
+test('stereo that cannot reach the target is not required; a target requested with stereo keeps every step strict', async () => {
+  const audit = async (steps, target, choices) => {
+    const host = stubHost();
+    host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 0, stdout: JSON.stringify({ stereoChoices: choices }), stderr: '' }) };
+    const result = await lib.createWorker(host).invoke({ invocationId: 'reach', toolId: 'verify-route', locale: 'en', input: { steps, target, enumerateStereo: true } });
+    return result.artifacts[0].data;
+  };
+  // Robinson: the diacid's two carboxyl carbons are open, but decarboxylation to tropinone
+  // (meso: nothing open) loses them.
+  const diacid = 'CN1C2CCC1C(C(=O)O)C(=O)C2C(=O)O';
+  const robinson = await audit(
+    [`O=CCCC=O.CN.O=C(O)CC(=O)CC(=O)O>>${diacid}.O.O`, `${diacid}>>CN1C2CCC1CC(=O)C2.O=C=O.O=C=O`],
+    'CN1C2CCC1CC(=O)C2',
+    { [diacid]: { open: 2, mirrorOnly: false }, 'CN1C2CCC1CC(=O)C2': { open: 0, mirrorOnly: false }, 'O=CCCC=O': { open: 0, mirrorOnly: false }, CN: { open: 0, mirrorOnly: false }, 'O=C(O)CC(=O)CC(=O)O': { open: 0, mirrorOnly: false }, 'O=C=O': { open: 0, mirrorOnly: false } });
+  assert.equal(robinson.steps[0].unspecifiedStereocentres, 2, 'the fixed bridgeheads are not counted, the carboxyl carbons are');
+  assert.equal(robinson.steps[0].stereoNotRequired, true);
+  assert.equal(robinson.continuous, true, robinson.blocked.join(' | '));
+
+  // Camphor: isoborneol's exo/endo centre is lost at the ketone; camphor, requested without
+  // stereo, is racemic.
+  const isoborneol = 'CC1(C)C2CCC1(C)C(O)C2';
+  const camphor = 'CC1(C)C2CCC1(C)C(=O)C2';
+  const tail = ['CC(=O)OC1CC2CCC1(C)C2(C)C.O>>' + isoborneol + '.CC(=O)O', `${isoborneol}.O=[Cr](=O)=O>>${camphor}.O.[Cr]`];
+  const choices = { [isoborneol]: { open: 2, mirrorOnly: false }, [camphor]: { open: 1, mirrorOnly: true }, 'CC(=O)OC1CC2CCC1(C)C2(C)C': { open: 2, mirrorOnly: false } };
+  const loose = await audit([tail[0]], isoborneol, choices);
+  assert.ok(!loose.steps[0].stereoNotRequired, 'the target itself is never excused here (the app judges a racemic target)');
+  const racemicTarget = await audit(['CC(=O)OC1CC2CCC1(C)C2(C)C.O>>' + isoborneol + '.CC(=O)O', `${isoborneol}>>${camphor}.[H][H]`], camphor, choices);
+  assert.equal(racemicTarget.steps[0].stereoNotRequired, true, 'isoborneol → camphor loses the exo/endo centre');
+
+  // The same route with the target requested as one enantiomer: nothing is excused.
+  const strict = await audit(['CC(=O)OC1CC2CCC1(C)C2(C)C.O>>' + isoborneol + '.CC(=O)O', `${isoborneol}>>C[C@@]12CC[C@@H](C[C@@H]1O)C2(C)C.[H][H]`], 'C[C@@]12CC[C@@H](CC1=O)C2(C)C', choices);
+  assert.ok(!strict.steps[0].stereoNotRequired);
+});
+
 test('hydrogenation with H2 is checked, and a permanganate oxidation needing 14 water balances', async () => {
   const worker = lib.createWorker(stubHost());
   const hydrogenation = await worker.invoke({ invocationId: 'h2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCOC(=O)c1ccc([N+](=O)[O-])cc1.[H][H]>>CCOC(=O)c1ccc(N)cc1.O'] } });

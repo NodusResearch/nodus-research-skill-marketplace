@@ -730,21 +730,24 @@ def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, bran
 
 
 def _stereo_choices(smiles, max_isomers=64):
-    """How many stereo choices a structure written without them really leaves open.
+    """The stereo choices a structure written without them really leaves open.
 
-    0 when only one stereoisomer can exist (tropinone: its bridgeheads can only be cis, and the
-    cis form is meso), 1 when the only choice is between two mirror images (a camphor written
-    without descriptors, which "racemic" covers), None when there are real diastereomers to
-    choose between or the structure is too large to enumerate. Unassigned centres and double
-    bonds are enumerated with 3D embedding, so a trans-bridged cage that cannot be built is not
-    counted as a choice."""
+    Returns {"open": k, "mirrorOnly": bool}, or None when the structure is too large to
+    enumerate. Unassigned centres and double bonds are enumerated and each isomer is kept only
+    if a 3D structure can be built for it, so a bridgehead a small cage fixes is not a choice.
+    `open` is how many independent choices remain (0: one stereoisomer only, as tropinone —
+    its bridgeheads can only be cis, and cis is meso; 2 for tropinone-2,4-dicarboxylic acid,
+    whose bridgeheads are fixed but whose two carboxyl carbons are not). `mirrorOnly` is true
+    when the only choice is between two mirror images (camphor written without descriptors),
+    which "racemic" covers."""
+    import math
     from rdkit import Chem
+    from rdkit.Chem import AllChem
     from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnumerationOptions
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None or mol.GetNumHeavyAtoms() > 60:
         return None
-    from rdkit.Chem import AllChem
 
     def buildable(isomer):
         # A quick embedding with two seeds: RDKit's own tryEmbedding retries an impossible cage
@@ -764,14 +767,14 @@ def _stereo_choices(smiles, max_isomers=64):
     if len(isomers) >= max_isomers:
         return None
     if len(isomers) <= 1:
-        return 0
+        return {"open": 0, "mirrorOnly": False}
+    mirror_only = False
     if len(isomers) == 2:
         mirror = Chem.MolFromSmiles(isomers[0])
         for atom in mirror.GetAtoms():
             atom.InvertChirality()
-        if Chem.MolToSmiles(mirror) == isomers[1]:
-            return 1
-    return None
+        mirror_only = Chem.MolToSmiles(mirror) == isomers[1]
+    return {"open": math.ceil(math.log2(len(isomers))), "mirrorOnly": mirror_only}
 
 
 def handle(request):
