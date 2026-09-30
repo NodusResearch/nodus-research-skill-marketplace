@@ -521,7 +521,7 @@ async function resolveRouteLabels(
 /** The stereo choices each product (and organic reactant) really leaves open, from the full RDKit in the shared
  *  Python runtime (see `_stereo_choices`). Best-effort: an empty map when the runtime is not
  *  installed or the call fails, and the labeller's own counts stand. */
-async function productStereoChoices(steps: string[]): Promise<Record<string, number | null>> {
+async function productStereoChoices(steps: string[]): Promise<Record<string, { open: number; mirrorOnly: boolean } | number | null>> {
   // Products, and reactants too: a racemic (stereo-open) reactant makes an enantiomer-only
   // product racemic, not an omission of the author's.
   const products = [...new Set(steps.flatMap(step => [...(step.split('>')[2] ?? '').split('.'), ...(step.split('>')[0] ?? '').split('.')]).map(part => part.trim()).filter(part => part && /[Cc]/.test(part)))].slice(0, 48);
@@ -531,7 +531,7 @@ async function productStereoChoices(steps: string[]): Promise<Record<string, num
     if (!ready.ready) return {};
     const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT], stdin: JSON.stringify({ stereoChoices: products }), timeoutMs: 60_000 });
     if (run.code !== 0) return {};
-    return (JSON.parse(run.stdout) as { stereoChoices?: Record<string, number | null> }).stereoChoices ?? {};
+    return (JSON.parse(run.stdout) as { stereoChoices?: Record<string, { open: number; mirrorOnly: boolean } | number | null> }).stereoChoices ?? {};
   } catch {
     return {};
   }
