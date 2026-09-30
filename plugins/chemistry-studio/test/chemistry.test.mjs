@@ -1538,3 +1538,31 @@ test('a synthesis route draws its target even when the route names a mechanism o
   const plain = await worker.invoke({ invocationId: 'rt2', toolId: 'compile', locale: 'en', input: { plan, question: `Show the dehydration of ${smiles}` } });
   assert.ok(!plain.artifacts?.length, 'a depiction request is still not answered with a skeletal drawing');
 });
+
+test('check-stock sends the stock directory and molecules to the worker and counts the hits', async () => {
+  const host = stubHost();
+  const sent = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => { sent.push(JSON.parse(request.stdin)); return { code: 0, stdout: JSON.stringify({ stock: { CCO: ['mcule', 'enamine'], c1ccccc1: [] }, lists: ['enamine', 'mcule'] }), stderr: '' }; },
+  };
+  const result = await lib.createWorker(host).invoke({ invocationId: 'stock1', toolId: 'check-stock', locale: 'en', input: { stockDir: '/stock', molecules: ['CCO', 'c1ccccc1', '  '] } });
+  assert.deepEqual(sent[0], { stock: ['CCO', 'c1ccccc1'], stockDir: '/stock' });
+  assert.equal(result.artifacts[0].artifactType, 'stock-availability');
+  assert.equal(result.artifacts[0].summary, 'Stock: 1 of 2 molecule(s) on 2 stock list(s).');
+  await assert.rejects(lib.createWorker(host).invoke({ invocationId: 'stock2', toolId: 'check-stock', locale: 'en', input: { stockDir: '', molecules: ['CCO'] } }), /stock directory/);
+});
+
+test('propose-disconnections passes the stock directory only when given', async () => {
+  const host = stubHost();
+  const sent = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => { sent.push(JSON.parse(request.stdin)); return { code: 0, stdout: JSON.stringify({ disconnections: [] }), stderr: '' }; },
+  };
+  const worker = lib.createWorker(host);
+  await worker.invoke({ invocationId: 'dis1', toolId: 'propose-disconnections', locale: 'en', input: { indexDir: '/idx', targets: ['CCO'], stockDir: '/stock' } });
+  await worker.invoke({ invocationId: 'dis2', toolId: 'propose-disconnections', locale: 'en', input: { indexDir: '/idx', targets: ['CCO'] } });
+  assert.equal(sent[0].stockDir, '/stock');
+  assert.equal('stockDir' in sent[1], false);
+});

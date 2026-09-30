@@ -156,13 +156,34 @@
           "indexDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
           "targets": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 16 },
           "startingMaterials": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "maxItems": 16 },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 32 }
+          "limit": { "type": "integer", "minimum": 1, "maximum": 32 },
+          "stockDir": { "type": "string", "minLength": 1, "maxLength": 4096 }
         },
         "required": ["indexDir", "targets"],
         "additionalProperties": false
       },
       "artifactTypes": ["reaction-disconnections"],
       "timeoutMs": 300000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
+      "id": "check-stock",
+      "description": "Check which of the user's imported vendor stock lists (Mcule, Enamine, …) hold each molecule, matched by standard InChIKey. The application supplies the stock directory; this tool is not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "stockDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "molecules": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 64 }
+        },
+        "required": ["stockDir", "molecules"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["stock-availability"],
+      "timeoutMs": 120000,
       "concurrency": 1,
       "maxPerReply": 1,
       "answerMode": "replace-block",
@@ -224,6 +245,12 @@
       "type": "reaction-disconnections",
       "version": 1,
       "label": { "en": "Reaction disconnections", "es": "Desconexiones de reacción", "fr": "Déconnexions de réaction", "de": "Reaktionsdiskonnektionen", "pt": "Desconexões de reação", "pt-BR": "Desconexões de reação", "it": "Disconnessioni di reazione", "tr": "Reaksiyon ayrıştırmaları" },
+      "modelVisibility": "none"
+    },
+    {
+      "type": "stock-availability",
+      "version": 1,
+      "label": { "en": "Stock availability", "es": "Disponibilidad en catálogo", "fr": "Disponibilité en stock", "de": "Lagerverfügbarkeit", "pt": "Disponibilidade em stock", "pt-BR": "Disponibilidade em estoque", "it": "Disponibilità a catalogo", "tr": "Stok durumu" },
       "modelVisibility": "none"
     }
   ],
