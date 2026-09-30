@@ -526,7 +526,7 @@ def _makes(reaction, target):
     return target in organic and len(organic) <= 2
 
 
-def _disconnect(index_dir, targets, limit, starting=()):
+def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
     """For each target: the recorded reactions that make it, and template disconnections ranked by
     (1) the disconnection itself being a recorded reaction, (2) every organic precursor being a
     common ORD reactant, (3) template popularity. A precursor set containing the target is dropped.
@@ -541,6 +541,13 @@ def _disconnect(index_dir, targets, limit, starting=()):
 
     starts = {c for c in (_canon(s) for s in starting) if c}
     start_fps = [f for f in (fingerprint(s) for s in starts) if f is not None]
+    stock = _load_stock(stock_dir)
+    stock_seen = {}
+
+    def vendors(smiles):
+        if smiles not in stock_seen:
+            stock_seen[smiles] = _vendors_for(stock, smiles)
+        return stock_seen[smiles]
 
     try:
         from rdchiral.main import rdchiralReaction, rdchiralReactants, rdchiralRun
@@ -630,15 +637,22 @@ def _disconnect(index_dir, targets, limit, starting=()):
                 "uses": {m: as_reactant(m) for m in organic},
                 "classes": _reaction_classes(side, entry["target"]),
             })
+        # Purchasable: every organic precursor is on one of the user's stock lists. It ranks
+        # beside ORD availability (common as a reactant), which stays the fallback.
+        if stock:
+            for proposal in ranked:
+                organic = [m for m in proposal["precursors"].split(".") if _is_organic(m)]
+                proposal["inStock"] = {m: vendors(m) for m in organic}
+                proposal["purchasable"] = bool(organic) and all(proposal["inStock"][m] for m in organic)
         if starts:
             for proposal in ranked:
                 organic = [m for m in proposal["precursors"].split(".") if _is_organic(m)]
                 proposal["fromStarts"] = bool(organic) and all(m in starts or (as_reactant(m) >= AVAILABLE_AS_REACTANT and Chem.MolFromSmiles(m).GetNumHeavyAtoms() <= 6) for m in organic)
                 similarities = [max(DataStructs.BulkTanimotoSimilarity(fp, start_fps)) for fp in (fingerprint(m) for m in organic) if fp is not None]
                 proposal["startSimilarity"] = round(max(similarities, default=0.0), 3)
-            ranked.sort(key=lambda p: (-(p["recorded"] > 0), -p["fromStarts"], -p["startSimilarity"], -p["available"], -p["templateCount"]))
+            ranked.sort(key=lambda p: (-(p["recorded"] > 0), -p["fromStarts"], -p["startSimilarity"], -p.get("purchasable", False), -p["available"], -p["templateCount"]))
         else:
-            ranked.sort(key=lambda p: (-(p["recorded"] > 0), -p["available"], -p["recorded"], -p["templateCount"]))
+            ranked.sort(key=lambda p: (-(p["recorded"] > 0), -p.get("purchasable", False), -p["available"], -p["recorded"], -p["templateCount"]))
         entry["proposals"] = ranked[:limit]
         entry["proposalsConsidered"] = len(ranked)
     return results
@@ -651,7 +665,7 @@ ROUTINE_REAGENT_ATOMS = 6
 ROUTINE_REAGENT_USES = 500
 
 
-def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, branch=4, keep=3):
+def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, branch=4, keep=3, stock_dir=None):
     """Best-first backward search from the target to the starting materials. A molecule is expanded
     into its recorded ORD reactions (filtered) and its top template disconnections; a recorded step
     costs less than a template step, and precursors resembling the starting materials cost less. A
@@ -674,11 +688,19 @@ def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, bran
 
     def lookup(m):
         if m not in cache:
-            cache[m] = _disconnect(index_dir, [m], branch * 3, sorted(starts))[0]
+            cache[m] = _disconnect(index_dir, [m], branch * 3, sorted(starts), stock_dir)[0]
         return cache[m]
 
+    stock, stocked = _load_stock(stock_dir), {}
+
+    def purchasable(m):
+        if m not in stocked:
+            stocked[m] = bool(_vendors_for(stock, m)) if stock else False
+        return stocked[m]
+
     def free(m, uses):
-        return m in starts or not _is_organic(m) or (atoms(m) <= ROUTINE_REAGENT_ATOMS and uses.get(m, 0) >= ROUTINE_REAGENT_USES)
+        # A precursor on the user's stock list is bought, not made; the target is always made.
+        return m in starts or not _is_organic(m) or (m != target and purchasable(m)) or (atoms(m) <= ROUTINE_REAGENT_ATOMS and uses.get(m, 0) >= ROUTINE_REAGENT_USES)
 
     uses = {}
 
@@ -777,7 +799,140 @@ def _stereo_choices(smiles, max_isomers=64):
     return {"open": math.ceil(math.log2(len(isomers))), "mirrorOnly": mirror_only}
 
 
+# ── Purchasable compounds ─────────────────────────────────────────────────────────────────
+# A stock list is a vendor catalogue the user downloaded (Mcule, Enamine, …), imported once into
+# <stockDir>/<vendor>.u64: the sorted, unique 64-bit hashes of every compound's standard InChIKey,
+# with <vendor>.json beside it (source file, date, counts). A lookup is a binary search on a
+# memory map, so a 7-million-compound catalogue (56 MB) costs nothing to open per request.
+
+def _stock_hash(inchikey):
+    return int.from_bytes(hashlib.sha1(inchikey.strip().upper().encode()).digest()[:8], "little")
+
+
+def _inchikey(smiles):
+    from rdkit import Chem, RDLogger
+    RDLogger.DisableLog("rdApp.*")
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+    try:
+        key = Chem.MolToInchiKey(mol)
+    except Exception:
+        return None
+    return key or None
+
+
+def _stock_records(path):
+    """(inchikey or None, smiles or None) per compound of a vendor file: SMILES (.smi/.txt, first
+    column), CSV/TSV (a column named like SMILES and/or InChIKey), or SDF (.sdf/.sdf.gz)."""
+    import csv, gzip, io
+    opener = gzip.open if path.endswith(".gz") else open
+    name = path[:-3] if path.endswith(".gz") else path
+    if name.endswith(".sdf"):
+        from rdkit import Chem, RDLogger
+        RDLogger.DisableLog("rdApp.*")
+        with opener(path, "rb") as fh:
+            for mol in Chem.ForwardSDMolSupplier(fh):
+                if mol is None:
+                    yield None, None
+                    continue
+                props = {k.lower(): mol.GetProp(k) for k in mol.GetPropNames()}
+                key = next((v for k, v in props.items() if "inchikey" in k), None)
+                yield (key, None) if key else (Chem.MolToInchiKey(mol) or None, None)
+        return
+    with opener(path, "rt", encoding="utf-8", errors="replace") as fh:
+        first = fh.readline()
+        delimiter = "\t" if "\t" in first else ("," if name.endswith(".csv") else None)
+        header = [h.strip().lower() for h in (first.split(delimiter) if delimiter else first.split())]
+        key_col = next((i for i, h in enumerate(header) if "inchikey" in h), None)
+        smi_col = next((i for i, h in enumerate(header) if "smiles" in h), None)
+        rows = csv.reader(fh, delimiter=delimiter) if delimiter else (line.split() for line in fh)
+        if key_col is None and smi_col is None:
+            # No header: the first column is the SMILES, and the first line is a record too.
+            smi_col = 0
+            rows = __import__("itertools").chain([first.split(delimiter) if delimiter else first.split()], rows)
+        for row in rows:
+            if not row:
+                continue
+            key = row[key_col].strip() if key_col is not None and key_col < len(row) else None
+            smiles = row[smi_col].strip() if smi_col is not None and smi_col < len(row) else None
+            yield (key or None, smiles or None)
+
+
+def _key_of(record):
+    key, smiles = record
+    if key and len(key) == 27:
+        return key
+    return _inchikey(smiles) if smiles else None
+
+
+def _import_stock(source, vendor, out_dir, workers=None):
+    import multiprocessing as mp
+    import time
+    import numpy as np
+    vendor = "".join(c for c in vendor.lower() if c.isalnum() or c in "-_") or "stock"
+    os.makedirs(out_dir, exist_ok=True)
+    started = time.time()
+    records = failed = 0
+    hashes = []
+    with mp.Pool(workers or max(1, (os.cpu_count() or 2) - 1)) as pool:
+        for key in pool.imap(_key_of, _stock_records(source), chunksize=512):
+            records += 1
+            if key:
+                hashes.append(_stock_hash(key))
+            else:
+                failed += 1
+            if records % 500000 == 0:
+                print(f"  {records:,} compounds", file=sys.stderr, flush=True)
+    array = np.unique(np.asarray(hashes, dtype=np.uint64))
+    target = os.path.join(out_dir, f"{vendor}.u64")
+    array.astype("<u8").tofile(target + ".tmp")
+    os.replace(target + ".tmp", target)
+    meta = {"vendor": vendor, "source": os.path.basename(source), "importedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "records": records, "compounds": int(array.size), "unreadable": failed, "seconds": round(time.time() - started, 1)}
+    with open(os.path.join(out_dir, f"{vendor}.json"), "w") as fh:
+        json.dump(meta, fh, indent=2)
+    return meta
+
+
+_STOCK_CACHE = {}
+
+
+def _load_stock(stock_dir):
+    import numpy as np
+    if not stock_dir or not os.path.isdir(stock_dir):
+        return {}
+    if stock_dir not in _STOCK_CACHE:
+        lists = {}
+        for name in sorted(os.listdir(stock_dir)):
+            if name.endswith(".u64") and os.path.getsize(os.path.join(stock_dir, name)) > 0:
+                lists[name[:-4]] = np.memmap(os.path.join(stock_dir, name), dtype="<u8", mode="r")
+        _STOCK_CACHE[stock_dir] = lists
+    return _STOCK_CACHE[stock_dir]
+
+
+def _vendors_for(stock, smiles):
+    """The vendors whose stock list holds this compound (by standard InChIKey)."""
+    import numpy as np
+    if not stock or not smiles:
+        return []
+    key = _inchikey(smiles)
+    if not key:
+        return []
+    value = np.uint64(_stock_hash(key))
+    out = []
+    for vendor, array in stock.items():
+        at = int(np.searchsorted(array, value))
+        if at < array.size and array[at] == value:
+            out.append(vendor)
+    return out
+
+
 def handle(request):
+    if "stock" in request:
+        stock = _load_stock(request.get("stockDir"))
+        molecules = [m for m in request.get("stock", []) if isinstance(m, str) and m.strip()][:64]
+        return {"stock": {m: _vendors_for(stock, m) for m in molecules}, "lists": sorted(stock)}
     if "stereoChoices" in request:
         out = {}
         for smiles in [s for s in request.get("stereoChoices", []) if isinstance(s, str) and s.strip()][:48]:
@@ -792,13 +947,13 @@ def handle(request):
     if "route" in request:
         starting = [x for x in request.get("startingMaterials", []) if isinstance(x, str) and x.strip()][:16]
         max_steps = max(1, min(int(request.get("maxSteps", 4) or 4), 8))
-        return {"route": _search_routes(index_dir, str(request.get("route", "")), starting, max_steps)}
+        return {"route": _search_routes(index_dir, str(request.get("route", "")), starting, max_steps, stock_dir=request.get("stockDir"))}
     if "disconnect" in request:
         targets = [t for t in request.get("disconnect", []) if isinstance(t, str) and t.strip()][:16]
         limit = max(1, min(int(request.get("limit", 8) or 8), 32))
         starting = [s for s in request.get("startingMaterials", []) if isinstance(s, str) and s.strip()][:16]
         missing = [name for name in ("retro-templates.tsv.zst", "molecules.tsv.zst") if not os.path.isfile(os.path.join(index_dir, name))]
-        return {"disconnections": _disconnect(index_dir, targets, limit, starting), **({"indexLacks": missing} if missing else {})}
+        return {"disconnections": _disconnect(index_dir, targets, limit, starting, request.get("stockDir")), **({"indexLacks": missing} if missing else {})}
     store = _load(index_dir)
 
     reactions = []
@@ -862,6 +1017,12 @@ def handle(request):
 def main():
     if "--check" in sys.argv[1:]:
         print(json.dumps(_versions()))
+        return
+    if "--import-stock" in sys.argv[1:]:
+        # reactions_worker.py --import-stock <file> <vendor> <stockDir>
+        at = sys.argv.index("--import-stock")
+        source, vendor, out_dir = sys.argv[at + 1:at + 4]
+        print(json.dumps(_import_stock(source, vendor, out_dir)))
         return
     request = json.loads(sys.stdin.read() or "{}")
     print(json.dumps(handle(request)))

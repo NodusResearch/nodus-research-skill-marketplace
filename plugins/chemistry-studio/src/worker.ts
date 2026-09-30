@@ -90,13 +90,14 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number }; locale: string; chat?: { question?: string; nodeId?: string } }) {
+    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[] }; locale: string; chat?: { question?: string; nodeId?: string } }) {
       if (toolId === 'resolve-names') return resolveNames(input, referenceCache);
       if (toolId === 'resolve-structure') return nameStructures(input);
       if (toolId === 'inspect') return inspectMolecule(input);
       if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache);
       if (toolId === 'known-reactions') return knownReactions(input);
       if (toolId === 'propose-disconnections') return proposeDisconnections(input);
+      if (toolId === 'check-stock') return checkStock(input);
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
@@ -593,7 +594,7 @@ async function knownReactions(input: { indexDir?: string; reactions?: string[]; 
  *  reactions that make each target, then retro templates extracted from the index and applied
  *  with RDChiral, ranked by recorded precedent, precursor availability and (when a route's
  *  starting materials are given) closeness to them. Application-invoked only, like the lookup. */
-async function proposeDisconnections(input: { indexDir?: string; targets?: string[]; startingMaterials?: string[]; limit?: number }) {
+async function proposeDisconnections(input: { indexDir?: string; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string }) {
   const indexDir = typeof input?.indexDir === 'string' ? input.indexDir : '';
   if (!indexDir) throw new Error('A disconnection search needs the index directory.');
   const targets = Array.isArray(input.targets) ? input.targets.filter(t => typeof t === 'string' && t.trim()).slice(0, 16) : [];
@@ -608,6 +609,7 @@ async function proposeDisconnections(input: { indexDir?: string; targets?: strin
       disconnect: targets,
       startingMaterials: Array.isArray(input.startingMaterials) ? input.startingMaterials.slice(0, 16) : [],
       limit: typeof input.limit === 'number' ? input.limit : 8,
+      ...(typeof input.stockDir === 'string' && input.stockDir ? { stockDir: input.stockDir } : {}),
     }),
     timeoutMs: 240_000,
   });
@@ -618,6 +620,28 @@ async function proposeDisconnections(input: { indexDir?: string; targets?: strin
   const proposals = entries.reduce((sum, entry) => sum + (entry.proposals?.length ?? 0), 0);
   const summary = `Disconnections: ${proposals} proposal(s) for ${entries.length} target(s), ${recorded} with a recorded reaction that makes it.`;
   return { artifacts: [{ artifactType: 'reaction-disconnections', artifactVersion: 1, summary, data }], notices: [] };
+}
+
+/** Which of the user's imported vendor stock lists hold each molecule (standard InChIKey). The
+ *  lists are catalogues the user downloaded and imported (`reactions_worker.py --import-stock`);
+ *  the application supplies their directory. Application-invoked only. */
+async function checkStock(input: { stockDir?: string; molecules?: string[] }) {
+  const stockDir = typeof input?.stockDir === 'string' ? input.stockDir : '';
+  const molecules = Array.isArray(input?.molecules) ? input.molecules.filter(m => typeof m === 'string' && m.trim()).slice(0, 64) : [];
+  if (!stockDir || molecules.length === 0) throw new Error('A stock check needs the stock directory and at least one molecule.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT],
+    stdin: JSON.stringify({ stock: molecules, stockDir }),
+    timeoutMs: 60_000,
+  });
+  if (run.code !== 0) throw new Error('The stock check failed.');
+  const data = JSON.parse(run.stdout) as { stock?: Record<string, string[]>; lists?: string[] };
+  const found = Object.values(data.stock ?? {}).filter(vendors => vendors.length > 0).length;
+  const summary = `Stock: ${found} of ${molecules.length} molecule(s) on ${(data.lists ?? []).length} stock list(s).`;
+  return { artifacts: [{ artifactType: 'stock-availability', artifactVersion: 1, summary, data }], notices: [] };
 }
 
 export { isChemistrySvgRequest };
