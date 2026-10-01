@@ -89,14 +89,14 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "minItems": 1, "maxItems": 16 },
-          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 16 },
+          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "minItems": 1, "maxItems": 96 },
+          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 96 },
           "racemic": { "type": "boolean" },
           "target": { "type": "string", "minLength": 1, "maxLength": 2000 },
           "enumerateStereo": { "type": "boolean" },
           "labels": {
             "type": "array",
-            "maxItems": 16,
+            "maxItems": 96,
             "items": {
               "type": "array",
               "maxItems": 24,
@@ -105,7 +105,7 @@
                 "properties": {
                   "role": { "type": "string", "enum": ["reactant", "product", "agent"] },
                   "byproduct": { "type": "boolean" },
-                  "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 1000 },
                   "smiles": { "type": "string", "minLength": 1, "maxLength": 2000 }
                 },
                 "required": ["role", "name", "smiles"],

@@ -1566,3 +1566,14 @@ test('propose-disconnections passes the stock directory only when given', async 
   assert.equal(sent[0].stockDir, '/stock');
   assert.equal('stockDir' in sent[1], false);
 });
+
+test('a solid-phase-length route (80 steps) is checked whole; 97 steps are refused', async () => {
+  const worker = lib.createWorker(stubHost());
+  // An alternating oxidation/reduction chain: 80 balanced, connected steps.
+  const steps = Array.from({ length: 80 }, (_, i) => (i % 2 ? 'CC=O.[H][H]>>CCO' : 'CCO.O=O>>CC=O.O'));
+  const result = await worker.invoke({ invocationId: 'long1', toolId: 'verify-route', locale: 'en', input: { steps } });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.steps.length, 80);
+  assert.ok(audit.steps.every((step) => step.balanced), 'every step balanced');
+  await assert.rejects(worker.invoke({ invocationId: 'long2', toolId: 'verify-route', locale: 'en', input: { steps: Array(97).fill('CCO.O=O>>CC=O.O') } }), /between one and 96 steps/);
+});

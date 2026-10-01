@@ -9,13 +9,15 @@ import { validateChemicalReferences } from './chemistryValidationCore';
  *  one entering the next. Identity is RDKit's canonical isomeric SMILES, so it is a string
  *  comparison, not a judgement about whether two drawings look alike. */
 
-const MAX_STEPS = 16;
+// Solid-phase peptide syntheses run to ~80 steps (a coupling and a deprotection per residue,
+// e.g. tirzepatide's 39 residues, then cleavage); 96 keeps them checkable. Not a chemistry rule.
+const MAX_STEPS = 96;
 // A backstop against pathological input, not a chemistry constraint. A named salt expands to
 // its ions in the equation (`sodium dichromate` is three components), so a legitimate redox
 // step can exceed a tight per-step limit; the application caps the author's labels per step
 // and the whole route separately, and the subworker is killable and time-bounded.
 const MAX_SPECIES_PER_STEP = 48;
-const MAX_SPECIES_TOTAL = 256;
+const MAX_SPECIES_TOTAL = 1024;
 const MAX_REACTION_CHARS = 4000;
 
 async function summarize(input: string): Promise<RouteSpeciesSummary> {

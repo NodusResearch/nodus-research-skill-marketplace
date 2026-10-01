@@ -541,10 +541,11 @@ async function productStereoChoices(steps: string[]): Promise<Record<string, { o
 async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; enumerateStereo?: boolean }, cache: ReferenceCache) {
   // An empty entry is a step the application could not build. It is kept, not dropped, so the
   // labels, carriers and racemic flags — all indexed by step — stay aligned with the steps.
+  // Not cut here: the route audit refuses a route over its step limit by name, where a silent
+  // cut would check only the first steps and report the rest as never written.
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
-    .map(entry => typeof entry === 'string' ? entry.trim() : '')
-    .slice(0, 16);
-  if (!steps.some(Boolean)) throw new Error('Provide between one and sixteen reaction SMILES steps.');
+    .map(entry => typeof entry === 'string' ? entry.trim() : '');
+  if (!steps.some(Boolean)) throw new Error('Provide at least one reaction SMILES step.');
   const carriers = Array.isArray(input?.carriers) ? input.carriers.slice(0, steps.length) : undefined;
   const racemic = typeof input?.racemic === 'boolean'
     ? input.racemic
