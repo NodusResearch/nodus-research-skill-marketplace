@@ -639,9 +639,11 @@ async function checkStock(input: { stockDir?: string; molecules?: string[] }) {
     timeoutMs: 60_000,
   });
   if (run.code !== 0) throw new Error('The stock check failed.');
-  const data = JSON.parse(run.stdout) as { stock?: Record<string, string[]>; lists?: string[] };
+  const data = JSON.parse(run.stdout) as { stock?: Record<string, string[]>; orderable?: Record<string, string[]>; lists?: string[]; orderLists?: string[] };
   const found = Object.values(data.stock ?? {}).filter(vendors => vendors.length > 0).length;
-  const summary = `Stock: ${found} of ${molecules.length} molecule(s) on ${(data.lists ?? []).length} stock list(s).`;
+  const orderable = Object.entries(data.orderable ?? {}).filter(([molecule, vendors]) => vendors.length > 0 && !(data.stock?.[molecule]?.length)).length;
+  const summary = `Stock: ${found} of ${molecules.length} molecule(s) in stock on ${(data.lists ?? []).length} list(s)`
+    + ((data.orderLists ?? []).length ? `, ${orderable} more orderable (make-on-demand).` : '.');
   return { artifacts: [{ artifactType: 'stock-availability', artifactVersion: 1, summary, data }], notices: [] };
 }
 

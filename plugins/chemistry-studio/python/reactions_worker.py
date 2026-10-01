@@ -541,7 +541,8 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
 
     starts = {c for c in (_canon(s) for s in starting) if c}
     start_fps = [f for f in (fingerprint(s) for s in starts) if f is not None]
-    stock = _load_stock(stock_dir)
+    # Only ready-to-ship lists make a proposal purchasable; make-on-demand lists do not.
+    stock = _load_stock(stock_dir, "stock")
     stock_seen = {}
 
     def vendors(smiles):
@@ -691,7 +692,7 @@ def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, bran
             cache[m] = _disconnect(index_dir, [m], branch * 3, sorted(starts), stock_dir)[0]
         return cache[m]
 
-    stock, stocked = _load_stock(stock_dir), {}
+    stock, stocked = _load_stock(stock_dir, "stock"), {}
 
     def purchasable(m):
         if m not in stocked:
@@ -866,29 +867,34 @@ def _key_of(record):
     return _inchikey(smiles) if smiles else None
 
 
-def _import_stock(source, vendor, out_dir, workers=None):
+def _import_stock(source, vendor, out_dir, workers=None, tier="stock"):
+    """tier "stock": ready to ship — such precursors end a route search and rank first.
+    tier "order": make-on-demand — reported as orderable, never treated as a starting point."""
     import multiprocessing as mp
     import time
+    from array import array
     import numpy as np
+    tier = "order" if tier == "order" else "stock"
     vendor = "".join(c for c in vendor.lower() if c.isalnum() or c in "-_") or "stock"
     os.makedirs(out_dir, exist_ok=True)
     started = time.time()
     records = failed = 0
-    hashes = []
+    hashes = array("Q")  # 8 bytes a compound: 140M is ~1.1 GB, not Python ints
     with mp.Pool(workers or max(1, (os.cpu_count() or 2) - 1)) as pool:
-        for key in pool.imap(_key_of, _stock_records(source), chunksize=512):
+        for key in pool.imap(_key_of, _stock_records(source), chunksize=2048):
             records += 1
             if key:
                 hashes.append(_stock_hash(key))
             else:
                 failed += 1
-            if records % 500000 == 0:
-                print(f"  {records:,} compounds", file=sys.stderr, flush=True)
-    array = np.unique(np.asarray(hashes, dtype=np.uint64))
+            if records % 1000000 == 0:
+                print(f"  {records:,} compounds ({time.time() - started:.0f}s)", file=sys.stderr, flush=True)
+    array = np.unique(np.frombuffer(hashes, dtype=np.uint64))
+    del hashes
     target = os.path.join(out_dir, f"{vendor}.u64")
     array.astype("<u8").tofile(target + ".tmp")
     os.replace(target + ".tmp", target)
-    meta = {"vendor": vendor, "source": os.path.basename(source), "importedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    meta = {"vendor": vendor, "tier": tier, "source": os.path.basename(source), "importedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "records": records, "compounds": int(array.size), "unreadable": failed, "seconds": round(time.time() - started, 1)}
     with open(os.path.join(out_dir, f"{vendor}.json"), "w") as fh:
         json.dump(meta, fh, indent=2)
@@ -898,7 +904,9 @@ def _import_stock(source, vendor, out_dir, workers=None):
 _STOCK_CACHE = {}
 
 
-def _load_stock(stock_dir):
+def _load_stock(stock_dir, tier=None):
+    """The stock lists in a directory, {vendor: memmap}; with tier, only lists of that tier
+    (a list imported before tiers existed counts as stock)."""
     import numpy as np
     if not stock_dir or not os.path.isdir(stock_dir):
         return {}
@@ -906,9 +914,15 @@ def _load_stock(stock_dir):
         lists = {}
         for name in sorted(os.listdir(stock_dir)):
             if name.endswith(".u64") and os.path.getsize(os.path.join(stock_dir, name)) > 0:
-                lists[name[:-4]] = np.memmap(os.path.join(stock_dir, name), dtype="<u8", mode="r")
+                vendor = name[:-4]
+                try:
+                    with open(os.path.join(stock_dir, vendor + ".json")) as fh:
+                        list_tier = json.load(fh).get("tier", "stock")
+                except (OSError, ValueError):
+                    list_tier = "stock"
+                lists[vendor] = (list_tier, np.memmap(os.path.join(stock_dir, name), dtype="<u8", mode="r"))
         _STOCK_CACHE[stock_dir] = lists
-    return _STOCK_CACHE[stock_dir]
+    return {v: arr for v, (t, arr) in _STOCK_CACHE[stock_dir].items() if tier is None or t == tier}
 
 
 def _vendors_for(stock, smiles):
@@ -930,9 +944,12 @@ def _vendors_for(stock, smiles):
 
 def handle(request):
     if "stock" in request:
-        stock = _load_stock(request.get("stockDir"))
+        stock_dir = request.get("stockDir")
+        ready, order = _load_stock(stock_dir, "stock"), _load_stock(stock_dir, "order")
         molecules = [m for m in request.get("stock", []) if isinstance(m, str) and m.strip()][:64]
-        return {"stock": {m: _vendors_for(stock, m) for m in molecules}, "lists": sorted(stock)}
+        return {"stock": {m: _vendors_for(ready, m) for m in molecules},
+                "orderable": {m: _vendors_for(order, m) for m in molecules},
+                "lists": sorted(ready), "orderLists": sorted(order)}
     if "stereoChoices" in request:
         out = {}
         for smiles in [s for s in request.get("stereoChoices", []) if isinstance(s, str) and s.strip()][:48]:
@@ -1019,10 +1036,11 @@ def main():
         print(json.dumps(_versions()))
         return
     if "--import-stock" in sys.argv[1:]:
-        # reactions_worker.py --import-stock <file> <vendor> <stockDir>
+        # reactions_worker.py --import-stock <file> <vendor> <stockDir> [stock|order]
         at = sys.argv.index("--import-stock")
         source, vendor, out_dir = sys.argv[at + 1:at + 4]
-        print(json.dumps(_import_stock(source, vendor, out_dir)))
+        tier = sys.argv[at + 4] if len(sys.argv) > at + 4 else "stock"
+        print(json.dumps(_import_stock(source, vendor, out_dir, tier=tier)))
         return
     request = json.loads(sys.stdin.read() or "{}")
     print(json.dumps(handle(request)))

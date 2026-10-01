@@ -1549,7 +1549,7 @@ test('check-stock sends the stock directory and molecules to the worker and coun
   const result = await lib.createWorker(host).invoke({ invocationId: 'stock1', toolId: 'check-stock', locale: 'en', input: { stockDir: '/stock', molecules: ['CCO', 'c1ccccc1', '  '] } });
   assert.deepEqual(sent[0], { stock: ['CCO', 'c1ccccc1'], stockDir: '/stock' });
   assert.equal(result.artifacts[0].artifactType, 'stock-availability');
-  assert.equal(result.artifacts[0].summary, 'Stock: 1 of 2 molecule(s) on 2 stock list(s).');
+  assert.equal(result.artifacts[0].summary, 'Stock: 1 of 2 molecule(s) in stock on 2 list(s).');
   await assert.rejects(lib.createWorker(host).invoke({ invocationId: 'stock2', toolId: 'check-stock', locale: 'en', input: { stockDir: '', molecules: ['CCO'] } }), /stock directory/);
 });
 
