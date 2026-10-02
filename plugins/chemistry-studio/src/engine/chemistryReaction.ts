@@ -83,7 +83,7 @@ export async function renderBalancedReaction(species: ReactionSpecies[], validat
   const drawings: string[] = [];
   for (const item of species) {
     if (!item || !/^[a-z][a-z0-9-]{0,39}$/.test(item.id) || ids.has(item.id)
-      || !['reactant', 'product', 'agent'].includes(item.role) || !Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > 12
+      || !['reactant', 'product', 'agent'].includes(item.role) || !Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > MAX_COEFFICIENT
       || typeof item.smiles !== 'string' || !item.smiles || item.smiles.length > 2000) throw new Error('Invalid reaction species or coefficient.');
     ids.add(item.id);
     const checked = await validate({ references: [item.smiles], ...(racemic ? { racemic: true } : {}), ...(openStereo ? { openStereo: true } : {}) });
@@ -177,6 +177,13 @@ interface Composition { atoms: Record<string, number>; charge: number }
 
 // Exact rational arithmetic over bigint. Stoichiometric coefficients are integers, and a
 // balance decided in floating point would be a balance decided by rounding.
+/** The largest coefficient a solved equation may carry. Redox steps reach the teens: a
+ *  permanganate oxidation of a methylarene forms 14 water per 5 substrate. Above this a
+ *  balance is more likely a wrong species set than a real equation. The multi-solution search
+ *  keeps its own smaller ceiling, since its cost grows with the ceiling to the power of the
+ *  solution-space dimension. */
+export const MAX_COEFFICIENT = 30;
+
 type Frac = [bigint, bigint];
 const gcd = (a: bigint, b: bigint): bigint => { a = a < 0n ? -a : a; b = b < 0n ? -b : b; while (b) { const t = a % b; a = b; b = t; } return a; };
 const norm = (n: bigint, d: bigint): Frac => { if (d < 0n) { n = -n; d = -d; } const g = gcd(n, d) || 1n; return [n / g, d / g]; };
@@ -269,7 +276,7 @@ function toIntegerCoefficients(vector: Frac[]): number[] | null {
   for (const value of scaled) divisor = gcd(divisor, value);
   if (divisor === 0n) return null;
   const whole = scaled.map(value => Number(value / divisor));
-  return whole.some(value => value > 12) ? null : whole;
+  return whole.some(value => value > MAX_COEFFICIENT) ? null : whole;
 }
 
 const ELEMENT_SYMBOLS: Record<number, string> = { 1: 'H', 3: 'Li', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 19: 'K', 35: 'Br', 53: 'I' };
@@ -296,6 +303,61 @@ function imbalanceReason(compositions: Composition[], roles: ReactionSpecies['ro
     .map(key => `${elementLabel(key)}: reactants ${totals.reactant[key] ?? 0}, products ${totals.product[key] ?? 0}`);
   if (charge.reactant !== charge.product) differences.push(`charge: reactants ${charge.reactant}, products ${charge.product}`);
   return differences.length ? differences.join('; ') : 'the element and charge totals cannot be reconciled';
+}
+
+/** Small molecules a step commonly gains or loses, by element counts (keyed "atomic number:isotope",
+ *  as compositions are). */
+const COMMON_SMALL_MOLECULES: Array<{ name: string; atoms: Record<string, number> }> = [
+  { name: 'H2O', atoms: { '1:0': 2, '8:0': 1 } },
+  { name: 'CO2', atoms: { '6:0': 1, '8:0': 2 } },
+  { name: 'HCl', atoms: { '1:0': 1, '17:0': 1 } },
+  { name: 'HBr', atoms: { '1:0': 1, '35:0': 1 } },
+  { name: 'HI', atoms: { '1:0': 1, '53:0': 1 } },
+  { name: 'NH3', atoms: { '7:0': 1, '1:0': 3 } },
+  { name: 'H2', atoms: { '1:0': 2 } },
+  { name: 'N2', atoms: { '7:0': 2 } },
+  { name: 'O2', atoms: { '8:0': 2 } },
+  { name: 'CH3OH', atoms: { '6:0': 1, '1:0': 4, '8:0': 1 } },
+  { name: 'C2H5OH', atoms: { '6:0': 2, '1:0': 6, '8:0': 1 } },
+  { name: 'CH3COOH', atoms: { '6:0': 2, '1:0': 4, '8:0': 2 } },
+];
+
+const GENERIC_ADVICE = 'Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.';
+
+/** What to do about an unbalanced step, read from the difference at one of each species. When
+ *  that difference is exactly one common molecule, name it and its side. When it is a small
+ *  remainder no molecule explains (one oxygen: a hydroxy-enone named where the β-hydroxy ketone
+ *  was meant) in a step with one organic reactant and one organic product, the named structure
+ *  is the likelier fault, and "add water" sent the model round the same step three times. */
+function imbalanceAdvice(compositions: Composition[], roles: ReactionSpecies['role'][]): string {
+  const difference: Record<string, number> = {};
+  let charge = 0;
+  compositions.forEach((composition, index) => {
+    const sign = roles[index] === 'reactant' ? 1 : roles[index] === 'product' ? -1 : 0;
+    if (!sign) return;
+    for (const [key, count] of Object.entries(composition.atoms)) difference[key] = (difference[key] ?? 0) + sign * count;
+    charge += sign * composition.charge;
+  });
+  const nonZero = Object.entries(difference).filter(([, count]) => count !== 0);
+  if (!nonZero.length || charge !== 0) return GENERIC_ADVICE;
+  const matches = (sign: 1 | -1) => COMMON_SMALL_MOLECULES.find(molecule => {
+    const keys = new Set([...Object.keys(molecule.atoms), ...nonZero.map(([key]) => key)]);
+    return [...keys].every(key => (difference[key] ?? 0) === sign * (molecule.atoms[key] ?? 0));
+  });
+  const surplus = matches(1);
+  if (surplus) return `At one of each species the products lack exactly ${surplus.name}: if the step releases it, list it under Byproducts; otherwise a named structure is wrong.`;
+  const deficit = matches(-1);
+  if (deficit) return `At one of each species the reactants lack exactly ${deficit.name}: if the step consumes it, list it under Reactants; otherwise a named structure is wrong.`;
+  const organic = (role: ReactionSpecies['role']) => compositions.filter((composition, index) => roles[index] === role && (composition.atoms['6:0'] ?? 0) > 0).length;
+  const size = nonZero.reduce((sum, [, count]) => sum + Math.abs(count), 0);
+  // Only one element off, by one or two atoms, and not hydrogen: no reagent supplies a lone O or
+  // C. A mixed difference (O gained and H lost) is usually a missing oxidant or reductant.
+  const lone = nonZero.length === 1 && size <= 2 && !nonZero[0][0].startsWith('1:');
+  if (lone && organic('reactant') === 1 && organic('product') === 1) {
+    const described = nonZero.map(([key, count]) => `${count > 0 ? 'the products lack' : 'the products have an extra'} ${Math.abs(count)} ${elementLabel(key)}`).join(' and ');
+    return `No common molecule accounts for the difference (${described}) between this step's one organic reactant and one organic product: the named product (or reactant) is probably not the compound intended. Check its name and structure against what the step forms before adding species.`;
+  }
+  return GENERIC_ADVICE;
 }
 
 /** The species that appear on both sides with the same formula and charge. Such a species
@@ -334,6 +396,56 @@ function cancelledSpectators(active: Array<{ composition: Composition; index: nu
  *  A single basis vector is a unique balance. Several means the species admit more than one
  *  equation — ethanol combustion written with both CO and CO2, say — and choosing one would
  *  be inventing a claim about which reaction is meant. */
+/** A species listed on both sides is cancelled as a spectator, which is right when it is one
+ *  (a counterion carried through). When the step then cannot balance, the species takes part
+ *  after all: the hydrochloride of a product written as `amine.Cl` puts HCl on the product side
+ *  while the reaction consumes HCl, and water written as "aqueous" is also formed. Solve again
+ *  with each such pair as one net column that may come out consumed or formed; every other
+ *  species must still take part. Written back as net + 1 on its side and 1 on the other. */
+function netColumnBalance(compositions: Composition[], roles: ReactionSpecies['role'][], active: Array<{ composition: Composition; index: number }>, removed: Set<number>, supplied: number[]): number[] | null {
+  const key = (index: number) => JSON.stringify([Object.entries(compositions[index].atoms).sort(), compositions[index].charge]);
+  const pairs: Array<[number, number]> = [];
+  const used = new Set<number>();
+  for (const reactant of [...removed].filter(index => roles[index] === 'reactant')) {
+    const product = [...removed].find(index => roles[index] === 'product' && !used.has(index) && key(index) === key(reactant));
+    if (product === undefined) continue;
+    used.add(product);
+    pairs.push([reactant, product]);
+  }
+  if (!pairs.length) return null;
+  const fixed = active.filter(({ index }) => !removed.has(index) || (!pairs.some(([r, p]) => r === index || p === index)));
+  const columns = [...fixed.map(({ index }) => ({ index, sign: roles[index] === 'reactant' ? 1 : -1, free: false })),
+    ...pairs.map(([reactant]) => ({ index: reactant, sign: 1, free: true }))];
+  const keys = new Set<string>();
+  for (const { index } of columns) for (const atom of Object.keys(compositions[index].atoms)) keys.add(atom);
+  const matrix = [...keys].map(atom => columns.map(({ index, sign }) => BigInt(sign * (compositions[index].atoms[atom] ?? 0))));
+  matrix.push(columns.map(({ index, sign }) => BigInt(sign * compositions[index].charge)));
+  const basis = nullSpace(matrix, columns.length);
+  if (basis.length !== 1) return null;
+  const vector = basis[0];
+  const fixedValues = vector.filter((_, position) => !columns[position].free);
+  if (!fixedValues.length || fixedValues.some(fZero)) return null;
+  const positive = fixedValues[0][0] > 0n;
+  if (fixedValues.some(value => (value[0] > 0n) !== positive)) return null;
+  let lcm = 1n;
+  for (const value of vector) lcm = (lcm / gcd(lcm, value[1])) * value[1];
+  const scaled = vector.map(value => ((value[0] * lcm) / value[1]) * (positive ? 1n : -1n));
+  let divisor = 0n;
+  for (const value of scaled) divisor = gcd(divisor, value < 0n ? -value : value);
+  if (divisor === 0n) return null;
+  const whole = scaled.map(value => Number(value / divisor));
+  if (whole.some((value, position) => (columns[position].free ? Math.abs(value) > 2 * MAX_COEFFICIENT : value > MAX_COEFFICIENT))) return null;
+  const coefficients = supplied.slice();
+  columns.forEach(({ index, free }, position) => {
+    if (!free) { coefficients[index] = whole[position]; return; }
+    const [reactant, product] = pairs.find(([r]) => r === index)!;
+    const net = whole[position];
+    coefficients[reactant] = net > 0 ? net + 1 : 1;
+    coefficients[product] = net < 0 ? -net + 1 : 1;
+  });
+  return coefficients;
+}
+
 export function balanceReaction(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[]): number[] {
   const active = compositions.map((composition, index) => ({ composition, index })).filter(({ index }) => roles[index] !== 'agent');
   if (!active.some(({ index }) => roles[index] === 'reactant') || !active.some(({ index }) => roles[index] === 'product')) {
@@ -356,12 +468,17 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
   // adds a degree of freedom and a correct equation is reported as "more than one balance".
   const removed = cancelledSpectators(active, roles);
   const reduced = active.filter(({ index }) => !removed.has(index));
+  const net = () => (removed.size ? netColumnBalance(compositions, roles, active, removed, supplied) : null);
   if (!reduced.some(({ index }) => roles[index] === 'reactant') || !reduced.some(({ index }) => roles[index] === 'product')) {
-    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.`);
+    const balancedNet = net();
+    if (balancedNet) return balancedNet;
+    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. ${imbalanceAdvice(compositions, roles)}`);
   }
   const basis = nullSpace(matrixFor(reduced), reduced.length);
   if (!basis.length) {
-    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.`);
+    const balancedNet = net();
+    if (balancedNet) return balancedNet;
+    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. ${imbalanceAdvice(compositions, roles)}`);
   }
   // The dimension of the null space is the question, not whether a particular basis vector
   // happens to come out positive. Two dimensions means infinitely many balanced equations —
@@ -391,7 +508,7 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
       const names = idle.map(position => `"${formulaOf(reduced[position].composition.atoms)}"`).join(', ');
       throw new Error(`The declared species cannot be balanced: ${names} take(s) no part (coefficient 0), so the equation balances only if ${idle.length > 1 ? 'those molecules are' : 'that molecule is'} removed. Delete the molecule the step neither consumes nor produces — water and a solvent are the usual ones.`);
     }
-    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.`);
+    throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. ${imbalanceAdvice(compositions, roles)}`);
   }
   const coefficients = supplied.slice();
   reduced.forEach(({ index }, position) => { coefficients[index] = solved[position]; });

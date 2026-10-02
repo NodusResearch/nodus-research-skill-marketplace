@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "chemistry",
   "provides": "nodus:chemistry",
-  "version": "2.5.7",
+  "version": "2.5.8",
   "description": "Resolve chemical identities against references, validate the structure, draw it as a verified document, and check a step against known reactions.",
   "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
   "requires": [{ "id": "nodus:svg", "minVersion": "1.0.0", "maxVersionExclusive": "2.0.0" }],
@@ -89,13 +89,14 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "minItems": 1, "maxItems": 16 },
-          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 16 },
+          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "minItems": 1, "maxItems": 96 },
+          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 96 },
           "racemic": { "type": "boolean" },
           "target": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "enumerateStereo": { "type": "boolean" },
           "labels": {
             "type": "array",
-            "maxItems": 16,
+            "maxItems": 96,
             "items": {
               "type": "array",
               "maxItems": 24,
@@ -104,7 +105,7 @@
                 "properties": {
                   "role": { "type": "string", "enum": ["reactant", "product", "agent"] },
                   "byproduct": { "type": "boolean" },
-                  "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 1000 },
                   "smiles": { "type": "string", "minLength": 1, "maxLength": 2000 }
                 },
                 "required": ["role", "name", "smiles"],
@@ -140,6 +141,107 @@
       },
       "artifactTypes": ["reaction-precedent"],
       "timeoutMs": 300000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
+      "id": "propose-disconnections",
+      "description": "Propose one-step disconnections for route targets from the local Open Reaction Database index: the recorded reactions that make each target, and retro templates extracted from the index (applied with RDChiral) ranked by recorded precedent, precursor availability and closeness to the route's starting materials, each tagged with its reaction class. The application supplies the index directory; this tool is not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "indexDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "targets": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 16 },
+          "startingMaterials": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "maxItems": 16 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 32 },
+          "stockDir": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "required": ["indexDir", "targets"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["reaction-disconnections"],
+      "timeoutMs": 300000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
+      "id": "check-stock",
+      "description": "Check which of the user's imported vendor stock lists (Mcule, Enamine, …) hold each molecule, matched by standard InChIKey. The application supplies the stock directory; this tool is not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "stockDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "molecules": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 64 }
+        },
+        "required": ["stockDir", "molecules"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["stock-availability"],
+      "timeoutMs": 120000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
+      "id": "search-routes",
+      "description": "Search multi-step routes backwards from a target over local reaction indexes (ORD snapshot, the user's textbook-scheme index): recorded reactions and retro-template disconnections, ending in starting materials, stocked molecules, inorganics or routine reagents. Returns the cheapest complete routes found within the time budget, each step with its provenance. The application supplies the directories; this tool is not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "indexDirs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "minItems": 1, "maxItems": 4 },
+          "target": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "startingMaterials": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "maxItems": 16 },
+          "maxSteps": { "type": "integer", "minimum": 1, "maximum": 6 },
+          "stockDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "budgetSeconds": { "type": "integer", "minimum": 5, "maximum": 240 }
+        },
+        "required": ["indexDirs", "target"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["candidate-routes"],
+      "timeoutMs": 300000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
+      "id": "check-compatibility",
+      "description": "Check each route step for functional groups that survive into the product although a reagent named in the step's conditions attacks them (an ester under LiAlH4, a free OH under a Grignard, a Cbz under H2/Pd), and protecting groups that vanish with no reagent that removes them. Each hazard says why and how to protect the group, with textbook examples when a textbook index is given. Not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 24,
+            "items": {
+              "type": "object",
+              "properties": {
+                "reactants": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "maxItems": 12 },
+                "products": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "maxItems": 12 },
+                "reagents": { "type": "string", "maxLength": 2000 }
+              },
+              "required": ["reactants", "products"],
+              "additionalProperties": false
+            }
+          },
+          "textbookDir": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "required": ["steps"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["step-compatibility"],
+      "timeoutMs": 120000,
       "concurrency": 1,
       "maxPerReply": 1,
       "answerMode": "replace-block",
@@ -195,6 +297,30 @@
       "type": "reaction-precedent",
       "version": 1,
       "label": { "en": "Reaction precedent", "es": "Precedente de reacción", "fr": "Précédent de réaction", "de": "Reaktionspräzedenz", "pt": "Precedente de reação", "pt-BR": "Precedente de reação", "it": "Precedente di reazione", "tr": "Reaksiyon örneği" },
+      "modelVisibility": "none"
+    },
+    {
+      "type": "reaction-disconnections",
+      "version": 1,
+      "label": { "en": "Reaction disconnections", "es": "Desconexiones de reacción", "fr": "Déconnexions de réaction", "de": "Reaktionsdiskonnektionen", "pt": "Desconexões de reação", "pt-BR": "Desconexões de reação", "it": "Disconnessioni di reazione", "tr": "Reaksiyon ayrıştırmaları" },
+      "modelVisibility": "none"
+    },
+    {
+      "type": "stock-availability",
+      "version": 1,
+      "label": { "en": "Stock availability", "es": "Disponibilidad en catálogo", "fr": "Disponibilité en stock", "de": "Lagerverfügbarkeit", "pt": "Disponibilidade em stock", "pt-BR": "Disponibilidade em estoque", "it": "Disponibilità a catalogo", "tr": "Stok durumu" },
+      "modelVisibility": "none"
+    },
+    {
+      "type": "candidate-routes",
+      "version": 1,
+      "label": { "en": "Candidate routes", "es": "Rutas candidatas", "fr": "Voies candidates", "de": "Kandidatenrouten", "pt": "Rotas candidatas", "pt-BR": "Rotas candidatas", "it": "Vie candidate", "tr": "Aday rotalar" },
+      "modelVisibility": "none"
+    },
+    {
+      "type": "step-compatibility",
+      "version": 1,
+      "label": { "en": "Functional-group compatibility", "es": "Compatibilidad de grupos funcionales", "fr": "Compatibilité des groupes fonctionnels", "de": "Verträglichkeit funktioneller Gruppen", "pt": "Compatibilidade de grupos funcionais", "pt-BR": "Compatibilidade de grupos funcionais", "it": "Compatibilità dei gruppi funzionali", "tr": "Fonksiyonel grup uyumluluğu" },
       "modelVisibility": "none"
     }
   ],

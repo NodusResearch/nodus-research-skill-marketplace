@@ -1,3 +1,39 @@
+# Chemistry Studio 2.5.8
+
+Route proposals now carry more evidence and more specific feedback. A proposed route remains
+a research hypothesis: these checks do not establish experimental feasibility, yield or safety.
+
+## Search routes from recorded transformations
+
+`propose-disconnections` proposes precursors from indexed ORD reactions and textbook transformations,
+with the templates and reaction classes that support each proposal. `search-routes` combines
+those transformations into bounded, multi-step searches towards the supplied starting materials.
+Recorded solvents are kept as conditions rather than treated as precursors. ORD precedents also
+carry their recorded reaction conditions when available; an index without retrosynthesis tables
+returns a documented limitation rather than fabricated proposals.
+
+## Check stock and functional-group compatibility
+
+`check-stock` matches compounds against user-imported vendor lists by the InChIKey connectivity
+block, including another form of the same compound, and distinguishes ready-to-ship stock from
+make-on-demand listings. It reports the imported data, not a live availability guarantee.
+`check-compatibility` flags functional groups that a step's reagents may attack as an advisory
+check rather than a proof that the reaction will work.
+
+## More useful route validation
+
+`verify-route` accepts routes up to 96 steps and explains balancing failures using the actual
+element or charge difference, including species on the wrong side or present on both sides.
+It accepts coefficients up to 30, checks charged salt identities and treats hydrogen as H2.
+Stereochemistry checks account for racemic declarations and for centres that can reach the final
+target, avoiding demands for stereo choices that a subsequent step removes.
+
+## Compatibility
+
+The package keeps Capability API 2, Nodus 5.3.2 or newer and the existing permission set. Automatic
+use of the new route-search, stock and compatibility tools requires the corresponding Nodus
+synthesis integration in [Nodus PR #1046](https://github.com/Drakonis96/nodus/pull/1046).
+
 # Chemistry Studio 2.5.6
 
 A new tool. Nothing a route already reported as verified changes.

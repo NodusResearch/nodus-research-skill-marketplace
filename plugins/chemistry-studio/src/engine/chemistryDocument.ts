@@ -232,6 +232,10 @@ export interface RouteStepAudit {
   /** The request declared this step racemic: its open centres are a stated outcome, not a
    *  refusal. Nothing verifies the claim; it only stops the step being blocked for them. */
   racemic?: boolean;
+  /** Its open stereocentres cannot reach the target (requested without stereo): the step
+   *  consuming this intermediate makes a product with nothing open, or the racemic target.
+   *  Not required to be specified or declared. */
+  stereoNotRequired?: boolean;
   /** Set when the equation balances only by assembling a product molecule from more than one
    *  substrate molecule — chemically impossible for a single transformation. */
   assemblyProblem?: string;

@@ -281,20 +281,158 @@ test('charge balance is enforced even when the element totals match', async () =
   assert.ok(audit.steps[0].differences.some(entry => /charge/.test(entry)), JSON.stringify(audit.steps[0].differences));
 });
 
-test('a species that takes no part is named, and removing it balances the step', async () => {
+test('a reactant-side species that takes no part is filed as an agent; an idle product is refused', async () => {
   const worker = lib.createWorker(stubHost());
-  // Saponification written with an extra water. Water has coefficient 0 in the only balance —
-  // it is neither consumed nor produced — so the step is refused and the idle molecule named.
+  // Saponification written with water among the reactants: it is the solvent, neither consumed
+  // nor produced. It is filed under agents (a condition) and the step balances, instead of the
+  // step being refused — the correction loops this caused are the reason.
   const withWater = 'CCOC(=O)C(C)(CC)C(=O)OCC.[Na+].[OH-].O>>[Na+].CC(C(=O)[O-])(CC)C(=O)[O-].CCO';
-  const refused = await worker.invoke({ invocationId: 'idle1', toolId: 'verify-route', locale: 'en', input: { steps: [withWater] } });
-  const audit = refused.artifacts[0].data;
-  assert.equal(audit.steps[0].balanced, false);
-  assert.match(audit.steps[0].differences.join(' '), /take\(s\) no part/);
+  const filed = await worker.invoke({ invocationId: 'idle1', toolId: 'verify-route', locale: 'en', input: { steps: [withWater] } });
+  const step = filed.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, true, JSON.stringify(step.differences));
+  assert.deepEqual(step.agents.map(entry => entry.formula), ['H2O']);
+  assert.ok(!step.reactants.some(entry => entry.formula === 'H2O'));
 
-  // The same step without the water balances.
-  const without = 'CCOC(=O)C(C)(CC)C(=O)OCC.[Na+].[OH-]>>[Na+].CC(C(=O)[O-])(CC)C(=O)[O-].CCO';
-  const ok = await worker.invoke({ invocationId: 'idle2', toolId: 'verify-route', locale: 'en', input: { steps: [without] } });
-  assert.equal(ok.artifacts[0].data.steps[0].balanced, true, JSON.stringify(ok.artifacts[0].data.steps[0].differences));
+  // A catalyst listed as a reactant (sulfuric acid in a Fischer esterification) is filed the same way.
+  const fischer = await worker.invoke({ invocationId: 'idle3', toolId: 'verify-route', locale: 'en', input: { steps: ['O=C(O)c1ccccc1.CCO.O=S(=O)(O)O>>CCOC(=O)c1ccccc1.O'] } });
+  const esterification = fischer.artifacts[0].data.steps[0];
+  assert.equal(esterification.balanced, true);
+  assert.deepEqual(esterification.agents.map(entry => entry.formula), ['H2SO4']);
+
+  // An idle product is not moved: water written as a byproduct of a step that forms none.
+  const idleProduct = 'CCOC(=O)C(C)(CC)C(=O)OCC.[Na+].[OH-]>>[Na+].CC(C(=O)[O-])(CC)C(=O)[O-].CCO.O';
+  const refused = await worker.invoke({ invocationId: 'idle2', toolId: 'verify-route', locale: 'en', input: { steps: [idleProduct] } });
+  assert.equal(refused.artifacts[0].data.steps[0].balanced, false);
+  assert.match(refused.artifacts[0].data.steps[0].differences.join(' '), /take\(s\) no part/);
+});
+
+test('a species listed on the wrong side is named when moving it balances the step', async () => {
+  const worker = lib.createWorker(stubHost());
+  // A dichromate oxidation written with water among the reactants only: the step forms water.
+  // As the application sends it: each ion once per side, the solver finds the counts.
+  const oxidation = 'Cc1ccc([N+](=O)[O-])cc1.[Na+].[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-].OS(=O)(=O)O.O>>O=C(O)c1ccc([N+](=O)[O-])cc1.[O-]S(=O)(=O)[O-].[Cr+3].[Na+]';
+  const result = await worker.invoke({ invocationId: 'flip1', toolId: 'verify-route', locale: 'en', input: { steps: [oxidation] } });
+  const step = result.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, false);
+  assert.match(step.differences.join(' '), /"H2O" is listed as a reactant, but the step forms it: list it under Byproducts \(5 H2O\)\./);
+});
+
+test('a solvent the step also forms is named: ethanol in a malonic ester alkylation', async () => {
+  const worker = lib.createWorker(stubHost());
+  // Sodium ethoxide in ethanol, iodomethane: the step forms ethanol, but it is listed only as the solvent.
+  const alkylation = 'CCOC(=O)CC(=O)OCC.CC[O-].[Na+].CI>CCO>CCOC(=O)C(C)C(=O)OCC.[I-].[Na+]';
+  const result = await worker.invoke({ invocationId: 'solv1', toolId: 'verify-route', locale: 'en', input: { steps: [alkylation] } });
+  const step = result.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, false);
+  assert.match(step.differences.join(' '), /"C2H6O" is listed under Agents, and the step also forms it: keep it under Agents if it is the solvent, and also list it under Byproducts \(1 C2H6O\)\./);
+  // Listed on both, it balances.
+  const fixed = await worker.invoke({ invocationId: 'solv2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCOC(=O)CC(=O)OCC.CC[O-].[Na+].CI>CCO>CCOC(=O)C(C)C(=O)OCC.[I-].[Na+].CCO'] } });
+  assert.equal(fixed.artifacts[0].data.steps[0].balanced, true);
+});
+
+test('fixed bridgeheads are not unspecified stereocentres: the Robinson tropinone synthesis', async () => {
+  // Butanedial + methylamine + acetonedicarboxylic acid -> tropinone + 2 CO2 + 2 H2O. RDKit's
+  // labeller reports tropinone's two bridgeheads as unassigned; they can only be cis, and cis is
+  // meso, so nothing is left to specify. The full RDKit (Python) says so when asked.
+  const step = 'O=CCCC=O.CN.O=C(O)CC(=O)CC(=O)O>>CN1C2CCC1CC(=O)C2.O.O=C=O';
+  const plain = await lib.createWorker(stubHost()).invoke({ invocationId: 'trop1', toolId: 'verify-route', locale: 'en', input: { steps: [step] } });
+  assert.equal(plain.artifacts[0].data.steps[0].unspecifiedStereocentres, 2, 'the labeller alone counts both bridgeheads');
+  const host = stubHost();
+  const sent = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => { sent.push(JSON.parse(request.stdin)); return { code: 0, stdout: JSON.stringify({ stereoChoices: { 'CN1C2CCC1CC(=O)C2': 0, O: 0, 'O=C=O': 0 } }), stderr: '' }; },
+  };
+  const enumerated = await lib.createWorker(host).invoke({ invocationId: 'trop2', toolId: 'verify-route', locale: 'en', input: { steps: [step], enumerateStereo: true } });
+  const checked = enumerated.artifacts[0].data.steps[0];
+  // Organic products and reactants (a stereo-open reactant makes a product racemic); no water.
+  assert.deepEqual(sent[0].stereoChoices.sort(), ['CN', 'CN1C2CCC1CC(=O)C2', 'O=C(O)CC(=O)CC(=O)O', 'O=C=O', 'O=CCCC=O'].sort());
+  assert.equal(checked.unspecifiedStereocentres, 0);
+  assert.equal(checked.balanced, true);
+  // Without the flag the runtime is never touched (a route check must not install it).
+  const untouched = stubHost();
+  untouched.python = { ensureRuntime: async () => { throw new Error('must not be called'); }, run: async () => { throw new Error('must not be called'); } };
+  const skipped = await lib.createWorker(untouched).invoke({ invocationId: 'trop3', toolId: 'verify-route', locale: 'en', input: { steps: [step] } });
+  assert.equal(skipped.artifacts[0].data.steps[0].unspecifiedStereocentres, 2);
+});
+
+test('racemic in, racemic out: α-pinene without descriptors makes camphene racemic', async () => {
+  const step = 'CC1=CCC2CC1C2(C)C>O>C=C1C2CCC(C2)C1(C)C';
+  const run = async (choices) => {
+    const host = stubHost();
+    host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 0, stdout: JSON.stringify({ stereoChoices: choices }), stderr: '' }) };
+    const result = await lib.createWorker(host).invoke({ invocationId: 'pin', toolId: 'verify-route', locale: 'en', input: { steps: [step], enumerateStereo: true } });
+    return result.artifacts[0].data.steps[0].unspecifiedStereocentres;
+  };
+  // The reactant is itself an enantiomer-only choice (racemic as given): nothing is left open.
+  assert.equal(await run({ 'CC1=CCC2CC1C2(C)C': 1, 'C=C1C2CCC(C2)C1(C)C': 1 }), 0);
+  // A settled reactant: the product's mirror-image choice is the author's to state.
+  assert.equal(await run({ 'CC1=CCC2CC1C2(C)C': 0, 'C=C1C2CCC(C2)C1(C)C': 1 }), 1);
+  // Real diastereomers (no enumeration result) keep the labeller's count.
+  assert.ok(await run({ 'CC1=CCC2CC1C2(C)C': 1 }) >= 2);
+});
+
+test('an unbalanced step gets advice from its actual difference', async () => {
+  const worker = lib.createWorker(stubHost());
+  const check = async (step) => (await worker.invoke({ invocationId: 'adv', toolId: 'verify-route', locale: 'en', input: { steps: [step] } })).artifacts[0].data.steps[0].differences.join(' ');
+  // Wieland–Miescher, flash off: the aldol product named as the hydroxy-enone (one O short).
+  const aldol = await check('CC(=O)CCC1(C)C(=O)CCCC1=O>>CC12CCC(O)C=C1CCCC2=O');
+  assert.match(aldol, /No common molecule accounts for the difference \(the products lack 1 O\)/);
+  assert.match(aldol, /the named product \(or reactant\) is probably not the compound intended/);
+  assert.doesNotMatch(aldol, /hydrogen halide/);
+  // A Fischer esterification written without its water: name the molecule and the side.
+  const ester = await check('O=C(O)c1ccccc1.CCO>>CCOC(=O)c1ccccc1');
+  assert.match(ester, /the products lack exactly H2O: if the step releases it, list it under Byproducts/);
+  // A decarboxylation written without its CO2.
+  assert.match(await check('OC(=O)CC(=O)CC(=O)O>>CC(=O)CC(=O)O'), /the products lack exactly CO2/);
+});
+
+test('stereo that cannot reach the target is not required; a target requested with stereo keeps every step strict', async () => {
+  const audit = async (steps, target, choices) => {
+    const host = stubHost();
+    host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 0, stdout: JSON.stringify({ stereoChoices: choices }), stderr: '' }) };
+    const result = await lib.createWorker(host).invoke({ invocationId: 'reach', toolId: 'verify-route', locale: 'en', input: { steps, target, enumerateStereo: true } });
+    return result.artifacts[0].data;
+  };
+  // Robinson: the diacid's two carboxyl carbons are open, but decarboxylation to tropinone
+  // (meso: nothing open) loses them.
+  const diacid = 'CN1C2CCC1C(C(=O)O)C(=O)C2C(=O)O';
+  const robinson = await audit(
+    [`O=CCCC=O.CN.O=C(O)CC(=O)CC(=O)O>>${diacid}.O.O`, `${diacid}>>CN1C2CCC1CC(=O)C2.O=C=O.O=C=O`],
+    'CN1C2CCC1CC(=O)C2',
+    { [diacid]: { open: 2, mirrorOnly: false }, 'CN1C2CCC1CC(=O)C2': { open: 0, mirrorOnly: false }, 'O=CCCC=O': { open: 0, mirrorOnly: false }, CN: { open: 0, mirrorOnly: false }, 'O=C(O)CC(=O)CC(=O)O': { open: 0, mirrorOnly: false }, 'O=C=O': { open: 0, mirrorOnly: false } });
+  assert.equal(robinson.steps[0].unspecifiedStereocentres, 2, 'the fixed bridgeheads are not counted, the carboxyl carbons are');
+  assert.equal(robinson.steps[0].stereoNotRequired, true);
+  assert.equal(robinson.continuous, true, robinson.blocked.join(' | '));
+
+  // Camphor: isoborneol's exo/endo centre is lost at the ketone; camphor, requested without
+  // stereo, is racemic.
+  const isoborneol = 'CC1(C)C2CCC1(C)C(O)C2';
+  const camphor = 'CC1(C)C2CCC1(C)C(=O)C2';
+  const tail = ['CC(=O)OC1CC2CCC1(C)C2(C)C.O>>' + isoborneol + '.CC(=O)O', `${isoborneol}.O=[Cr](=O)=O>>${camphor}.O.[Cr]`];
+  const choices = { [isoborneol]: { open: 2, mirrorOnly: false }, [camphor]: { open: 1, mirrorOnly: true }, 'CC(=O)OC1CC2CCC1(C)C2(C)C': { open: 2, mirrorOnly: false } };
+  const loose = await audit([tail[0]], isoborneol, choices);
+  assert.ok(!loose.steps[0].stereoNotRequired, 'the target itself is never excused here (the app judges a racemic target)');
+  const racemicTarget = await audit(['CC(=O)OC1CC2CCC1(C)C2(C)C.O>>' + isoborneol + '.CC(=O)O', `${isoborneol}>>${camphor}.[H][H]`], camphor, choices);
+  assert.equal(racemicTarget.steps[0].stereoNotRequired, true, 'isoborneol → camphor loses the exo/endo centre');
+
+  // The same route with the target requested as one enantiomer: nothing is excused.
+  const strict = await audit(['CC(=O)OC1CC2CCC1(C)C2(C)C.O>>' + isoborneol + '.CC(=O)O', `${isoborneol}>>C[C@@]12CC[C@@H](C[C@@H]1O)C2(C)C.[H][H]`], 'C[C@@]12CC[C@@H](CC1=O)C2(C)C', choices);
+  assert.ok(!strict.steps[0].stereoNotRequired);
+});
+
+test('hydrogenation with H2 is checked, and a permanganate oxidation needing 14 water balances', async () => {
+  const worker = lib.createWorker(stubHost());
+  const hydrogenation = await worker.invoke({ invocationId: 'h2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCOC(=O)c1ccc([N+](=O)[O-])cc1.[H][H]>>CCOC(=O)c1ccc(N)cc1.O'] } });
+  const h2 = hydrogenation.artifacts[0].data.steps[0];
+  assert.equal(h2.ok, true, h2.error);
+  assert.equal(h2.balanced, true, JSON.stringify(h2.differences));
+  // 5 ArCH3 + 6 MnO4- + 9 H2SO4 → 5 ArCOOH + 6 Mn2+ + 9 SO4 2- + 14 H2O: a coefficient above 12.
+  const permanganate = 'Cc1ccc([N+](=O)[O-])cc1.[K+].[O-][Mn](=O)(=O)=O.OS(=O)(=O)O>>O=C(O)c1ccc([N+](=O)[O-])cc1.[O-]S(=O)(=O)[O-].[Mn+2].[K+].O';
+  const oxidation = await worker.invoke({ invocationId: 'kmno4', toolId: 'verify-route', locale: 'en', input: { steps: [permanganate] } });
+  const step = oxidation.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, true, JSON.stringify(step.differences));
+  assert.equal(step.products.find(entry => entry.formula === 'H2O').coefficient, 14);
 });
 
 test('a step that cannot be parsed names the offending species', async () => {
@@ -894,6 +1032,27 @@ test('the coefficients are solved, not taken on trust', () => {
     [1, 1, 1]);
 });
 
+test('a species on both sides that takes part is balanced by its net amount', () => {
+  // Both came from a real route that looped through four corrections. A species on both sides
+  // was cancelled as a spectator, and without it the step could not balance:
+  //   water written as "aqueous" and as a byproduct in a dichromate oxidation (5 formed, net);
+  //   HCl consumed by a tin reduction whose product is the hydrochloride, written `amine.Cl`.
+  const toluene = comp({ '6:0': 7, '1:0': 7, '7:0': 1, '8:0': 2 }), acid = comp({ '6:0': 7, '1:0': 5, '7:0': 1, '8:0': 4 });
+  const Na = comp({ '11:0': 1 }, 1), Cr2O7 = comp({ '24:0': 2, '8:0': 7 }, -2), H2SO4 = comp({ '1:0': 2, '16:0': 1, '8:0': 4 });
+  const SO4 = comp({ '16:0': 1, '8:0': 4 }, -2), Cr = comp({ '24:0': 1 }, 3);
+  const five = ['reactant', 'reactant', 'reactant', 'reactant', 'reactant'], products = (n) => Array(n).fill('product');
+  assert.deepEqual(lib.balanceReaction([toluene, Na, Cr2O7, H2SO4, H2O, acid, SO4, Cr, Na, H2O], [...five, ...products(5)], Array(10).fill(1)),
+    [1, 1, 1, 4, 1, 1, 4, 2, 1, 6], 'one water in as solvent, six out: five formed');
+  const nitro = comp({ '6:0': 9, '1:0': 9, '7:0': 1, '8:0': 4 }), Sn = comp({ '50:0': 1 }), HCl = comp({ '1:0': 1, '17:0': 1 });
+  const amine = comp({ '6:0': 9, '1:0': 11, '7:0': 1, '8:0': 2 }), SnCl2 = comp({ '50:0': 1, '17:0': 2 });
+  assert.deepEqual(lib.balanceReaction([nitro, Sn, HCl, amine, HCl, SnCl2, H2O], ['reactant', 'reactant', 'reactant', ...products(4)], Array(7).fill(1)),
+    [1, 3, 7, 1, 1, 3, 2], 'ArNO2 + 3 Sn + 7 HCl → ArNH2·HCl + 3 SnCl2 + 2 H2O');
+  // A true spectator is still cancelled, and a genuine imbalance still fails with the advice.
+  const OH = comp({ '1:0': 1, '8:0': 1 }, -1), H = comp({ '1:0': 1 }, 1);
+  assert.deepEqual(lib.balanceReaction([Na, OH, H, Na, H2O], ['reactant', 'reactant', 'reactant', 'product', 'product'], Array(5).fill(1)), [1, 1, 1, 1, 1]);
+  assert.throws(() => lib.balanceReaction([toluene, acid], ['reactant', 'product'], [1, 1]), /Add the missing reagent or byproduct/);
+});
+
 test('an agent takes no part in the balance', () => {
   // A catalyst is recovered and a solvent is not consumed, so neither belongs in the
   // matrix — and a platinum atom on one side only must not make the equation unsolvable.
@@ -1050,6 +1209,27 @@ test('resolve-names falls back to OPSIN when PubChem has no exact match', async 
   assert.equal(entry.status, 'resolved');
   assert.equal(entry.source, 'opsin');
   assert.equal(entry.smiles, 'C#CCC');
+});
+
+test('a salt name that resolves to unbalanced charges is refused with feedback', async () => {
+  // "sodium diethyl propanedioate" resolved to the neutral diester beside a sodium ion (net +1):
+  // a malonic ester synthesis could then never balance, through every correction.
+  const wrong = lib.createWorker(resolveHost((endpointId) => (endpointId === 'opsin' ? { status: 'SUCCESS', smiles: 'CCOC(=O)CC(=O)OCC.[Na+]' } : undefined)));
+  const refused = (await wrong.invoke({ invocationId: 'salt1', toolId: 'resolve-names', locale: 'en', input: { names: ['sodium diethyl propanedioate'] } })).artifacts[0].data.results[0];
+  assert.equal(refused.status, 'unresolved');
+  assert.match(refused.feedback, /charges do not balance \(net \+1\)/);
+  assert.equal(refused.smiles, undefined);
+  // The enolate written with its carbanion balances and resolves.
+  const right = lib.createWorker(resolveHost((endpointId) => (endpointId === 'opsin' ? { status: 'SUCCESS', smiles: 'CCOC(=O)[CH-]C(=O)OCC.[Na+]' } : undefined)));
+  const resolved = (await right.invoke({ invocationId: 'salt2', toolId: 'resolve-names', locale: 'en', input: { names: ['sodium diethyl propanedioate'] } })).artifacts[0].data.results[0];
+  assert.equal(resolved.status, 'resolved');
+});
+
+test('"hydrogen" resolves to dihydrogen, not the hydrogen atom', async () => {
+  const worker = lib.createWorker(resolveHost((endpointId) => (endpointId === 'opsin' ? { status: 'SUCCESS', smiles: '[H]' } : undefined)));
+  const [h2, atom] = (await worker.invoke({ invocationId: 'hyd', toolId: 'resolve-names', locale: 'en', input: { names: ['hydrogen', 'hydrogen atom'] } })).artifacts[0].data.results;
+  assert.equal(h2.smiles, '[H][H]');
+  assert.equal(atom.smiles, '[H]', 'a name that asks for the atom keeps it');
 });
 
 test('an ambiguous PubChem match and a partial OPSIN parse are reported with feedback', async () => {
@@ -1357,4 +1537,206 @@ test('a synthesis route draws its target even when the route names a mechanism o
   // Outside a route the same words still ask for that kind of drawing, and a plain structure is refused.
   const plain = await worker.invoke({ invocationId: 'rt2', toolId: 'compile', locale: 'en', input: { plan, question: `Show the dehydration of ${smiles}` } });
   assert.ok(!plain.artifacts?.length, 'a depiction request is still not answered with a skeletal drawing');
+});
+
+test('check-stock sends the stock directory and molecules to the worker and counts the hits', async () => {
+  const host = stubHost();
+  const sent = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => { sent.push(JSON.parse(request.stdin)); return { code: 0, stdout: JSON.stringify({ stock: { CCO: ['mcule', 'enamine'], c1ccccc1: [] }, lists: ['enamine', 'mcule'] }), stderr: '' }; },
+  };
+  const result = await lib.createWorker(host).invoke({ invocationId: 'stock1', toolId: 'check-stock', locale: 'en', input: { stockDir: '/stock', molecules: ['CCO', 'c1ccccc1', '  '] } });
+  assert.deepEqual(sent[0], { stock: ['CCO', 'c1ccccc1'], stockDir: '/stock' });
+  assert.equal(result.artifacts[0].artifactType, 'stock-availability');
+  assert.equal(result.artifacts[0].summary, 'Stock: 1 of 2 molecule(s) in stock on 2 list(s).');
+  await assert.rejects(lib.createWorker(host).invoke({ invocationId: 'stock2', toolId: 'check-stock', locale: 'en', input: { stockDir: '', molecules: ['CCO'] } }), /stock directory/);
+});
+
+test('propose-disconnections passes the stock directory only when given', async () => {
+  const host = stubHost();
+  const sent = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => { sent.push(JSON.parse(request.stdin)); return { code: 0, stdout: JSON.stringify({ disconnections: [] }), stderr: '' }; },
+  };
+  const worker = lib.createWorker(host);
+  await worker.invoke({ invocationId: 'dis1', toolId: 'propose-disconnections', locale: 'en', input: { indexDir: '/idx', targets: ['CCO'], stockDir: '/stock' } });
+  await worker.invoke({ invocationId: 'dis2', toolId: 'propose-disconnections', locale: 'en', input: { indexDir: '/idx', targets: ['CCO'] } });
+  assert.equal(sent[0].stockDir, '/stock');
+  assert.equal('stockDir' in sent[1], false);
+});
+
+test('propose-disconnections keeps the templates that proposed each disconnection', async () => {
+  // The worker lists, per proposal, the retro templates that produced it (most common first), so an
+  // index that documents its templates (a textbook-scheme index) can cite their sources.
+  const host = stubHost();
+  const proposal = { precursors: 'CN1CCNCC1.Clc1ccccc1', templateCount: 5, rdchiral: 5, recorded: 0, templates: ['[N;H0;D3;+0:1]-[c:2]>>Cl-[c:2].[NH;D2;+0:1]'] };
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async () => ({ code: 0, stdout: JSON.stringify({ disconnections: [{ input: 'CN1CCN(c2ccccc2)CC1', target: 'CN1CCN(c2ccccc2)CC1', madeBy: null, proposals: [proposal] }] }), stderr: '' }),
+  };
+  const result = await lib.createWorker(host).invoke({ invocationId: 'dis3', toolId: 'propose-disconnections', locale: 'en', input: { indexDir: '/idx', targets: ['CN1CCN(c2ccccc2)CC1'] } });
+  assert.deepEqual(result.artifacts[0].data.disconnections[0].proposals[0].templates, proposal.templates);
+  const worker = await import('node:fs').then(fs => fs.readFileSync(new URL('../python/reactions_worker.py', import.meta.url), 'utf8'));
+  assert.match(worker, /"templates": \[smarts for _count, smarts in proposal\.get\("templates", \[\]\)\]/, 'the Python worker emits the proposing templates');
+});
+
+test('search-routes sends every index, the target and the budget to the worker and summarises the routes', async () => {
+  const host = stubHost();
+  const sent = [];
+  let timeoutMs = 0;
+  const route = { target: 'CCOC(=O)c1ccc(N)cc1', expanded: 3, timedOut: false, indexes: ['ord', 'textbook'], routes: [{ cost: 1, steps: [{ product: 'CCOC(=O)c1ccc(N)cc1', precursors: ['CCO', 'Nc1ccc(C(=O)O)cc1'], kind: 'recorded', index: 'textbook', recorded: 2, samples: ['tb-00000000000000000000000000000001'] }], startingMaterials: [{ smiles: 'CCO', given: false, inStock: true }] }] };
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => { sent.push(JSON.parse(request.stdin)); timeoutMs = request.timeoutMs; return { code: 0, stdout: JSON.stringify({ route }), stderr: '' }; },
+  };
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({ invocationId: 'rs1', toolId: 'search-routes', locale: 'en', input: { indexDirs: ['/ord', '/textbook'], target: ' CCOC(=O)c1ccc(N)cc1 ', startingMaterials: ['CCO'], maxSteps: 9, stockDir: '/stock', budgetSeconds: 30 } });
+  assert.deepEqual(sent[0], { indexDirs: ['/ord', '/textbook'], route: 'CCOC(=O)c1ccc(N)cc1', startingMaterials: ['CCO'], maxSteps: 6, budgetSeconds: 30, stockDir: '/stock' });
+  assert.equal(timeoutMs, 90_000, 'the call outlives the worker budget');
+  assert.equal(result.artifacts[0].artifactType, 'candidate-routes');
+  assert.equal(result.artifacts[0].summary, 'Route search: 1 complete route(s) after 3 expansion(s).');
+  assert.deepEqual(result.artifacts[0].data, route);
+  await worker.invoke({ invocationId: 'rs2', toolId: 'search-routes', locale: 'en', input: { indexDirs: ['/ord'], target: 'CCO' } });
+  assert.equal('stockDir' in sent[1], false);
+  assert.equal(sent[1].budgetSeconds, 90);
+  await assert.rejects(worker.invoke({ invocationId: 'rs3', toolId: 'search-routes', locale: 'en', input: { indexDirs: [], target: 'CCO' } }), /index directory and a target/);
+  const python = fs.readFileSync(new URL('../python/reactions_worker.py', import.meta.url), 'utf8');
+  assert.match(python, /request\.get\("indexDirs"/, 'the Python worker reads several index directories');
+  assert.match(python, /budget_seconds/, 'the Python search has a time budget');
+});
+
+test('a solid-phase-length route (80 steps) is checked whole; 97 steps are refused', async () => {
+  const worker = lib.createWorker(stubHost());
+  // An alternating oxidation/reduction chain: 80 balanced, connected steps.
+  const steps = Array.from({ length: 80 }, (_, i) => (i % 2 ? 'CC=O.[H][H]>>CCO' : 'CCO.O=O>>CC=O.O'));
+  const result = await worker.invoke({ invocationId: 'long1', toolId: 'verify-route', locale: 'en', input: { steps } });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.steps.length, 80);
+  assert.ok(audit.steps.every((step) => step.balanced), 'every step balanced');
+  await assert.rejects(worker.invoke({ invocationId: 'long2', toolId: 'verify-route', locale: 'en', input: { steps: Array(97).fill('CCO.O=O>>CC=O.O') } }), /between one and 96 steps/);
+});
+
+test('known-reactions and propose-disconnections pass the precedents\' conditions through', async () => {
+  // With a conditions table beside the ORD index, the worker attaches what a sample reaction was run
+  // with (reagents, solvents, temperature, yield, reference) to exact matches, the closest recorded
+  // reaction and recorded disconnections; the TS layer must not drop it.
+  const conditions = [{ id: 'ord-0000000000000000000000000000abcd', reagents: ['NaBH4'], solvents: ['MeOH'], temperature: '0 °C', yield: 92, ref: 'US00000001' }];
+  const host = stubHost();
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => {
+      const body = JSON.parse(request.stdin);
+      const out = body.disconnect
+        ? { disconnections: [{ input: 'CCO', target: 'CCO', madeBy: { count: 1, asReactant: 0, reactions: [{ key: 'k', count: 1, samples: [conditions[0].id], reaction: 'CC=O>>CCO', uses: {}, conditions }] }, proposals: [] }] }
+        : { reactions: [{ input: 'CC=O>>CCO', key: 'k', count: 1, samples: [conditions[0].id], conditions }], products: [], similar: [] };
+      return { code: 0, stdout: JSON.stringify(out), stderr: '' };
+    },
+  };
+  const worker = lib.createWorker(host);
+  const known = await worker.invoke({ invocationId: 'cond1', toolId: 'known-reactions', locale: 'en', input: { indexDir: '/idx', reactions: ['CC=O>>CCO'] } });
+  assert.deepEqual(known.artifacts[0].data.reactions[0].conditions, conditions);
+  const dis = await worker.invoke({ invocationId: 'cond2', toolId: 'propose-disconnections', locale: 'en', input: { indexDir: '/idx', targets: ['CCO'] } });
+  assert.deepEqual(dis.artifacts[0].data.disconnections[0].madeBy.reactions[0].conditions, conditions);
+});
+
+test('the Python worker attaches conditions from conditions.tsv.zst (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // A synthetic conditions table (blocked zstd, like the index builder writes) and a direct call of
+  // the worker's attach helper: two samples with conditions, one without.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, tempfile, zstandard as zstd
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+d = tempfile.mkdtemp()
+rows = ['ord-a\\t{"reagents":["NaBH4"],"yield":92}', 'ord-b\\t{"solvents":["MeOH"]}']
+frame = zstd.ZstdCompressor().compress(("\\n".join(rows) + "\\n").encode())
+open(os.path.join(d, 'conditions.tsv.zst'), 'wb').write(frame)
+open(os.path.join(d, 'conditions.tsv.zst.blocks'), 'w').write(f'ord-a\\t0\\t{len(frame)}')
+items = [{"samples": ["ord-a", "ord-b", "ord-c"]}, {"samples": ["ord-c"]}, {"count": 0}]
+w._attach_conditions(d, items)
+empty = [{"samples": ["ord-a"]}]
+w._attach_conditions(tempfile.mkdtemp(), empty)
+print(json.dumps([items, empty]))
+`;
+  const [items, empty] = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(items[0].conditions, [{ id: 'ord-a', reagents: ['NaBH4'], yield: 92 }, { id: 'ord-b', solvents: ['MeOH'] }]);
+  assert.equal('conditions' in items[1], false, 'a sample without conditions adds nothing');
+  assert.equal('conditions' in empty[0], false, 'an index without a conditions table is unchanged');
+});
+
+test('check-compatibility sends the steps and textbook directory to the worker and counts the hazards', async () => {
+  const host = stubHost();
+  const sent = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => {
+      sent.push(JSON.parse(request.stdin));
+      return { code: 0, stdout: JSON.stringify({ compatibility: [{ step: 1, reagentClasses: [{ id: 'strong-hydride', label: 'strong hydride' }], hazards: [{ group: 'ester', severity: 'high' }, { group: 'alcohol', severity: 'medium' }] }] }), stderr: '' };
+    },
+  };
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({ invocationId: 'compat1', toolId: 'check-compatibility', locale: 'en', input: {
+    steps: [{ reactants: ['CCOC(=O)CCC(=O)c1ccccc1', '  '], products: ['OC(CCC(=O)OCC)c1ccccc1'], reagents: 'LiAlH4, THF' }],
+    textbookDir: '/textbook',
+  } });
+  assert.deepEqual(sent[0], { compatibility: [{ reactants: ['CCOC(=O)CCC(=O)c1ccccc1'], products: ['OC(CCC(=O)OCC)c1ccccc1'], reagents: 'LiAlH4, THF' }], textbookDir: '/textbook' });
+  assert.equal(result.artifacts[0].artifactType, 'step-compatibility');
+  assert.equal(result.artifacts[0].summary, 'Compatibility: 2 hazard(s) in 1 step(s), 1 high.');
+  await assert.rejects(worker.invoke({ invocationId: 'compat2', toolId: 'check-compatibility', locale: 'en', input: { steps: [{ reactants: [], products: ['C'] }] } }), /at least one step/);
+});
+
+test('the Python compatibility check flags clashes and leaves clean steps alone (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, sys
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+steps = [
+  {"reactants": ["CCOC(=O)CCC(=O)c1ccccc1"], "products": ["OC(CCC(=O)OCC)c1ccccc1"], "reagents": "LiAlH4, THF"},
+  {"reactants": ["OCCc1ccc(Br)cc1", "C[Mg]Br"], "products": ["OCCc1ccc(C)cc1"], "reagents": "MeMgBr, ether"},
+  {"reactants": ["O=C(NCCC=C)OCc1ccccc1"], "products": ["O=C(NCCCC)OCc1ccccc1"], "reagents": "H2, Pd/C, EtOH"},
+  {"reactants": ["CCOC(=O)c1ccc([N+](=O)[O-])cc1"], "products": ["CCOC(=O)c1ccc(N)cc1"], "reagents": "H2, Pd/C, EtOH"},
+  {"reactants": ["CC(=O)c1ccccc1"], "products": ["CC(O)c1ccccc1"], "reagents": "NaBH4, MeOH"},
+  {"reactants": ["COC(=O)/C=C/c1ccccc1"], "products": ["COC(=O)CC(C)c1ccccc1"], "reagents": "MeMgBr, CuI"},
+  {"reactants": ["CC(C)(C)OC(=O)NCCO"], "products": ["NCCO"], "reagents": "NaOH, water"},
+  {"reactants": ["CC(C)(C)OC(=O)CCC=O"], "products": ["CC(C)(C)OC(=O)CCC(O)c1ccccc1"], "reagents": "1. PhMgBr 2. 1 N HCl"},
+]
+print(json.dumps(w._compatibility(steps)))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }));
+  const flags = out.map(step => step.hazards.map(h => `${h.group}/${h.reagentClass}/${h.severity}`));
+  assert.deepEqual(flags[0], ['ester/strong-hydride/high'], 'an ester kept through LiAlH4');
+  assert.deepEqual(flags[1], ['alcohol/organometallic/high'], 'a free OH beside a Grignard');
+  assert.deepEqual(flags[2], ['cbz/hydrogenation/high'], 'a Cbz kept through H2/Pd');
+  assert.deepEqual(flags[3], [], 'a nitro reduction beside an ester is clean');
+  assert.deepEqual(flags[4], [], 'NaBH4 on a ketone is clean');
+  assert.deepEqual(flags[5], [], 'a cuprate conjugate addition leaves the ester alone');
+  assert.deepEqual(flags[6], ['boc/null/medium'], 'a Boc lost with no acid named');
+  assert.equal(flags[7].some(f => f.startsWith('tbu-ester/')), false, 'a work-up with 1 N HCl is not a strong-acid step');
+  assert.match(out[1].hazards[0].suggestion, /silyl ether/);
+  assert.deepEqual(out[1].hazards[0].protectedForms, ['TBS ether', 'TBDPS ether', 'benzyl ether']);
+});
+
+test('a stock import writes first-block lists; the stock check reports the same compound in another form (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // A synthetic catalogue: racemic lactic acid and benzocaine. (S)-lactic acid is not listed as
+  // such but is the same compound by InChIKey connectivity, so it comes back under sameSkeleton;
+  // the .k1.u64 file is not mistaken for a vendor list.
+  const { execFileSync } = await import('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chem-stock-k1-'));
+  const source = path.join(dir, 'catalogue.smi');
+  fs.writeFileSync(source, 'SMILES\nCC(O)C(=O)O\nCCOC(=O)c1ccc(N)cc1\n');
+  const worker = new URL('../python/reactions_worker.py', import.meta.url).pathname;
+  const out = path.join(dir, 'stock');
+  const meta = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, [worker, '--import-stock', source, 'demo', out, 'stock'], { encoding: 'utf8' }));
+  assert.equal(meta.compounds, 2);
+  assert.equal(meta.skeletons, 2);
+  assert.ok(fs.existsSync(path.join(out, 'demo.k1.u64')));
+  const reply = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, [worker], { input: JSON.stringify({ stockDir: out, stock: ['CCOC(=O)c1ccc(N)cc1', 'C[C@H](O)C(=O)O', 'CCCC'] }), encoding: 'utf8' }));
+  assert.deepEqual(reply.lists, ['demo'], 'the first-block file is not a vendor');
+  assert.deepEqual(reply.stock['CCOC(=O)c1ccc(N)cc1'], ['demo']);
+  assert.deepEqual(reply.stock['C[C@H](O)C(=O)O'], []);
+  assert.deepEqual(reply.sameSkeleton, { 'C[C@H](O)C(=O)O': ['demo'] }, 'only the not-exactly-listed compound, and only when its skeleton is listed');
+  fs.rmSync(dir, { recursive: true, force: true });
 });

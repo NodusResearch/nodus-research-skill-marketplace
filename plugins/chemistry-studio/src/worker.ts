@@ -90,12 +90,17 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[] }; locale: string; chat?: { question?: string; nodeId?: string } }) {
+    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[]; indexDirs?: string[]; maxSteps?: number; budgetSeconds?: number }; locale: string; chat?: { question?: string; nodeId?: string } }) {
       if (toolId === 'resolve-names') return resolveNames(input, referenceCache);
       if (toolId === 'resolve-structure') return nameStructures(input);
       if (toolId === 'inspect') return inspectMolecule(input);
       if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache);
       if (toolId === 'known-reactions') return knownReactions(input);
+      if (toolId === 'propose-disconnections') return proposeDisconnections(input);
+      if (toolId === 'check-stock') return checkStock(input);
+      if (toolId === 'search-routes') return searchRoutes(input);
+      // Its `steps` are objects (reactants, products, reagents), not verify-route's equation strings.
+      if (toolId === 'check-compatibility') return checkCompatibility(input as unknown as { steps?: CompatibilityStepInput[]; textbookDir?: string });
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
@@ -330,7 +335,49 @@ function breakerFetch(base: typeof fetch): typeof fetch {
  *  surface — the labels, the annotation, the derived equation, the drawing and the route
  *  review — shows one canonical isomeric SMILES per compound. Identical compounds then read
  *  identically, and a checker or reviewer cannot call them different connectivity. */
+/** The net formal charge a SMILES writes: the sum of its bracket-atom charges (`[Na+]`, `[O-]`,
+ *  `[Cr+3]`, `[Fe++]`). */
+export function smilesNetCharge(smiles: string): number {
+  let total = 0;
+  for (const match of smiles.matchAll(/\[[^\]]*?([+-])(\d+|[+-]*)\]/g)) {
+    const sign = match[1] === '+' ? 1 : -1;
+    const tail = match[2];
+    total += sign * (/^\d+$/.test(tail) ? Number(tail) : 1 + tail.length);
+  }
+  return total;
+}
+
+/** A salt — a structure of several parts — whose charges do not sum to zero is not a compound:
+ *  a name such as "sodium diethyl propanedioate" can resolve to the neutral diester beside a
+ *  sodium ion. Refused with feedback, so the author gives the structure instead of a route
+ *  step that can never balance. A single charged species (an ion named as one) is left alone. */
+function refuseUnbalancedSalts(resolutions: SpeciesNameResolution[]): void {
+  for (const entry of resolutions) {
+    if (entry.status !== 'resolved' || !entry.smiles || !entry.smiles.includes('.')) continue;
+    const charge = smilesNetCharge(entry.smiles);
+    if (charge === 0) continue;
+    entry.status = 'unresolved';
+    entry.feedback = `The name resolved to ${entry.smiles}, a salt whose charges do not balance (net ${charge > 0 ? '+' : ''}${charge}), so it is not the compound meant. Give the salt's isomeric SMILES with the charged atom written explicitly (for an enolate or carbanion, the deprotonated carbon as [CH-] or [C-]).`;
+    delete entry.smiles;
+    delete entry.formula;
+  }
+}
+
+/** "hydrogen" as a reagent is dihydrogen, but a reference can return the hydrogen atom `[H]`, a
+ *  radical no step uses and the checker cannot even lay out. Only a name that says atom or
+ *  radical keeps the atom. */
+function dihydrogenForHydrogen(resolutions: SpeciesNameResolution[]): void {
+  for (const entry of resolutions) {
+    if (entry.status !== 'resolved' || !entry.smiles || !/^\[H\]$/.test(entry.smiles.trim())) continue;
+    if (!/\b(?:di)?hydrogen\b/i.test(entry.name) || /\b(?:atom|atomic|radical)\b/i.test(entry.name)) continue;
+    entry.smiles = '[H][H]';
+    entry.formula = 'H2';
+  }
+}
+
 async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cache: ReferenceCache, signal: AbortSignal): Promise<void> {
+  refuseUnbalancedSalts(resolutions);
+  dihydrogenForHydrogen(resolutions);
   const inputs = [...new Set(resolutions
     .filter((entry) => entry.status === 'resolved' && entry.smiles)
     .map((entry) => entry.smiles!))];
@@ -475,20 +522,43 @@ async function resolveRouteLabels(
  *  balanced, every intermediate leaving one step the same molecule as the one entering the
  *  next, and every supplied IUPAC name denoting the structure it was written beside. The
  *  result is a `route-audit` artifact the application renders deterministically. */
-async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> }, cache: ReferenceCache) {
+/** The stereo choices each product (and organic reactant) really leaves open, from the full RDKit in the shared
+ *  Python runtime (see `_stereo_choices`). Best-effort: an empty map when the runtime is not
+ *  installed or the call fails, and the labeller's own counts stand. */
+async function productStereoChoices(steps: string[]): Promise<Record<string, { open: number; mirrorOnly: boolean } | number | null>> {
+  // Products, and reactants too: a racemic (stereo-open) reactant makes an enantiomer-only
+  // product racemic, not an omission of the author's.
+  const products = [...new Set(steps.flatMap(step => [...(step.split('>')[2] ?? '').split('.'), ...(step.split('>')[0] ?? '').split('.')]).map(part => part.trim()).filter(part => part && /[Cc]/.test(part)))].slice(0, 48);
+  if (!products.length) return {};
+  try {
+    const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+    if (!ready.ready) return {};
+    const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT], stdin: JSON.stringify({ stereoChoices: products }), timeoutMs: 60_000 });
+    if (run.code !== 0) return {};
+    return (JSON.parse(run.stdout) as { stereoChoices?: Record<string, { open: number; mirrorOnly: boolean } | number | null> }).stereoChoices ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; enumerateStereo?: boolean }, cache: ReferenceCache) {
   // An empty entry is a step the application could not build. It is kept, not dropped, so the
   // labels, carriers and racemic flags — all indexed by step — stay aligned with the steps.
+  // Not cut here: the route audit refuses a route over its step limit by name, where a silent
+  // cut would check only the first steps and report the rest as never written.
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
-    .map(entry => typeof entry === 'string' ? entry.trim() : '')
-    .slice(0, 16);
-  if (!steps.some(Boolean)) throw new Error('Provide between one and sixteen reaction SMILES steps.');
+    .map(entry => typeof entry === 'string' ? entry.trim() : '');
+  if (!steps.some(Boolean)) throw new Error('Provide at least one reaction SMILES step.');
   const carriers = Array.isArray(input?.carriers) ? input.carriers.slice(0, steps.length) : undefined;
   const racemic = typeof input?.racemic === 'boolean'
     ? input.racemic
     : Array.isArray(input?.racemic) ? input.racemic.slice(0, steps.length) : undefined;
   const target = typeof input?.target === 'string' && input.target.trim() ? input.target.trim().slice(0, 2000) : undefined;
   const labels = await resolveRouteLabels(input?.labels, steps.length, cache, host().signal);
-  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target, ...(labels.some(step => step.length) ? { labels } : {}) }, host().signal);
+  // The enumeration needs the shared Python runtime; the application asks for it only where that
+  // runtime is already installed (the reaction index is), so a route check never installs it.
+  const stereoChoices = input?.enumerateStereo === true ? await productStereoChoices(steps) : {};
+  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target, ...(labels.some(step => step.length) ? { labels } : {}), ...(Object.keys(stereoChoices).length ? { stereoChoices } : {}) }, host().signal);
   if (!audit) throw new Error('The route could not be verified.');
   const summary = audit.continuous
     ? `Route verified: ${audit.steps.length} step(s), every intermediate carried over unchanged`
@@ -524,4 +594,123 @@ async function knownReactions(input: { indexDir?: string; reactions?: string[]; 
   return { artifacts: [{ artifactType: 'reaction-precedent', artifactVersion: 1, summary, data }], notices: [] };
 }
 
+/** Propose one-step disconnections for route targets from the same local index: the recorded
+ *  reactions that make each target, then retro templates extracted from the index and applied
+ *  with RDChiral, ranked by recorded precedent, precursor availability and (when a route's
+ *  starting materials are given) closeness to them. Application-invoked only, like the lookup. */
+async function proposeDisconnections(input: { indexDir?: string; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string }) {
+  const indexDir = typeof input?.indexDir === 'string' ? input.indexDir : '';
+  if (!indexDir) throw new Error('A disconnection search needs the index directory.');
+  const targets = Array.isArray(input.targets) ? input.targets.filter(t => typeof t === 'string' && t.trim()).slice(0, 16) : [];
+  if (targets.length === 0) throw new Error('A disconnection search needs at least one target.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT],
+    stdin: JSON.stringify({
+      indexDir,
+      disconnect: targets,
+      startingMaterials: Array.isArray(input.startingMaterials) ? input.startingMaterials.slice(0, 16) : [],
+      limit: typeof input.limit === 'number' ? input.limit : 8,
+      ...(typeof input.stockDir === 'string' && input.stockDir ? { stockDir: input.stockDir } : {}),
+    }),
+    timeoutMs: 240_000,
+  });
+  if (run.code !== 0) throw new Error('The disconnection search failed.');
+  const data = JSON.parse(run.stdout) as { disconnections?: Array<{ madeBy?: unknown[]; proposals?: unknown[] }> };
+  const entries = data.disconnections ?? [];
+  const recorded = entries.filter(entry => (entry.madeBy?.length ?? 0) > 0).length;
+  const proposals = entries.reduce((sum, entry) => sum + (entry.proposals?.length ?? 0), 0);
+  const summary = `Disconnections: ${proposals} proposal(s) for ${entries.length} target(s), ${recorded} with a recorded reaction that makes it.`;
+  return { artifacts: [{ artifactType: 'reaction-disconnections', artifactVersion: 1, summary, data }], notices: [] };
+}
+
+/** Which of the user's imported vendor stock lists hold each molecule (standard InChIKey). The
+ *  lists are catalogues the user downloaded and imported (`reactions_worker.py --import-stock`);
+ *  the application supplies their directory. Application-invoked only. */
+async function checkStock(input: { stockDir?: string; molecules?: string[] }) {
+  const stockDir = typeof input?.stockDir === 'string' ? input.stockDir : '';
+  const molecules = Array.isArray(input?.molecules) ? input.molecules.filter(m => typeof m === 'string' && m.trim()).slice(0, 64) : [];
+  if (!stockDir || molecules.length === 0) throw new Error('A stock check needs the stock directory and at least one molecule.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT],
+    stdin: JSON.stringify({ stock: molecules, stockDir }),
+    timeoutMs: 60_000,
+  });
+  if (run.code !== 0) throw new Error('The stock check failed.');
+  const data = JSON.parse(run.stdout) as { stock?: Record<string, string[]>; orderable?: Record<string, string[]>; lists?: string[]; orderLists?: string[] };
+  const found = Object.values(data.stock ?? {}).filter(vendors => vendors.length > 0).length;
+  const orderable = Object.entries(data.orderable ?? {}).filter(([molecule, vendors]) => vendors.length > 0 && !(data.stock?.[molecule]?.length)).length;
+  const summary = `Stock: ${found} of ${molecules.length} molecule(s) in stock on ${(data.lists ?? []).length} list(s)`
+    + ((data.orderLists ?? []).length ? `, ${orderable} more orderable (make-on-demand).` : '.');
+  return { artifacts: [{ artifactType: 'stock-availability', artifactVersion: 1, summary, data }], notices: [] };
+}
+
 export { isChemistrySvgRequest };
+
+/** Multi-step routes searched backwards from the target over one or more local reaction indexes
+ *  (ORD, the user's textbook-scheme index): recorded reactions and retro-template disconnections,
+ *  each step with its provenance, ending in starting materials, stocked molecules, inorganics or
+ *  routine reagents. The worker stops at the time budget and returns the routes found by then.
+ *  Application-invoked only, like the lookups. */
+async function searchRoutes(input: { indexDirs?: string[]; target?: string; startingMaterials?: string[]; maxSteps?: number; stockDir?: string; budgetSeconds?: number }) {
+  const indexDirs = Array.isArray(input?.indexDirs) ? input.indexDirs.filter(d => typeof d === 'string' && d).slice(0, 4) : [];
+  const target = typeof input?.target === 'string' ? input.target.trim() : '';
+  if (indexDirs.length === 0 || !target) throw new Error('A route search needs at least one index directory and a target.');
+  const budgetSeconds = typeof input.budgetSeconds === 'number' ? Math.max(5, Math.min(240, Math.round(input.budgetSeconds))) : 90;
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT],
+    stdin: JSON.stringify({
+      indexDirs,
+      route: target,
+      startingMaterials: Array.isArray(input.startingMaterials) ? input.startingMaterials.slice(0, 16) : [],
+      maxSteps: typeof input.maxSteps === 'number' ? Math.max(1, Math.min(6, Math.round(input.maxSteps))) : 4,
+      budgetSeconds,
+      ...(typeof input.stockDir === 'string' && input.stockDir ? { stockDir: input.stockDir } : {}),
+    }),
+    // The worker returns at its budget; the margin covers loading the indexes.
+    timeoutMs: (budgetSeconds + 60) * 1000,
+  });
+  if (run.code !== 0) throw new Error('The route search failed.');
+  const data = JSON.parse(run.stdout) as { route?: { routes?: unknown[]; expanded?: number; timedOut?: boolean } };
+  const route = data.route ?? {};
+  const summary = `Route search: ${route.routes?.length ?? 0} complete route(s) after ${route.expanded ?? 0} expansion(s)${route.timedOut ? ', stopped at the time budget' : ''}.`;
+  return { artifacts: [{ artifactType: 'candidate-routes', artifactVersion: 1, summary, data: route }], notices: [] };
+}
+
+interface CompatibilityStepInput { reactants?: string[]; products?: string[]; reagents?: string }
+
+/** Functional-group compatibility per route step: groups that survive into the product although a
+ *  reagent named in the step's conditions attacks them, and protecting groups that vanish with no
+ *  reagent that removes them, each with how to protect it (and textbook examples of putting that
+ *  protecting group on, from a textbook index when one is given). Application-invoked only. */
+async function checkCompatibility(input: { steps?: CompatibilityStepInput[]; textbookDir?: string }) {
+  const strings = (value: unknown) => (Array.isArray(value) ? value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').slice(0, 12) : []);
+  const steps = (Array.isArray(input?.steps) ? input.steps : []).slice(0, 24).map(step => ({
+    reactants: strings(step?.reactants),
+    products: strings(step?.products),
+    reagents: typeof step?.reagents === 'string' ? step.reagents.slice(0, 2000) : '',
+  }));
+  if (!steps.some(step => step.reactants.length && step.products.length)) throw new Error('A compatibility check needs at least one step with reactants and products.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT],
+    stdin: JSON.stringify({ compatibility: steps, ...(typeof input.textbookDir === 'string' && input.textbookDir ? { textbookDir: input.textbookDir } : {}) }),
+    timeoutMs: 90_000,
+  });
+  if (run.code !== 0) throw new Error('The compatibility check failed.');
+  const data = JSON.parse(run.stdout) as { compatibility?: Array<{ hazards?: Array<{ severity?: string }> }> };
+  const hazards = (data.compatibility ?? []).flatMap(step => step.hazards ?? []);
+  const high = hazards.filter(hazard => hazard.severity === 'high').length;
+  const summary = `Compatibility: ${hazards.length} hazard(s) in ${steps.length} step(s)${high ? `, ${high} high` : ''}.`;
+  return { artifacts: [{ artifactType: 'step-compatibility', artifactVersion: 1, summary, data }], notices: [] };
+}

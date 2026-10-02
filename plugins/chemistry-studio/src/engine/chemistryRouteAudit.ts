@@ -9,13 +9,15 @@ import { validateChemicalReferences } from './chemistryValidationCore';
  *  one entering the next. Identity is RDKit's canonical isomeric SMILES, so it is a string
  *  comparison, not a judgement about whether two drawings look alike. */
 
-const MAX_STEPS = 16;
+// Solid-phase peptide syntheses run to ~80 steps (a coupling and a deprotection per residue,
+// e.g. tirzepatide's 39 residues, then cleavage); 96 keeps them checkable. Not a chemistry rule.
+const MAX_STEPS = 96;
 // A backstop against pathological input, not a chemistry constraint. A named salt expands to
 // its ions in the equation (`sodium dichromate` is three components), so a legitimate redox
 // step can exceed a tight per-step limit; the application caps the author's labels per step
 // and the whole route separately, and the subworker is killable and time-bounded.
 const MAX_SPECIES_PER_STEP = 48;
-const MAX_SPECIES_TOTAL = 256;
+const MAX_SPECIES_TOTAL = 1024;
 const MAX_REACTION_CHARS = 4000;
 
 async function summarize(input: string): Promise<RouteSpeciesSummary> {
@@ -82,6 +84,65 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
     const message = error instanceof Error ? error.message : 'The species cannot be balanced.';
     return { balanced: false, chargeBalanced, differences: [message + agentMisplacementHint(reactants, agents, products)], coefficients: null };
   }
+}
+
+/** The sentence naming a single species listed on the wrong side, when moving it across
+ *  balances the step; empty otherwise. A species on both sides is left alone. */
+function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+  const same = (a: RouteSpeciesSummary, b: RouteSpeciesSummary) => a.canonicalSmiles === b.canonicalSmiles;
+  const tryMove = (from: RouteSpeciesSummary[], to: RouteSpeciesSummary[], position: number, toProducts: boolean): string => {
+    const species = from[position];
+    if (to.some(entry => same(entry, species)) || from.length < 2) return '';
+    const nextFrom = from.filter((_, i) => i !== position);
+    const nextTo = [...to, species];
+    const result = toProducts ? stepBalance(nextFrom, agents, nextTo) : stepBalance(nextTo, agents, nextFrom);
+    if (!result.balanced || !result.coefficients) return '';
+    const ordered = toProducts ? [...nextFrom, ...agents, ...nextTo] : [...nextTo, ...agents, ...nextFrom];
+    const count = result.coefficients[ordered.indexOf(species)];
+    const label = speciesLabel(species);
+    return toProducts
+      ? `"${label}" is listed as a reactant, but the step forms it: list it under Byproducts (${count} ${label}).`
+      : `"${label}" is listed on the product side, but the step consumes it: list it under Reactants (${count} ${label}).`;
+  };
+  for (let i = 0; i < reactants.length; i++) { const hint = tryMove(reactants, products, i, true); if (hint) return hint; }
+  for (let i = 0; i < products.length; i++) { const hint = tryMove(products, reactants, i, false); if (hint) return hint; }
+  return '';
+}
+
+/** The sentence naming an Agent that the step also forms or also consumes, when listing it on
+ *  that side too balances the step: a solvent the reaction makes (ethanol from sodium ethoxide in
+ *  ethanol, water in an aqueous oxidation) or a "catalyst" that is really used up. The agent keeps
+ *  its place as the solvent; the step only lacks it as a byproduct or reactant. Empty otherwise. */
+function agentRoleThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+  for (let i = 0; i < agents.length; i++) {
+    const species = agents[i];
+    const others = agents.filter((_, position) => position !== i);
+    const label = speciesLabel(species);
+    const formed = stepBalance(reactants, others, [...products, species]);
+    if (formed.balanced && formed.coefficients) {
+      const count = formed.coefficients[reactants.length + others.length + products.length];
+      return `"${label}" is listed under Agents, and the step also forms it: keep it under Agents if it is the solvent, and also list it under Byproducts (${count} ${label}).`;
+    }
+    const consumed = stepBalance([...reactants, species], others, products);
+    if (consumed.balanced && consumed.coefficients) {
+      const count = consumed.coefficients[reactants.length];
+      return `"${label}" is listed under Agents, but the step consumes it: list it under Reactants (${count} ${label}).`;
+    }
+  }
+  return '';
+}
+
+/** The reactant-side species (one, else a pair) that, filed as agents, let the step balance.
+ *  Only an idle species can go: at least one reactant must remain. */
+function agentsThatBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): number[] | null {
+  const tries: number[][] = reactants.map((_, position) => [position]);
+  for (let a = 0; a < reactants.length; a++) for (let b = a + 1; b < reactants.length; b++) tries.push([a, b]);
+  for (const moved of tries) {
+    if (moved.length >= reactants.length) continue;
+    const kept = reactants.filter((_, position) => !moved.includes(position));
+    if (stepBalance(kept, [...agents, ...moved.map(position => reactants[position])], products).balanced) return moved;
+  }
+  return null;
 }
 
 /** When a step will not balance and a species is listed under Agents that carries atoms the
@@ -208,6 +269,22 @@ export interface RouteAuditInput {
   /** Per-step species labels. Each label's name is checked against the structure its SMILES
    *  denotes, so a name for a different compound is refused alongside an unbalanced step. */
   labels?: Array<Array<RouteLabelInput | null | undefined> | null | undefined>;
+  /** For a product SMILES as written in a step: the stereo choices it really leaves open, when
+   *  the full RDKit could enumerate them (0: only one stereoisomer can exist, as for tropinone's
+   *  fixed, meso bridgeheads; 1: only a choice between mirror images). Caps the product's
+   *  unspecified count; a product not listed keeps the labeller's count. */
+  stereoChoices?: Record<string, StereoChoice | number | null | undefined>;
+}
+
+/** What the full RDKit says a species written without stereo really leaves open. */
+export interface StereoChoice { open: number; mirrorOnly: boolean }
+
+/** A stereoChoices entry as given: the current object, or a bare count from an older runtime
+ *  (where 1 meant an enantiomer pair). */
+function stereoChoiceOf(value: StereoChoice | number | null | undefined): StereoChoice | null {
+  if (typeof value === 'number') return value >= 0 ? { open: value, mirrorOnly: value === 1 } : null;
+  if (value && typeof value === 'object' && typeof value.open === 'number' && value.open >= 0) return { open: value.open, mirrorOnly: value.mirrorOnly === true };
+  return null;
 }
 
 export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
@@ -241,7 +318,31 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       if (count > MAX_SPECIES_PER_STEP) throw new Error(`A step may name at most ${MAX_SPECIES_PER_STEP} species.`);
       totalSpecies += count;
       if (totalSpecies > MAX_SPECIES_TOTAL) throw new Error(`A route may name at most ${MAX_SPECIES_TOTAL} species.`);
-      const balance = stepBalance(reactants, agents, products);
+      let balance = stepBalance(reactants, agents, products);
+      // A reactant-side species that takes no part in the only balance is a reagent or a
+      // condition (a catalyst, a solvent) the author listed with the reactants: file it under
+      // agents and check again, rather than refusing an otherwise balanced step. Products are
+      // never moved — a product that takes no part is a real error.
+      if (!balance.balanced && reactants.length > 1) {
+        const moved = agentsThatBalance(reactants, agents, products);
+        if (moved) {
+          const kept = reactants.filter((_, position) => !moved.includes(position));
+          const asAgents = [...agents, ...moved.map(position => reactants[position])];
+          const retried = stepBalance(kept, asAgents, products);
+          if (retried.balanced) {
+            reactants.splice(0, reactants.length, ...kept);
+            agents.splice(0, agents.length, ...asAgents);
+            balance = retried;
+          }
+        }
+      }
+      // Still refused: when moving one species to the other side makes the step balance (water
+      // written as a reactant in an oxidation that forms it), say so — the totals alone did not
+      // tell the author which species or which way.
+      if (!balance.balanced) {
+        const flip = agentRoleThatBalances(reactants, agents, products) || sideFlipThatBalances(reactants, agents, products);
+        if (flip) balance.differences = balance.differences.map(entry => `${entry} ${flip}`);
+      }
       // The solved coefficients travel with the species so the report can show the equation
       // that actually balanced, not the 1:1:1:1 the author likely meant.
       [...reactants, ...agents, ...products].forEach((entry, position) => {
@@ -258,6 +359,18 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       // reagent with stereocentres (a commercial mixture) is not something the author chose, and
       // an intermediate is checked in the step that produces it, so products alone cover every
       // species the route creates. Agents/solvents and starting materials are left out.
+      // RDKit's labeller counts every unassigned centre, including bridgeheads a small cage fixes
+      // (tropinone's two, which make it meso) — a question the author cannot answer. Where the
+      // enumeration says fewer real choices remain, use that.
+      // A reactant that is itself stereo-open (α-pinene given without descriptors) is racemic, so a
+      // product whose only open choice is its mirror image is racemic too: racemic in, racemic out.
+      const racemicReactant = reactants.some((entry) => (stereoChoiceOf(input.stereoChoices?.[entry.input])?.open ?? 0) >= 1);
+      for (const entry of products) {
+        const choice = stereoChoiceOf(input.stereoChoices?.[entry.input]);
+        if (!choice) continue;
+        const effective = choice.mirrorOnly && racemicReactant ? 0 : choice.open;
+        if (effective < entry.unspecifiedStereocentres) entry.unspecifiedStereocentres = effective;
+      }
       step.unspecifiedStereocentres = products.reduce((sum, entry) => sum + entry.unspecifiedStereocentres, 0);
       if (step.unspecifiedStereocentres > 0 && declaredRacemic(index)) step.racemic = true;
       step.ok = true;
@@ -410,6 +523,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
   // The target, when the request named one, must be a product of some step. Matching the
   // constitution only is a stereochemistry failure unless the target leaves its stereo open.
   let target: RouteTargetAudit | undefined;
+  let requestedWithoutStereo = false;
   const requested = typeof input?.target === 'string' ? input.target.trim() : '';
   if (requested) {
     target = { input: requested, canonicalSmiles: null, formula: null, formedAt: null, reason: 'unparsed' };
@@ -419,6 +533,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
         audited.filter(step => step.ok && step.products.some(match)).map(step => step.index);
       const exact = formedBy(product => product.canonicalSmiles === wanted.canonicalSmiles);
       const skeleton = formedBy(product => product.skeletonSmiles === wanted.skeletonSmiles);
+      requestedWithoutStereo = wanted.stereocentres === 0;
       const formed = exact.length ? exact : wanted.stereocentres === 0 ? skeleton : [];
       target = {
         input: requested, canonicalSmiles: wanted.canonicalSmiles, formula: wanted.formula,
@@ -432,6 +547,35 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
 
   const links = [...linkByKey.values()].sort((a, b) => a.to - b.to || a.from - b.from);
 
+  // Stereochemistry only has to be stated where it can reach the target. When the target was
+  // requested without stereo, an intermediate whose configuration is lost before the target —
+  // the step consuming it makes a product with nothing open (tropinone-2,4-dicarboxylic acid →
+  // tropinone, meso), or makes the target whose only open choice is its mirror image (the
+  // aldol adduct → the Wieland–Miescher ketone), or makes an intermediate that is itself lost
+  // (isobornyl acetate → isoborneol → camphor) — need not be specified or declared racemic.
+  // A target requested with stereo keeps every step held to it.
+  if (target?.reason === 'formed' && target.formedAt !== null && input.stereoChoices && requestedWithoutStereo) {
+    const organicMains = (step: RouteStepAudit) => step.products.filter(product => !product.byproduct && /C/.test(product.formula ?? ''));
+    const lost = new Map<number, boolean>();
+    for (let index = audited.length - 1; index >= 0; index -= 1) {
+      const step = audited[index];
+      if (!step.ok) continue;
+      const mains = organicMains(step);
+      const settled = mains.length > 0 && mains.every((product) => {
+        const choice = stereoChoiceOf(input.stereoChoices?.[product.input]);
+        if (!choice) return false;
+        return choice.open === 0 || (index === target!.formedAt && choice.mirrorOnly);
+      });
+      const consumers = links.filter(item => item.from === index && item.to > index && item.ok).map(item => item.to);
+      lost.set(index, settled || (consumers.length > 0 && consumers.every(to => lost.get(to) === true)));
+    }
+    for (const step of audited) {
+      if (!step.ok || step.index === target.formedAt || step.unspecifiedStereocentres === 0 || step.racemic) continue;
+      const consumers = links.filter(item => item.from === step.index && item.to > step.index && item.ok).map(item => item.to);
+      if (consumers.length && consumers.every(to => lost.get(to) === true)) step.stereoNotRequired = true;
+    }
+  }
+
   const blocked: string[] = [];
   for (const step of audited) {
     if (!step.ok) { blocked.push(`Step ${step.index + 1}: ${step.error ?? 'could not be parsed.'}`); continue; }
@@ -443,7 +587,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       blocked.push(`Step ${step.index + 1}: ${packing.reason}.`);
       continue;
     }
-    if (step.unspecifiedStereocentres > 0 && !step.racemic) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);
+    if (step.unspecifiedStereocentres > 0 && !step.racemic && !step.stereoNotRequired) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);
   }
   for (const link of links) {
     if (link.ok) continue;
