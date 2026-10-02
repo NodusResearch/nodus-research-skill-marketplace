@@ -1567,6 +1567,21 @@ test('propose-disconnections passes the stock directory only when given', async 
   assert.equal('stockDir' in sent[1], false);
 });
 
+test('propose-disconnections keeps the templates that proposed each disconnection', async () => {
+  // The worker lists, per proposal, the retro templates that produced it (most common first), so an
+  // index that documents its templates (a textbook-scheme index) can cite their sources.
+  const host = stubHost();
+  const proposal = { precursors: 'CN1CCNCC1.Clc1ccccc1', templateCount: 5, rdchiral: 5, recorded: 0, templates: ['[N;H0;D3;+0:1]-[c:2]>>Cl-[c:2].[NH;D2;+0:1]'] };
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async () => ({ code: 0, stdout: JSON.stringify({ disconnections: [{ input: 'CN1CCN(c2ccccc2)CC1', target: 'CN1CCN(c2ccccc2)CC1', madeBy: null, proposals: [proposal] }] }), stderr: '' }),
+  };
+  const result = await lib.createWorker(host).invoke({ invocationId: 'dis3', toolId: 'propose-disconnections', locale: 'en', input: { indexDir: '/idx', targets: ['CN1CCN(c2ccccc2)CC1'] } });
+  assert.deepEqual(result.artifacts[0].data.disconnections[0].proposals[0].templates, proposal.templates);
+  const worker = await import('node:fs').then(fs => fs.readFileSync(new URL('../python/reactions_worker.py', import.meta.url), 'utf8'));
+  assert.match(worker, /"templates": \[smarts for _count, smarts in proposal\.get\("templates", \[\]\)\]/, 'the Python worker emits the proposing templates');
+});
+
 test('a solid-phase-length route (80 steps) is checked whole; 97 steps are refused', async () => {
   const worker = lib.createWorker(stubHost());
   // An alternating oxidation/reduction chain: 80 balanced, connected steps.
