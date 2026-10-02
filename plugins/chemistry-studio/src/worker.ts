@@ -90,7 +90,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[] }; locale: string; chat?: { question?: string; nodeId?: string } }) {
+    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[]; indexDirs?: string[]; maxSteps?: number; budgetSeconds?: number }; locale: string; chat?: { question?: string; nodeId?: string } }) {
       if (toolId === 'resolve-names') return resolveNames(input, referenceCache);
       if (toolId === 'resolve-structure') return nameStructures(input);
       if (toolId === 'inspect') return inspectMolecule(input);
@@ -98,6 +98,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       if (toolId === 'known-reactions') return knownReactions(input);
       if (toolId === 'propose-disconnections') return proposeDisconnections(input);
       if (toolId === 'check-stock') return checkStock(input);
+      if (toolId === 'search-routes') return searchRoutes(input);
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
@@ -648,3 +649,36 @@ async function checkStock(input: { stockDir?: string; molecules?: string[] }) {
 }
 
 export { isChemistrySvgRequest };
+
+/** Multi-step routes searched backwards from the target over one or more local reaction indexes
+ *  (ORD, the user's textbook-scheme index): recorded reactions and retro-template disconnections,
+ *  each step with its provenance, ending in starting materials, stocked molecules, inorganics or
+ *  routine reagents. The worker stops at the time budget and returns the routes found by then.
+ *  Application-invoked only, like the lookups. */
+async function searchRoutes(input: { indexDirs?: string[]; target?: string; startingMaterials?: string[]; maxSteps?: number; stockDir?: string; budgetSeconds?: number }) {
+  const indexDirs = Array.isArray(input?.indexDirs) ? input.indexDirs.filter(d => typeof d === 'string' && d).slice(0, 4) : [];
+  const target = typeof input?.target === 'string' ? input.target.trim() : '';
+  if (indexDirs.length === 0 || !target) throw new Error('A route search needs at least one index directory and a target.');
+  const budgetSeconds = typeof input.budgetSeconds === 'number' ? Math.max(5, Math.min(240, Math.round(input.budgetSeconds))) : 90;
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT],
+    stdin: JSON.stringify({
+      indexDirs,
+      route: target,
+      startingMaterials: Array.isArray(input.startingMaterials) ? input.startingMaterials.slice(0, 16) : [],
+      maxSteps: typeof input.maxSteps === 'number' ? Math.max(1, Math.min(6, Math.round(input.maxSteps))) : 4,
+      budgetSeconds,
+      ...(typeof input.stockDir === 'string' && input.stockDir ? { stockDir: input.stockDir } : {}),
+    }),
+    // The worker returns at its budget; the margin covers loading the indexes.
+    timeoutMs: (budgetSeconds + 60) * 1000,
+  });
+  if (run.code !== 0) throw new Error('The route search failed.');
+  const data = JSON.parse(run.stdout) as { route?: { routes?: unknown[]; expanded?: number; timedOut?: boolean } };
+  const route = data.route ?? {};
+  const summary = `Route search: ${route.routes?.length ?? 0} complete route(s) after ${route.expanded ?? 0} expansion(s)${route.timedOut ? ', stopped at the time budget' : ''}.`;
+  return { artifacts: [{ artifactType: 'candidate-routes', artifactVersion: 1, summary, data: route }], notices: [] };
+}
