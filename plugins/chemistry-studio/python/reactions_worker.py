@@ -579,7 +579,10 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
                         continue
                     best = proposals.get(side)
                     proposals[side] = {"precursors": side, "templateCount": (best or {}).get("templateCount", 0) + count,
-                                       "rdchiral": max((best or {}).get("rdchiral", 0), rdchiral)}
+                                       "rdchiral": max((best or {}).get("rdchiral", 0), rdchiral),
+                                       # which templates proposed it (most common first), so an index that
+                                       # documents its templates (a textbook index) can cite their sources
+                                       "templates": sorted(((best or {}).get("templates", []) + [(count, smarts)]), key=lambda t: -t[0])[:3]}
         entry["_proposals"] = proposals
         results.append(entry)
 
@@ -631,6 +634,7 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
             availability = min((as_reactant(m) for m in organic), default=0)
             ranked.append({
                 **proposal,
+                "templates": [smarts for _count, smarts in proposal.get("templates", [])],
                 "recorded": int(row[1]) if row else 0,
                 "samples": (row[2].split(",")[:3] if row and len(row) > 2 and row[2] else []),
                 "availability": availability,
