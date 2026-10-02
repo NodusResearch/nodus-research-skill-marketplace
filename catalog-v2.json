@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-10-02T08:54:26.828Z",
+  "updatedAt": "2026-10-02T21:39:34.044Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -83,7 +83,7 @@
           {
             "target": "any",
             "asset": "chemistry-studio-2.5.8-any.nodus-plugin",
-            "bytes": 19495523
+            "bytes": 19525484
           }
         ]
       }
