@@ -945,11 +945,13 @@ def _import_stock(source, vendor, out_dir, workers=None, tier="stock"):
     started = time.time()
     records = failed = 0
     hashes = array("Q")  # 8 bytes a compound: 140M is ~1.1 GB, not Python ints
+    skeletons = array("Q")  # the same per InChIKey first block (connectivity: no stereo, isotopes or charge layer)
     with mp.Pool(workers or max(1, (os.cpu_count() or 2) - 1)) as pool:
         for key in pool.imap(_key_of, _stock_records(source), chunksize=2048):
             records += 1
             if key:
                 hashes.append(_stock_hash(key))
+                skeletons.append(_stock_hash(key.split("-")[0]))
             else:
                 failed += 1
             if records % 1000000 == 0:
@@ -959,14 +961,31 @@ def _import_stock(source, vendor, out_dir, workers=None, tier="stock"):
     target = os.path.join(out_dir, f"{vendor}.u64")
     array.astype("<u8").tofile(target + ".tmp")
     os.replace(target + ".tmp", target)
+    # <vendor>.k1.u64: the same list by InChIKey first block, so a compound sold in another stereo
+    # or isotope form (or unspecified) is still found as "same compound, another form".
+    skeleton_array = np.unique(np.frombuffer(skeletons, dtype=np.uint64))
+    del skeletons
+    skeleton_target = os.path.join(out_dir, f"{vendor}{SKELETON_SUFFIX}")
+    skeleton_array.astype("<u8").tofile(skeleton_target + ".tmp")
+    os.replace(skeleton_target + ".tmp", skeleton_target)
     meta = {"vendor": vendor, "tier": tier, "source": os.path.basename(source), "importedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "records": records, "compounds": int(array.size), "unreadable": failed, "seconds": round(time.time() - started, 1)}
+            "records": records, "compounds": int(array.size), "skeletons": int(skeleton_array.size), "unreadable": failed, "seconds": round(time.time() - started, 1)}
     with open(os.path.join(out_dir, f"{vendor}.json"), "w") as fh:
         json.dump(meta, fh, indent=2)
     return meta
 
 
 _STOCK_CACHE = {}
+_SKELETON_CACHE = {}
+SKELETON_SUFFIX = ".k1.u64"
+
+
+def _list_tier(stock_dir, vendor):
+    try:
+        with open(os.path.join(stock_dir, vendor + ".json")) as fh:
+            return json.load(fh).get("tier", "stock")
+    except (OSError, ValueError):
+        return "stock"
 
 
 def _load_stock(stock_dir, tier=None):
@@ -978,16 +997,45 @@ def _load_stock(stock_dir, tier=None):
     if stock_dir not in _STOCK_CACHE:
         lists = {}
         for name in sorted(os.listdir(stock_dir)):
-            if name.endswith(".u64") and os.path.getsize(os.path.join(stock_dir, name)) > 0:
+            if name.endswith(".u64") and not name.endswith(SKELETON_SUFFIX) and os.path.getsize(os.path.join(stock_dir, name)) > 0:
                 vendor = name[:-4]
-                try:
-                    with open(os.path.join(stock_dir, vendor + ".json")) as fh:
-                        list_tier = json.load(fh).get("tier", "stock")
-                except (OSError, ValueError):
-                    list_tier = "stock"
-                lists[vendor] = (list_tier, np.memmap(os.path.join(stock_dir, name), dtype="<u8", mode="r"))
+                lists[vendor] = (_list_tier(stock_dir, vendor), np.memmap(os.path.join(stock_dir, name), dtype="<u8", mode="r"))
         _STOCK_CACHE[stock_dir] = lists
     return {v: arr for v, (t, arr) in _STOCK_CACHE[stock_dir].items() if tier is None or t == tier}
+
+
+def _load_skeletons(stock_dir, tier=None):
+    """The first-block lists (<vendor>.k1.u64) in a directory, {vendor: memmap}; a list imported
+    before they existed has none, and that check is skipped for it."""
+    import numpy as np
+    if not stock_dir or not os.path.isdir(stock_dir):
+        return {}
+    if stock_dir not in _SKELETON_CACHE:
+        lists = {}
+        for name in sorted(os.listdir(stock_dir)):
+            if name.endswith(SKELETON_SUFFIX) and os.path.getsize(os.path.join(stock_dir, name)) > 0:
+                vendor = name[:-len(SKELETON_SUFFIX)]
+                lists[vendor] = (_list_tier(stock_dir, vendor), np.memmap(os.path.join(stock_dir, name), dtype="<u8", mode="r"))
+        _SKELETON_CACHE[stock_dir] = lists
+    return {v: arr for v, (t, arr) in _SKELETON_CACHE[stock_dir].items() if tier is None or t == tier}
+
+
+def _skeleton_vendors_for(skeletons, smiles):
+    """The vendors listing a compound with this InChIKey first block: the same compound in some
+    stereo, isotope or charge form (a racemate for a single enantiomer, or the reverse)."""
+    import numpy as np
+    if not skeletons or not smiles:
+        return []
+    key = _inchikey(smiles)
+    if not key:
+        return []
+    value = np.uint64(_stock_hash(key.split("-")[0]))
+    out = []
+    for vendor, array in skeletons.items():
+        at = int(np.searchsorted(array, value))
+        if at < array.size and array[at] == value:
+            out.append(vendor)
+    return out
 
 
 def _vendors_for(stock, smiles):
@@ -1194,8 +1242,15 @@ def handle(request):
         stock_dir = request.get("stockDir")
         ready, order = _load_stock(stock_dir, "stock"), _load_stock(stock_dir, "order")
         molecules = [m for m in request.get("stock", []) if isinstance(m, str) and m.strip()][:64]
-        return {"stock": {m: _vendors_for(ready, m) for m in molecules},
-                "orderable": {m: _vendors_for(order, m) for m in molecules},
+        stock = {m: _vendors_for(ready, m) for m in molecules}
+        orderable = {m: _vendors_for(order, m) for m in molecules}
+        # Same compound in another stereo/isotope form, only where the exact compound is not listed.
+        ready_k1, order_k1 = _load_skeletons(stock_dir, "stock"), _load_skeletons(stock_dir, "order")
+        same = {m: v for m in molecules if not stock[m] for v in [_skeleton_vendors_for(ready_k1, m)] if v}
+        same_order = {m: v for m in molecules if not stock[m] and not orderable[m] and not same.get(m)
+                      for v in [_skeleton_vendors_for(order_k1, m)] if v}
+        return {"stock": stock, "orderable": orderable,
+                **({"sameSkeleton": same} if same else {}), **({"sameSkeletonOrderable": same_order} if same_order else {}),
                 "lists": sorted(ready), "orderLists": sorted(order)}
     if "compatibility" in request:
         steps = [x for x in request.get("compatibility", []) if isinstance(x, dict)][:24]
