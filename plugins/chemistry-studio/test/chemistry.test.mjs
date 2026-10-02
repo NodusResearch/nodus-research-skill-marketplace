@@ -1592,3 +1592,51 @@ test('a solid-phase-length route (80 steps) is checked whole; 97 steps are refus
   assert.ok(audit.steps.every((step) => step.balanced), 'every step balanced');
   await assert.rejects(worker.invoke({ invocationId: 'long2', toolId: 'verify-route', locale: 'en', input: { steps: Array(97).fill('CCO.O=O>>CC=O.O') } }), /between one and 96 steps/);
 });
+
+test('known-reactions and propose-disconnections pass the precedents\' conditions through', async () => {
+  // With a conditions table beside the ORD index, the worker attaches what a sample reaction was run
+  // with (reagents, solvents, temperature, yield, reference) to exact matches, the closest recorded
+  // reaction and recorded disconnections; the TS layer must not drop it.
+  const conditions = [{ id: 'ord-0000000000000000000000000000abcd', reagents: ['NaBH4'], solvents: ['MeOH'], temperature: '0 °C', yield: 92, ref: 'US00000001' }];
+  const host = stubHost();
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => {
+      const body = JSON.parse(request.stdin);
+      const out = body.disconnect
+        ? { disconnections: [{ input: 'CCO', target: 'CCO', madeBy: { count: 1, asReactant: 0, reactions: [{ key: 'k', count: 1, samples: [conditions[0].id], reaction: 'CC=O>>CCO', uses: {}, conditions }] }, proposals: [] }] }
+        : { reactions: [{ input: 'CC=O>>CCO', key: 'k', count: 1, samples: [conditions[0].id], conditions }], products: [], similar: [] };
+      return { code: 0, stdout: JSON.stringify(out), stderr: '' };
+    },
+  };
+  const worker = lib.createWorker(host);
+  const known = await worker.invoke({ invocationId: 'cond1', toolId: 'known-reactions', locale: 'en', input: { indexDir: '/idx', reactions: ['CC=O>>CCO'] } });
+  assert.deepEqual(known.artifacts[0].data.reactions[0].conditions, conditions);
+  const dis = await worker.invoke({ invocationId: 'cond2', toolId: 'propose-disconnections', locale: 'en', input: { indexDir: '/idx', targets: ['CCO'] } });
+  assert.deepEqual(dis.artifacts[0].data.disconnections[0].madeBy.reactions[0].conditions, conditions);
+});
+
+test('the Python worker attaches conditions from conditions.tsv.zst (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // A synthetic conditions table (blocked zstd, like the index builder writes) and a direct call of
+  // the worker's attach helper: two samples with conditions, one without.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, tempfile, zstandard as zstd
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+d = tempfile.mkdtemp()
+rows = ['ord-a\\t{"reagents":["NaBH4"],"yield":92}', 'ord-b\\t{"solvents":["MeOH"]}']
+frame = zstd.ZstdCompressor().compress(("\\n".join(rows) + "\\n").encode())
+open(os.path.join(d, 'conditions.tsv.zst'), 'wb').write(frame)
+open(os.path.join(d, 'conditions.tsv.zst.blocks'), 'w').write(f'ord-a\\t0\\t{len(frame)}')
+items = [{"samples": ["ord-a", "ord-b", "ord-c"]}, {"samples": ["ord-c"]}, {"count": 0}]
+w._attach_conditions(d, items)
+empty = [{"samples": ["ord-a"]}]
+w._attach_conditions(tempfile.mkdtemp(), empty)
+print(json.dumps([items, empty]))
+`;
+  const [items, empty] = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(items[0].conditions, [{ id: 'ord-a', reagents: ['NaBH4'], yield: 92 }, { id: 'ord-b', solvents: ['MeOH'] }]);
+  assert.equal('conditions' in items[1], false, 'a sample without conditions adds nothing');
+  assert.equal('conditions' in empty[0], false, 'an index without a conditions table is unchanged');
+});
