@@ -946,6 +946,41 @@ def _vendors_for(stock, smiles):
     return out
 
 
+
+# ---------------------------------------------------------------- conditions of sample reactions
+
+CONDITIONS_PER_REACTION = 2
+
+
+def _sample_conditions(index_dir, ids):
+    """ORD id -> what the reaction was run with (reagents, catalysts, solvents, temperature, time,
+    atmosphere, yield, ref), from conditions.tsv.zst when the index has one (tools/reaction-index/
+    conditions.py); {} otherwise."""
+    path = os.path.join(index_dir, "conditions.tsv.zst")
+    if not ids or not os.path.isfile(path):
+        return {}
+    out = {}
+    for rid, row in _lookup(path, set(ids)).items():
+        try:
+            value = json.loads(row[1])
+        except (IndexError, ValueError):
+            continue
+        if isinstance(value, dict) and value:
+            out[rid] = value
+    return out
+
+
+def _attach_conditions(index_dir, items):
+    """Give each item with `samples` a `conditions` list: up to two of its sample reactions'
+    conditions, each with its ORD id. Items whose samples have none are left unchanged."""
+    items = [item for item in items if isinstance(item, dict) and item.get("samples")]
+    found = _sample_conditions(index_dir, {rid for item in items for rid in item["samples"]})
+    for item in items:
+        conditions = [{"id": rid, **found[rid]} for rid in item["samples"] if rid in found][:CONDITIONS_PER_REACTION]
+        if conditions:
+            item["conditions"] = conditions
+
+
 def handle(request):
     if "stock" in request:
         stock_dir = request.get("stockDir")
@@ -974,7 +1009,10 @@ def handle(request):
         limit = max(1, min(int(request.get("limit", 8) or 8), 32))
         starting = [s for s in request.get("startingMaterials", []) if isinstance(s, str) and s.strip()][:16]
         missing = [name for name in ("retro-templates.tsv.zst", "molecules.tsv.zst") if not os.path.isfile(os.path.join(index_dir, name))]
-        return {"disconnections": _disconnect(index_dir, targets, limit, starting, request.get("stockDir")), **({"indexLacks": missing} if missing else {})}
+        disconnections = _disconnect(index_dir, targets, limit, starting, request.get("stockDir"))
+        _attach_conditions(index_dir, [r for entry in disconnections for r in ((entry.get("madeBy") or {}).get("reactions") or [])]
+                           + [p for entry in disconnections for p in entry.get("proposals", []) if p.get("recorded")])
+        return {"disconnections": disconnections, **({"indexLacks": missing} if missing else {})}
     store = _load(index_dir)
 
     reactions = []
@@ -1018,6 +1056,14 @@ def handle(request):
         if entry["count"] and entry["key"] in drawn:
             entry["reaction"] = drawn[entry["key"]]
     exact_inputs = {entry["input"] for entry in reactions if entry["count"]}
+    # The closest recorded reaction of a step with no exact match: its sample ids, so it can be
+    # cited with its conditions like an exact match.
+    closest = []
+    for item in similar:
+        if item["input"] not in exact_inputs and item["neighbors"] and item["neighbors"][0]["key"] in store["samples"]:
+            item["neighbors"][0]["samples"] = store["samples"][item["neighbors"][0]["key"]].split(",")[:3]
+            closest.append(item["neighbors"][0])
+    _attach_conditions(index_dir, [entry for entry in reactions if entry.get("count")] + closest)
     for item in similar:
         for neighbor in item["neighbors"]:
             if neighbor["key"] in drawn:
