@@ -691,6 +691,13 @@ def _index_label(index_dir):
     return os.path.basename(os.path.normpath(index_dir))
 
 
+# Common solvents (canonical SMILES) that recorded reactions list among their inputs.
+COMMON_SOLVENTS = frozenset(filter(None, (_canon(x) for x in (
+    "CCCCCC", "CCCCCCC", "C1CCCCC1", "CCOC(C)=O", "CCOCC", "C1CCOC1", "C1COCCO1", "ClCCl", "ClC(Cl)Cl", "ClCCCl",
+    "CO", "CCO", "CC(C)O", "CC(C)=O", "CC#N", "CN(C)C=O", "CS(C)=O", "Cc1ccccc1", "c1ccccc1", "COCCOC",
+    "CC(=O)N(C)C", "CN1CCCC1=O", "Cc1ccccc1C", "CC(C)(C)OC", "O=C1CCCN1C", "CC(C)CO", "CCCCO", "OCCO"))))
+
+
 def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, branch=4, keep=3, stock_dir=None, budget_seconds=90.0):
     """Best-first backward search from the target to the starting materials over one or more
     indexes (the ORD snapshot, the user's textbook-scheme index). A molecule is expanded into the
@@ -762,6 +769,14 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
         for label, entry in lookup(m):
             for reaction in (entry.get("madeBy") or {}).get("reactions", [])[:branch]:
                 precursors = sorted({x for x in reaction["reaction"].split(">>")[0].split(".") if _is_organic(x) and x != m})
+                # Recorded solvents are not precursors, unless the product needs their atoms (ethanol in
+                # an esterification); a record left with nothing that can make the product is skipped.
+                solvents_out = [x for x in precursors if x not in COMMON_SOLVENTS]
+                if len(solvents_out) < len(precursors):
+                    if sum(atoms(x) for x in solvents_out) >= atoms(m) - 1:
+                        precursors = solvents_out
+                    elif not solvents_out:
+                        continue
                 # More than three organic inputs is a screening or mixture record, not a step.
                 if precursors and len(precursors) <= MAX_STEP_PRECURSORS and tuple(precursors) not in seen:
                     seen.add(tuple(precursors))
@@ -782,14 +797,35 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
                     out.append(option)
         return out
 
+    # A* guidance: with starting materials given, each molecule still to be made adds how unlike
+    # the starting materials it is (1 - best Morgan Tanimoto), so search heads towards them instead
+    # of exhausting every two-step dead end first (uniform cost ran out of expansions on benzocaine
+    # from 4-nitrotoluene). Without starting materials the estimate is 0 (plain uniform cost).
+    from rdkit.Chem import AllChem, DataStructs
+    start_fps = [AllChem.GetMorganFingerprintAsBitVect(mol, 2, 2048) for mol in (Chem.MolFromSmiles(s) for s in starts) if mol is not None]
+    closeness = {}
+
+    def estimate(open_set):
+        if not start_fps:
+            return 0.0
+        total = 0.0
+        for m in open_set:
+            if free(m, uses):
+                continue
+            if m not in closeness:
+                mol = Chem.MolFromSmiles(m)
+                closeness[m] = max(DataStructs.BulkTanimotoSimilarity(AllChem.GetMorganFingerprintAsBitVect(mol, 2, 2048), start_fps)) if mol is not None else 0.0
+            total += 1.0 - closeness[m]
+        return total
+
     counter = 0
-    heap = [(0.0, counter, (target,), ())]
+    heap = [(estimate((target,)), counter, (target,), (), 0.0)]
     done, expanded, seen_states, timed_out = [], 0, set(), False
     while heap and expanded < expansions and len(done) < keep:
         if time.monotonic() >= deadline:
             timed_out = True
             break
-        cost, _, open_set, steps = heapq.heappop(heap)
+        _, _, open_set, steps, cost = heapq.heappop(heap)
         pending = [m for m in open_set if not free(m, uses)]
         if not pending:
             done.append({"cost": round(cost, 2), "steps": list(reversed(steps))})
@@ -807,7 +843,8 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
             seen_states.add(state)
             step = {"product": m, **{k: v for k, v in option.items() if k != "cost"}}
             counter += 1
-            heapq.heappush(heap, (cost + option["cost"], counter, rest, steps + (step,)))
+            g = cost + option["cost"]
+            heapq.heappush(heap, (g + estimate(rest), counter, rest, steps + (step,), g))
     for route in done:
         # The molecules the route starts from, and whether each is bought (stock list) or given.
         made = {step["product"] for step in route["steps"]}
