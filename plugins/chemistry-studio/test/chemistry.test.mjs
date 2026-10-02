@@ -1665,3 +1665,56 @@ print(json.dumps([items, empty]))
   assert.equal('conditions' in items[1], false, 'a sample without conditions adds nothing');
   assert.equal('conditions' in empty[0], false, 'an index without a conditions table is unchanged');
 });
+
+test('check-compatibility sends the steps and textbook directory to the worker and counts the hazards', async () => {
+  const host = stubHost();
+  const sent = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => {
+      sent.push(JSON.parse(request.stdin));
+      return { code: 0, stdout: JSON.stringify({ compatibility: [{ step: 1, reagentClasses: [{ id: 'strong-hydride', label: 'strong hydride' }], hazards: [{ group: 'ester', severity: 'high' }, { group: 'alcohol', severity: 'medium' }] }] }), stderr: '' };
+    },
+  };
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({ invocationId: 'compat1', toolId: 'check-compatibility', locale: 'en', input: {
+    steps: [{ reactants: ['CCOC(=O)CCC(=O)c1ccccc1', '  '], products: ['OC(CCC(=O)OCC)c1ccccc1'], reagents: 'LiAlH4, THF' }],
+    textbookDir: '/textbook',
+  } });
+  assert.deepEqual(sent[0], { compatibility: [{ reactants: ['CCOC(=O)CCC(=O)c1ccccc1'], products: ['OC(CCC(=O)OCC)c1ccccc1'], reagents: 'LiAlH4, THF' }], textbookDir: '/textbook' });
+  assert.equal(result.artifacts[0].artifactType, 'step-compatibility');
+  assert.equal(result.artifacts[0].summary, 'Compatibility: 2 hazard(s) in 1 step(s), 1 high.');
+  await assert.rejects(worker.invoke({ invocationId: 'compat2', toolId: 'check-compatibility', locale: 'en', input: { steps: [{ reactants: [], products: ['C'] }] } }), /at least one step/);
+});
+
+test('the Python compatibility check flags clashes and leaves clean steps alone (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, sys
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+steps = [
+  {"reactants": ["CCOC(=O)CCC(=O)c1ccccc1"], "products": ["OC(CCC(=O)OCC)c1ccccc1"], "reagents": "LiAlH4, THF"},
+  {"reactants": ["OCCc1ccc(Br)cc1", "C[Mg]Br"], "products": ["OCCc1ccc(C)cc1"], "reagents": "MeMgBr, ether"},
+  {"reactants": ["O=C(NCCC=C)OCc1ccccc1"], "products": ["O=C(NCCCC)OCc1ccccc1"], "reagents": "H2, Pd/C, EtOH"},
+  {"reactants": ["CCOC(=O)c1ccc([N+](=O)[O-])cc1"], "products": ["CCOC(=O)c1ccc(N)cc1"], "reagents": "H2, Pd/C, EtOH"},
+  {"reactants": ["CC(=O)c1ccccc1"], "products": ["CC(O)c1ccccc1"], "reagents": "NaBH4, MeOH"},
+  {"reactants": ["COC(=O)/C=C/c1ccccc1"], "products": ["COC(=O)CC(C)c1ccccc1"], "reagents": "MeMgBr, CuI"},
+  {"reactants": ["CC(C)(C)OC(=O)NCCO"], "products": ["NCCO"], "reagents": "NaOH, water"},
+  {"reactants": ["CC(C)(C)OC(=O)CCC=O"], "products": ["CC(C)(C)OC(=O)CCC(O)c1ccccc1"], "reagents": "1. PhMgBr 2. 1 N HCl"},
+]
+print(json.dumps(w._compatibility(steps)))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }));
+  const flags = out.map(step => step.hazards.map(h => `${h.group}/${h.reagentClass}/${h.severity}`));
+  assert.deepEqual(flags[0], ['ester/strong-hydride/high'], 'an ester kept through LiAlH4');
+  assert.deepEqual(flags[1], ['alcohol/organometallic/high'], 'a free OH beside a Grignard');
+  assert.deepEqual(flags[2], ['cbz/hydrogenation/high'], 'a Cbz kept through H2/Pd');
+  assert.deepEqual(flags[3], [], 'a nitro reduction beside an ester is clean');
+  assert.deepEqual(flags[4], [], 'NaBH4 on a ketone is clean');
+  assert.deepEqual(flags[5], [], 'a cuprate conjugate addition leaves the ester alone');
+  assert.deepEqual(flags[6], ['boc/null/medium'], 'a Boc lost with no acid named');
+  assert.equal(flags[7].some(f => f.startsWith('tbu-ester/')), false, 'a work-up with 1 N HCl is not a strong-acid step');
+  assert.match(out[1].hazards[0].suggestion, /silyl ether/);
+  assert.deepEqual(out[1].hazards[0].protectedForms, ['TBS ether', 'TBDPS ether', 'benzyl ether']);
+});

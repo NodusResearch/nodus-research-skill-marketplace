@@ -99,6 +99,8 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       if (toolId === 'propose-disconnections') return proposeDisconnections(input);
       if (toolId === 'check-stock') return checkStock(input);
       if (toolId === 'search-routes') return searchRoutes(input);
+      // Its `steps` are objects (reactants, products, reagents), not verify-route's equation strings.
+      if (toolId === 'check-compatibility') return checkCompatibility(input as unknown as { steps?: CompatibilityStepInput[]; textbookDir?: string });
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
@@ -681,4 +683,34 @@ async function searchRoutes(input: { indexDirs?: string[]; target?: string; star
   const route = data.route ?? {};
   const summary = `Route search: ${route.routes?.length ?? 0} complete route(s) after ${route.expanded ?? 0} expansion(s)${route.timedOut ? ', stopped at the time budget' : ''}.`;
   return { artifacts: [{ artifactType: 'candidate-routes', artifactVersion: 1, summary, data: route }], notices: [] };
+}
+
+interface CompatibilityStepInput { reactants?: string[]; products?: string[]; reagents?: string }
+
+/** Functional-group compatibility per route step: groups that survive into the product although a
+ *  reagent named in the step's conditions attacks them, and protecting groups that vanish with no
+ *  reagent that removes them, each with how to protect it (and textbook examples of putting that
+ *  protecting group on, from a textbook index when one is given). Application-invoked only. */
+async function checkCompatibility(input: { steps?: CompatibilityStepInput[]; textbookDir?: string }) {
+  const strings = (value: unknown) => (Array.isArray(value) ? value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').slice(0, 12) : []);
+  const steps = (Array.isArray(input?.steps) ? input.steps : []).slice(0, 24).map(step => ({
+    reactants: strings(step?.reactants),
+    products: strings(step?.products),
+    reagents: typeof step?.reagents === 'string' ? step.reagents.slice(0, 2000) : '',
+  }));
+  if (!steps.some(step => step.reactants.length && step.products.length)) throw new Error('A compatibility check needs at least one step with reactants and products.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT],
+    stdin: JSON.stringify({ compatibility: steps, ...(typeof input.textbookDir === 'string' && input.textbookDir ? { textbookDir: input.textbookDir } : {}) }),
+    timeoutMs: 90_000,
+  });
+  if (run.code !== 0) throw new Error('The compatibility check failed.');
+  const data = JSON.parse(run.stdout) as { compatibility?: Array<{ hazards?: Array<{ severity?: string }> }> };
+  const hazards = (data.compatibility ?? []).flatMap(step => step.hazards ?? []);
+  const high = hazards.filter(hazard => hazard.severity === 'high').length;
+  const summary = `Compatibility: ${hazards.length} hazard(s) in ${steps.length} step(s)${high ? `, ${high} high` : ''}.`;
+  return { artifacts: [{ artifactType: 'step-compatibility', artifactVersion: 1, summary, data }], notices: [] };
 }
