@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "chemistry",
   "provides": "nodus:chemistry",
-  "version": "2.5.7",
+  "version": "2.5.8",
   "description": "Resolve chemical identities against references, validate the structure, draw it as a verified document, and check a step against known reactions.",
   "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
   "requires": [{ "id": "nodus:svg", "minVersion": "1.0.0", "maxVersionExclusive": "2.0.0" }],
@@ -189,6 +189,30 @@
       "answerMode": "replace-block",
       "metered": false,
       "billing": "none"
+    },
+    {
+      "id": "search-routes",
+      "description": "Search multi-step routes backwards from a target over local reaction indexes (ORD snapshot, the user's textbook-scheme index): recorded reactions and retro-template disconnections, ending in starting materials, stocked molecules, inorganics or routine reagents. Returns the cheapest complete routes found within the time budget, each step with its provenance. The application supplies the directories; this tool is not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "indexDirs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "minItems": 1, "maxItems": 4 },
+          "target": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "startingMaterials": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "maxItems": 16 },
+          "maxSteps": { "type": "integer", "minimum": 1, "maximum": 6 },
+          "stockDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "budgetSeconds": { "type": "integer", "minimum": 5, "maximum": 240 }
+        },
+        "required": ["indexDirs", "target"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["candidate-routes"],
+      "timeoutMs": 300000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
     }
   ],
   "chat": {
@@ -251,6 +275,12 @@
       "type": "stock-availability",
       "version": 1,
       "label": { "en": "Stock availability", "es": "Disponibilidad en catálogo", "fr": "Disponibilité en stock", "de": "Lagerverfügbarkeit", "pt": "Disponibilidade em stock", "pt-BR": "Disponibilidade em estoque", "it": "Disponibilità a catalogo", "tr": "Stok durumu" },
+      "modelVisibility": "none"
+    },
+    {
+      "type": "candidate-routes",
+      "version": 1,
+      "label": { "en": "Candidate routes", "es": "Rutas candidatas", "fr": "Voies candidates", "de": "Kandidatenrouten", "pt": "Rotas candidatas", "pt-BR": "Rotas candidatas", "it": "Vie candidate", "tr": "Aday rotalar" },
       "modelVisibility": "none"
     }
   ],
