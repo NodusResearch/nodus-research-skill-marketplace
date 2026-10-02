@@ -229,6 +229,17 @@ function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: fal
   try { packed = fit(0); } catch { return 'unchecked'; }
   if (packed) return { ok: true };
 
+  // Packing assigns each product to one substrate, which is only valid for a fragmentation of a
+  // SINGLE molecule. With two or more substrate molecules the step may be a convergent coupling
+  // whose product draws carbon from more than one substrate — a Wittig forms stilbene from the
+  // phosphonium's benzyl and the aldehyde while the phosphonium also sheds triphenylphosphine
+  // oxide; an aldol, a Claisen or a Grignard addition are the same shape. The single-substrate
+  // model cannot represent that, so it must not refuse it; atom and charge balance still apply.
+  // Two or more distinct carbon-bearing substrates, not the coefficient count: a single substrate
+  // taken several times (8 citric acid -> 9 acetonedicarboxylic) is a redistribution of one molecule
+  // and is still a real impossibility to refuse.
+  if (substrates.length >= 2) return 'unchecked';
+
   const bottleneck = packingBottleneck(bins, items);
   const culprit = bottleneck ? products.find((entry) => carbonOf(entry) === bottleneck.size) : undefined;
   const detail = bottleneck && culprit

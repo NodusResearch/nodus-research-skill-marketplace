@@ -227,6 +227,21 @@ test('the route checker balances every step and confirms the intermediate is car
   assert.ok(host.calls.some(call => call.startsWith('subworker:')), 'the whole route ran in the killable subprocess');
 });
 
+test('a convergent coupling with a large leaving group is not refused (Wittig: stilbene + Ph3P=O)', async () => {
+  // Carbon packing used to refuse a Wittig: the phosphorus ylide (C25) is large enough that the
+  // single-substrate bin-packing could seat triphenylphosphine oxide (C18) but then had no bin for
+  // stilbene (C14) — because stilbene's carbons come from BOTH the ylide and the aldehyde. With two
+  // substrate molecules the step is a convergent coupling the packing model cannot represent, so it
+  // must not be refused; atom and charge balance still apply (and do here).
+  const worker = lib.createWorker(stubHost());
+  const wittig = await worker.invoke({ invocationId: 'wittig', toolId: 'verify-route', locale: 'en', input: {
+    steps: ['c1ccccc1C=P(c1ccccc1)(c1ccccc1)c1ccccc1.O=Cc1ccccc1>>C(=Cc1ccccc1)c1ccccc1.O=P(c1ccccc1)(c1ccccc1)c1ccccc1'],
+  } });
+  const step = wittig.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, true, JSON.stringify(step.differences));
+  assert.equal(step.ok, true, `Wittig must not be refused: ${step.reason ?? ''}`);
+});
+
 test('the route checker names an unbalanced step and a disconnected step', async () => {
   const worker = lib.createWorker(stubHost());
   const unbalanced = await worker.invoke({ invocationId: 'r2', toolId: 'verify-route', locale: 'en', input: { steps: ['CCO>>CC=O'] } });
