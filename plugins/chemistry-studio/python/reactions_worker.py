@@ -492,6 +492,7 @@ def _lookup(path, wanted):
 
 
 _retro_cache = {}
+_rdchiral_cache = {}
 
 
 def _retro_templates(index_dir):
@@ -570,7 +571,11 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
                 if not mol.HasSubstructMatch(query):
                     continue
                 try:
-                    outcomes = rdchiralRun(rdchiralReaction(smarts), reactants)
+                    rxn = _rdchiral_cache.get(smarts)
+                    if rxn is None:
+                        # Parsing a template costs ~2 ms; a route search applies the same ones to every molecule.
+                        rxn = _rdchiral_cache[smarts] = rdchiralReaction(smarts)
+                    outcomes = rdchiralRun(rxn, reactants)
                 except Exception:
                     continue
                 for outcome in outcomes:
@@ -668,21 +673,46 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
 # A small (at most this many heavy atoms), commonly used organic counts as a routine reagent.
 ROUTINE_REAGENT_ATOMS = 6
 ROUTINE_REAGENT_USES = 500
+# A recorded reaction with more organic inputs than this is a screening or mixture record.
+MAX_STEP_PRECURSORS = 3
 
 
-def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, branch=4, keep=3, stock_dir=None):
-    """Best-first backward search from the target to the starting materials. A molecule is expanded
-    into its recorded ORD reactions (filtered) and its top template disconnections; a recorded step
-    costs less than a template step, and precursors resembling the starting materials cost less. A
-    route is complete when every molecule left is a starting material, inorganic, or a routine
-    reagent. Returns the cheapest complete routes, each step labelled recorded or template."""
+def _index_label(index_dir):
+    """'ord' or 'textbook' (from the index's manifest source), else the directory's name."""
+    try:
+        with open(os.path.join(index_dir, "manifest.json")) as fh:
+            source = str(json.load(fh).get("source", ""))
+    except (OSError, ValueError):
+        source = ""
+    if "textbook" in source:
+        return "textbook"
+    if "reaction-database" in source or source.startswith("open-reaction"):
+        return "ord"
+    return os.path.basename(os.path.normpath(index_dir))
+
+
+def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, branch=4, keep=3, stock_dir=None, budget_seconds=90.0):
+    """Best-first backward search from the target to the starting materials over one or more
+    indexes (the ORD snapshot, the user's textbook-scheme index). A molecule is expanded into the
+    recorded reactions that make it (filtered) and its top template disconnections from every
+    index; a recorded step costs less than a template step, and precursors resembling the starting
+    materials cost less. A route is complete when every molecule left is a starting material, on
+    the user's stock list, inorganic, or a routine reagent. Each step keeps its provenance: the
+    index, recorded or template, sample ids (ORD ids, or textbook 'tb-' record ids) and, for a
+    textbook template, the templates that proposed it (the host cites their schemes). The search
+    stops at `budget_seconds` and returns the complete routes found by then."""
     import heapq
+    import time
     from rdkit import Chem
 
+    if isinstance(index_dirs, str):
+        index_dirs = [index_dirs]
+    deadline = time.monotonic() + max(1.0, float(budget_seconds))
+    labels = {d: _index_label(d) for d in index_dirs}
     target = _canon(target)
     starts = {c for c in (_canon(s) for s in starting) if c}
     if not target:
-        return {"target": None, "routes": [], "expanded": 0}
+        return {"target": None, "routes": [], "expanded": 0, "indexes": list(labels.values())}
     cache, heavy = {}, {}
 
     def atoms(m):
@@ -693,7 +723,15 @@ def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, bran
 
     def lookup(m):
         if m not in cache:
-            cache[m] = _disconnect(index_dir, [m], branch * 3, sorted(starts), stock_dir)[0]
+            entries = []
+            for d in index_dirs:
+                if time.monotonic() >= deadline:
+                    break
+                try:
+                    entries.append((labels[d], _disconnect(d, [m], branch * 3, sorted(starts), stock_dir)[0]))
+                except Exception:
+                    continue
+            cache[m] = entries
         return cache[m]
 
     stock, stocked = _load_stock(stock_dir, "stock"), {}
@@ -709,31 +747,48 @@ def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, bran
 
     uses = {}
 
+    def note_uses(found):
+        for molecule, count in found.items():
+            if count > uses.get(molecule, 0):
+                uses[molecule] = count
+
     def options(m):
-        entry = lookup(m)
-        for reaction in (entry.get("madeBy") or {}).get("reactions", []):
-            uses.update(reaction.get("uses", {}))
-        for proposal in entry.get("proposals", []):
-            uses.update(proposal.get("uses", {}))
         out, seen = [], set()
-        for reaction in (entry.get("madeBy") or {}).get("reactions", [])[:branch]:
-            precursors = sorted({x for x in reaction["reaction"].split(">>")[0].split(".") if _is_organic(x) and x != m})
-            if precursors and tuple(precursors) not in seen:
-                seen.add(tuple(precursors))
-                out.append({"precursors": precursors, "recorded": reaction["count"], "samples": reaction["samples"], "kind": "recorded", "cost": 1.0})
-        for proposal in entry.get("proposals", [])[:branch]:
-            precursors = sorted({x for x in proposal["precursors"].split(".") if _is_organic(x)})
-            if precursors and tuple(precursors) not in seen:
-                seen.add(tuple(precursors))
-                cost = 1.0 if proposal["recorded"] else 1.6 - 0.5 * proposal.get("startSimilarity", 0.0)
-                out.append({"precursors": precursors, "recorded": proposal["recorded"], "samples": proposal["samples"],
-                            "kind": "recorded" if proposal["recorded"] else "template", "templateCount": proposal["templateCount"], "cost": cost})
+        for label, entry in lookup(m):
+            for reaction in (entry.get("madeBy") or {}).get("reactions", []):
+                note_uses(reaction.get("uses", {}))
+            for proposal in entry.get("proposals", []):
+                note_uses(proposal.get("uses", {}))
+        for label, entry in lookup(m):
+            for reaction in (entry.get("madeBy") or {}).get("reactions", [])[:branch]:
+                precursors = sorted({x for x in reaction["reaction"].split(">>")[0].split(".") if _is_organic(x) and x != m})
+                # More than three organic inputs is a screening or mixture record, not a step.
+                if precursors and len(precursors) <= MAX_STEP_PRECURSORS and tuple(precursors) not in seen:
+                    seen.add(tuple(precursors))
+                    out.append({"precursors": precursors, "recorded": reaction["count"], "samples": reaction["samples"],
+                                "kind": "recorded", "index": label, "cost": 1.0})
+            for proposal in entry.get("proposals", [])[:branch]:
+                precursors = sorted({x for x in proposal["precursors"].split(".") if _is_organic(x)})
+                if precursors and not proposal["recorded"] and sum(atoms(x) for x in precursors) < atoms(m) - 1:
+                    continue  # a template step whose precursors lack the product's atoms (an unmapped partner left out)
+                if precursors and tuple(precursors) not in seen:
+                    seen.add(tuple(precursors))
+                    cost = 1.0 if proposal["recorded"] else 1.6 - 0.5 * proposal.get("startSimilarity", 0.0)
+                    option = {"precursors": precursors, "recorded": proposal["recorded"], "samples": proposal["samples"],
+                              "kind": "recorded" if proposal["recorded"] else "template", "index": label,
+                              "templateCount": proposal["templateCount"], "cost": cost}
+                    if label == "textbook" and proposal.get("templates"):
+                        option["templates"] = proposal["templates"]  # cited by the host from the index's template sources
+                    out.append(option)
         return out
 
     counter = 0
     heap = [(0.0, counter, (target,), ())]
-    done, expanded, seen_states = [], 0, set()
+    done, expanded, seen_states, timed_out = [], 0, set(), False
     while heap and expanded < expansions and len(done) < keep:
+        if time.monotonic() >= deadline:
+            timed_out = True
+            break
         cost, _, open_set, steps = heapq.heappop(heap)
         pending = [m for m in open_set if not free(m, uses)]
         if not pending:
@@ -753,7 +808,13 @@ def _search_routes(index_dir, target, starting, max_steps=4, expansions=40, bran
             step = {"product": m, **{k: v for k, v in option.items() if k != "cost"}}
             counter += 1
             heapq.heappush(heap, (cost + option["cost"], counter, rest, steps + (step,)))
-    return {"target": target, "routes": done, "expanded": expanded}
+    for route in done:
+        # The molecules the route starts from, and whether each is bought (stock list) or given.
+        made = {step["product"] for step in route["steps"]}
+        leaves = sorted({p for step in route["steps"] for p in step["precursors"] if p not in made})
+        route["startingMaterials"] = [{"smiles": p, "given": p in starts, "inStock": purchasable(p)} for p in leaves]
+    return {"target": target, "routes": done, "expanded": expanded, "indexes": list(labels.values()),
+            "timedOut": timed_out, "seconds": round(budget_seconds - max(0.0, deadline - time.monotonic()), 1)}
 
 
 def _stereo_choices(smiles, max_isomers=64):
@@ -963,12 +1024,19 @@ def handle(request):
                 out[smiles] = None
         return {"stereoChoices": out}
     index_dir = request.get("indexDir")
-    if not isinstance(index_dir, str) or not index_dir:
-        raise SystemExit("indexDir is required")
+    index_dirs = [d for d in request.get("indexDirs", []) if isinstance(d, str) and d][:4] if isinstance(request.get("indexDirs"), list) else []
+    if not index_dirs and isinstance(index_dir, str) and index_dir:
+        index_dirs = [index_dir]
+    if not index_dirs:
+        raise SystemExit("indexDir or indexDirs is required")
+    index_dir = index_dir if isinstance(index_dir, str) and index_dir else index_dirs[0]
     if "route" in request:
         starting = [x for x in request.get("startingMaterials", []) if isinstance(x, str) and x.strip()][:16]
         max_steps = max(1, min(int(request.get("maxSteps", 4) or 4), 8))
-        return {"route": _search_routes(index_dir, str(request.get("route", "")), starting, max_steps, stock_dir=request.get("stockDir"))}
+        budget = max(5.0, min(float(request.get("budgetSeconds", 90) or 90), 240.0))
+        usable = [d for d in index_dirs if os.path.isfile(os.path.join(d, "molecules.tsv.zst"))]
+        return {"route": _search_routes(usable or index_dirs, str(request.get("route", "")), starting, max_steps,
+                                        stock_dir=request.get("stockDir"), budget_seconds=budget)}
     if "disconnect" in request:
         targets = [t for t in request.get("disconnect", []) if isinstance(t, str) and t.strip()][:16]
         limit = max(1, min(int(request.get("limit", 8) or 8), 32))

@@ -1582,6 +1582,31 @@ test('propose-disconnections keeps the templates that proposed each disconnectio
   assert.match(worker, /"templates": \[smarts for _count, smarts in proposal\.get\("templates", \[\]\)\]/, 'the Python worker emits the proposing templates');
 });
 
+test('search-routes sends every index, the target and the budget to the worker and summarises the routes', async () => {
+  const host = stubHost();
+  const sent = [];
+  let timeoutMs = 0;
+  const route = { target: 'CCOC(=O)c1ccc(N)cc1', expanded: 3, timedOut: false, indexes: ['ord', 'textbook'], routes: [{ cost: 1, steps: [{ product: 'CCOC(=O)c1ccc(N)cc1', precursors: ['CCO', 'Nc1ccc(C(=O)O)cc1'], kind: 'recorded', index: 'textbook', recorded: 2, samples: ['tb-00000000000000000000000000000001'] }], startingMaterials: [{ smiles: 'CCO', given: false, inStock: true }] }] };
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => { sent.push(JSON.parse(request.stdin)); timeoutMs = request.timeoutMs; return { code: 0, stdout: JSON.stringify({ route }), stderr: '' }; },
+  };
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({ invocationId: 'rs1', toolId: 'search-routes', locale: 'en', input: { indexDirs: ['/ord', '/textbook'], target: ' CCOC(=O)c1ccc(N)cc1 ', startingMaterials: ['CCO'], maxSteps: 9, stockDir: '/stock', budgetSeconds: 30 } });
+  assert.deepEqual(sent[0], { indexDirs: ['/ord', '/textbook'], route: 'CCOC(=O)c1ccc(N)cc1', startingMaterials: ['CCO'], maxSteps: 6, budgetSeconds: 30, stockDir: '/stock' });
+  assert.equal(timeoutMs, 90_000, 'the call outlives the worker budget');
+  assert.equal(result.artifacts[0].artifactType, 'candidate-routes');
+  assert.equal(result.artifacts[0].summary, 'Route search: 1 complete route(s) after 3 expansion(s).');
+  assert.deepEqual(result.artifacts[0].data, route);
+  await worker.invoke({ invocationId: 'rs2', toolId: 'search-routes', locale: 'en', input: { indexDirs: ['/ord'], target: 'CCO' } });
+  assert.equal('stockDir' in sent[1], false);
+  assert.equal(sent[1].budgetSeconds, 90);
+  await assert.rejects(worker.invoke({ invocationId: 'rs3', toolId: 'search-routes', locale: 'en', input: { indexDirs: [], target: 'CCO' } }), /index directory and a target/);
+  const python = fs.readFileSync(new URL('../python/reactions_worker.py', import.meta.url), 'utf8');
+  assert.match(python, /request\.get\("indexDirs"/, 'the Python worker reads several index directories');
+  assert.match(python, /budget_seconds/, 'the Python search has a time budget');
+});
+
 test('a solid-phase-length route (80 steps) is checked whole; 97 steps are refused', async () => {
   const worker = lib.createWorker(stubHost());
   // An alternating oxidation/reduction chain: 80 balanced, connected steps.
