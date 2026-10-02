@@ -1665,3 +1665,25 @@ print(json.dumps([items, empty]))
   assert.equal('conditions' in items[1], false, 'a sample without conditions adds nothing');
   assert.equal('conditions' in empty[0], false, 'an index without a conditions table is unchanged');
 });
+
+test('a stock import writes first-block lists; the stock check reports the same compound in another form (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // A synthetic catalogue: racemic lactic acid and benzocaine. (S)-lactic acid is not listed as
+  // such but is the same compound by InChIKey connectivity, so it comes back under sameSkeleton;
+  // the .k1.u64 file is not mistaken for a vendor list.
+  const { execFileSync } = await import('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chem-stock-k1-'));
+  const source = path.join(dir, 'catalogue.smi');
+  fs.writeFileSync(source, 'SMILES\nCC(O)C(=O)O\nCCOC(=O)c1ccc(N)cc1\n');
+  const worker = new URL('../python/reactions_worker.py', import.meta.url).pathname;
+  const out = path.join(dir, 'stock');
+  const meta = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, [worker, '--import-stock', source, 'demo', out, 'stock'], { encoding: 'utf8' }));
+  assert.equal(meta.compounds, 2);
+  assert.equal(meta.skeletons, 2);
+  assert.ok(fs.existsSync(path.join(out, 'demo.k1.u64')));
+  const reply = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, [worker], { input: JSON.stringify({ stockDir: out, stock: ['CCOC(=O)c1ccc(N)cc1', 'C[C@H](O)C(=O)O', 'CCCC'] }), encoding: 'utf8' }));
+  assert.deepEqual(reply.lists, ['demo'], 'the first-block file is not a vendor');
+  assert.deepEqual(reply.stock['CCOC(=O)c1ccc(N)cc1'], ['demo']);
+  assert.deepEqual(reply.stock['C[C@H](O)C(=O)O'], []);
+  assert.deepEqual(reply.sameSkeleton, { 'C[C@H](O)C(=O)O': ['demo'] }, 'only the not-exactly-listed compound, and only when its skeleton is listed');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
