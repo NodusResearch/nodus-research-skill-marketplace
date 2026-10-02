@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "chemistry",
   "provides": "nodus:chemistry",
-  "version": "2.5.8",
+  "version": "2.5.9",
   "description": "Resolve chemical identities against references, validate the structure, draw it as a verified document, and check a step against known reactions.",
   "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
   "requires": [{ "id": "nodus:svg", "minVersion": "1.0.0", "maxVersionExclusive": "2.0.0" }],
@@ -213,6 +213,40 @@
       "answerMode": "replace-block",
       "metered": false,
       "billing": "none"
+    },
+    {
+      "id": "check-compatibility",
+      "description": "Check each route step for functional groups that survive into the product although a reagent named in the step's conditions attacks them (an ester under LiAlH4, a free OH under a Grignard, a Cbz under H2/Pd), and protecting groups that vanish with no reagent that removes them. Each hazard says why and how to protect the group, with textbook examples when a textbook index is given. Not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 24,
+            "items": {
+              "type": "object",
+              "properties": {
+                "reactants": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "maxItems": 12 },
+                "products": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "maxItems": 12 },
+                "reagents": { "type": "string", "maxLength": 2000 }
+              },
+              "required": ["reactants", "products"],
+              "additionalProperties": false
+            }
+          },
+          "textbookDir": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "required": ["steps"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["step-compatibility"],
+      "timeoutMs": 120000,
+      "concurrency": 1,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
     }
   ],
   "chat": {
@@ -281,6 +315,12 @@
       "type": "candidate-routes",
       "version": 1,
       "label": { "en": "Candidate routes", "es": "Rutas candidatas", "fr": "Voies candidates", "de": "Kandidatenrouten", "pt": "Rotas candidatas", "pt-BR": "Rotas candidatas", "it": "Vie candidate", "tr": "Aday rotalar" },
+      "modelVisibility": "none"
+    },
+    {
+      "type": "step-compatibility",
+      "version": 1,
+      "label": { "en": "Functional-group compatibility", "es": "Compatibilidad de grupos funcionales", "fr": "Compatibilité des groupes fonctionnels", "de": "Verträglichkeit funktioneller Gruppen", "pt": "Compatibilidade de grupos funcionais", "pt-BR": "Compatibilidade de grupos funcionais", "it": "Compatibilità dei gruppi funzionali", "tr": "Fonksiyonel grup uyumluluğu" },
       "modelVisibility": "none"
     }
   ],
