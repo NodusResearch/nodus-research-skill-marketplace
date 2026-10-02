@@ -23,7 +23,7 @@ const root = fileURLToPath(new URL('.', import.meta.url));
 // own instructions are compiled in rather than duplicated by hand.
 const instructions = fs.readFileSync(path.join(root, 'skills/chemistry-studio/SKILL.md'), 'utf8').trim();
 
-const extraFiles = { 'python/reactions_worker.py': 'python/reactions_worker.py' };
+const extraFiles = { 'python/reactions_worker.py': 'python/reactions_worker.py', 'python/compat_tables.py': 'python/compat_tables.py' };
 const lockRoot = path.join(root, 'runtimes');
 if (fs.existsSync(lockRoot)) {
   for (const target of fs.readdirSync(lockRoot).sort()) {

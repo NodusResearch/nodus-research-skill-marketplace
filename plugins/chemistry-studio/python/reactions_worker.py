@@ -1090,6 +1090,153 @@ def _attach_conditions(index_dir, items):
             item["conditions"] = conditions
 
 
+# ---------------------------------------------------------------- functional-group compatibility
+
+# A protecting group that disappears in a step should have a reagent that removes it.
+_REMOVED_BY = {
+    "boc": {"strong-acid"}, "cbz": {"hydrogenation", "strong-acid", "dissolving-metal"},
+    "fmoc": {"amine-base", "hydroxide", "alkoxide", "strong-base"}, "silyl-ether": {"fluoride", "strong-acid"},
+    "benzyl-ether": {"hydrogenation", "dissolving-metal", "strong-acid"}, "benzyl-ester": {"hydrogenation", "hydroxide", "alkoxide", "strong-acid"},
+    "trityl": {"strong-acid", "hydrogenation"}, "acetal": {"strong-acid"}, "tbu-ester": {"strong-acid"},
+}
+_compat_cache = {}
+
+
+def _compat_tables():
+    # The worker runs with -I (no script directory on sys.path), so the tables module beside it is
+    # put there explicitly.
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import compat_tables
+    return compat_tables
+
+
+def _protection_examples(textbook_dir, forms):
+    """For each protected form (label, SMARTS, SMARTS of the free group): up to two textbook records
+    that put it on (the free group in the reactants, the form in the products and not the reactants,
+    the main product larger by about the group's size), from the book with the most such examples.
+    Reads records.json of a textbook index; an index without one gives nothing."""
+    from rdkit import Chem, RDLogger
+
+    RDLogger.DisableLog("rdApp.*")
+    path = os.path.join(textbook_dir, "records.json") if textbook_dir else None
+    if not path or not os.path.isfile(path):
+        return {}
+    key = (path, os.path.getmtime(path))
+    store = _compat_cache.get(key)
+    if store is None:
+        records = json.load(open(path))
+        parsed = []
+        for rid, record in records.items():
+            reaction = record.get("reaction") or ""
+            left, _, right = reaction.partition(">>")
+            r = Chem.MolFromSmiles(left) if left else None
+            p = Chem.MolFromSmiles(right) if right else None
+            if r is not None and p is not None:
+                largest = lambda mol: max((f.GetNumHeavyAtoms() for f in Chem.GetMolFrags(mol, asMols=True)), default=0)
+                parsed.append((rid, record.get("book"), record.get("page") or 0, r, p, largest(p) - largest(r)))
+        store = {"parsed": parsed, "forms": {}}
+        _compat_cache.clear()
+        _compat_cache[key] = store
+    out = {}
+    for label, smarts, free in forms:
+        if smarts not in store["forms"]:
+            query, before = Chem.MolFromSmarts(smarts), Chem.MolFromSmarts(free)
+            # A protection step adds only the protecting group: the main product is larger than the
+            # main reactant by about the group's size (the form less its attachment atoms).
+            size = (query.GetNumAtoms() - 2) if query is not None else 0
+            hits = [] if query is None or before is None else [
+                (rid, book, page) for rid, book, page, r, p, grown in store["parsed"]
+                if abs(grown - size) <= 1 and r.HasSubstructMatch(before) and p.HasSubstructMatch(query) and not r.HasSubstructMatch(query)]
+            by_book = {}
+            for rid, book, page in hits:
+                by_book.setdefault(book, []).append((page, rid))
+            best = max(by_book.items(), key=lambda kv: (len(kv[1]), str(kv[0])), default=(None, []))[1]
+            store["forms"][smarts] = [rid for _page, rid in sorted(best)[:2]]
+        if store["forms"][smarts]:
+            out[label] = store["forms"][smarts]
+    return out
+
+
+def _compatibility(steps, textbook_dir=None):
+    """Per route step: groups in the substrate that survive into the product although a reagent
+    named in the step's conditions attacks them, and protecting groups that vanish with no reagent
+    that removes them. Each hazard says why and how to keep the group (protecting groups as in
+    Greene), with textbook examples of putting that group on when a textbook index is given."""
+    from collections import Counter
+    from rdkit import Chem
+
+    T = _compat_tables()
+    patterns = {g: Chem.MolFromSmarts(smarts) for g, (_label, smarts) in T.GROUPS.items()}
+
+    def counts(smiles_list):
+        found = Counter()
+        for smiles in smiles_list:
+            mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) and smiles.strip() else None
+            if mol is None:
+                continue
+            for group, query in patterns.items():
+                if query is not None:
+                    n = len(mol.GetSubstructMatches(query))
+                    if n:
+                        found[group] += n
+        return found
+
+    carbonyl_reacting = {"aldehyde", "ester", "acid-chloride", "anhydride", "lactone", "ketone"}
+    results = []
+    for index, step in enumerate(steps):
+        step = step if isinstance(step, dict) else {}
+        reactants = [s for s in step.get("reactants", []) if isinstance(s, str)][:12]
+        products = [s for s in step.get("products", []) if isinstance(s, str)][:12]
+        text = str(step.get("reagents") or "")[:2000]
+        classes = T.classify(text)
+        before, after = counts(reactants), counts(products)
+        survives = {g for g in before if after.get(g, 0) > 0}
+        reacted = {g for g in before if after.get(g, 0) < before[g]}
+        hazards, seen = [], set()
+        for cls in classes:
+            for group, severity, why in T.ATTACKS.get(cls, []):
+                if group not in survives or (group, cls) in seen:
+                    continue
+                # An enolizable ketone next to a strong base is only a competing site when another
+                # carbonyl is the one meant to react.
+                if group == "enolizable-ketone" and not (reacted & (carbonyl_reacting - {"ketone"})):
+                    continue
+                # A ketone flagged as such is not flagged again as an enolizable ketone.
+                if group == "enolizable-ketone" and any(h["group"] == "ketone" and h["reagentClass"] == cls for h in hazards):
+                    continue
+                seen.add((group, cls))
+                # Another group of the same kind reacts in this step: the step is meant to tell them
+                # apart, so it is a selectivity question rather than a clash.
+                selective = group in reacted
+                if selective:
+                    severity = "medium"
+                text_hint, forms = T.suggestion(group, cls)
+                hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
+                                "reagentLabel": T.label_of(cls), "severity": severity,
+                                "why": (f"another {T.GROUPS[group][0]} reacts in this step while this one must survive; under {T.label_of(cls)} conditions it {why} — check the selectivity"
+                                        if selective else f"the {T.GROUPS[group][0]} survives into the product, but under {T.label_of(cls)} conditions it {why}"),
+                                "suggestion": text_hint, "_forms": forms})
+        for group, removers in _REMOVED_BY.items():
+            if group in reacted and before[group] > after.get(group, 0) and classes and not (removers & set(classes)):
+                text_hint, forms = T.suggestion(group, None)
+                hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": None, "reagentLabel": None,
+                                "severity": "medium",
+                                "why": f"the {T.GROUPS[group][0]} is gone in the product, but none of the named reagents removes it",
+                                "suggestion": "check the product, or name the deprotection step", "_forms": []})
+        if textbook_dir:
+            for hazard in hazards:
+                examples = _protection_examples(textbook_dir, hazard["_forms"])
+                if examples:
+                    hazard["examples"] = [{"form": form, "records": ids} for form, ids in examples.items()][:2]
+        for hazard in hazards:
+            hazard["protectedForms"] = [form[0] for form in hazard.pop("_forms")]
+        hazards.sort(key=lambda h: (h["severity"] != "high", h["group"]))
+        results.append({"step": index + 1, "reagentClasses": [{"id": c, "label": T.label_of(c)} for c in classes], "hazards": hazards})
+    return results
+
+
 def handle(request):
     if "stock" in request:
         stock_dir = request.get("stockDir")
@@ -1105,6 +1252,10 @@ def handle(request):
         return {"stock": stock, "orderable": orderable,
                 **({"sameSkeleton": same} if same else {}), **({"sameSkeletonOrderable": same_order} if same_order else {}),
                 "lists": sorted(ready), "orderLists": sorted(order)}
+    if "compatibility" in request:
+        steps = [x for x in request.get("compatibility", []) if isinstance(x, dict)][:24]
+        textbook = request.get("textbookDir")
+        return {"compatibility": _compatibility(steps, textbook if isinstance(textbook, str) and textbook else None)}
     if "stereoChoices" in request:
         out = {}
         for smiles in [s for s in request.get("stereoChoices", []) if isinstance(s, str) and s.strip()][:48]:
