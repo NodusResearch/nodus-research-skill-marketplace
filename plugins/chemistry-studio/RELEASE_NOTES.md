@@ -1,3 +1,31 @@
+# Chemistry Studio 2.5.10
+
+The route checker now reads each balanced step as a bond edit, not only an atom count.
+
+## Which bonds a step makes and breaks
+After balance and continuity, each step is read as a graph edit: the carbon skeletons of both
+sides are mapped (spectator fragments set aside, the fewest reactant C–C bonds broken to fit), then
+extended to heteroatoms, giving a per-step ledger of bonds made (+) and broken (−) by element pair.
+
+A step is refused — unless its prose declares a rearrangement, or a radical / C–H functionalisation
+— when a carbon migrates (a 1,2-shift), a new C–C or C–heteroatom bond forms at a carbon nothing
+activates (no charge, radical, multiple bond, heteroatom, leaving group or metal on it, and not next
+to a carbonyl, alkene or arene), or a C–C bond breaks while its two carbons stay joined in the
+product. The refusal names what to check; a passing step keeps its bond ledger for the report. Over
+183 already-verified routes this refused no correctly described reaction and caught five balanced but
+impossible ones.
+
+New optional `rearrangement` and `radical` route inputs; new `skeleton` and `bonds` fields per step.
+
+## A covalent metal oxide is one species
+Chromium trioxide, osmium tetroxide and the like, returned by a reference as bare ions
+(`[Cr+6].[O-2].[O-2].[O-2]`), now resolve to the covalent oxide, so a balance reads `CrO3`, not loose
+`Cr` and `O` atoms.
+
+Earlier 2.5.7–2.5.9 iterations (the carbon-packing escape for convergent couplings) are folded in.
+
+---
+
 # Chemistry Studio 2.5.6
 
 A new tool. Nothing a route already reported as verified changes.

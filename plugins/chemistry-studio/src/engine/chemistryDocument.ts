@@ -1,3 +1,5 @@
+import type { SkeletonReport } from './chemistrySkeleton';
+
 export type ChemistryRule = 'sn2' | 'amide-resonance' | 'e2' | 'aldol' | 'diels-alder' | 'electron-flow';
 export type NewmanConformation = 'anti' | 'gauche' | 'eclipsed' | 'staggered';
 /**
@@ -239,6 +241,21 @@ export interface RouteStepAudit {
   /** Set when the equation balances only by assembling a product molecule from more than one
    *  substrate molecule — chemically impossible for a single transformation. */
   assemblyProblem?: string;
+  /** The C–C bonds this balanced step forms and breaks, read as a graph edit: the facts a
+   *  reviewer needs to judge a ring closure or a rearrangement, whether or not it refused. */
+  skeleton?: SkeletonReport;
+  /** Net bonds the step makes (+) and breaks (−) by element pair, e.g. { 'C–C': 1, 'C–Br': -1,
+   *  'O–O': -1 }: every bond type, not only those at carbon. Omitted when nothing changes. */
+  bonds?: Record<string, number>;
+  /** The request declared this step a rearrangement: a 1,2-shift or an unactivated new bond is
+   *  its stated outcome, not a refusal. Like `racemic`, nothing verifies the claim. */
+  rearrangement?: boolean;
+  /** The request declared this step a radical or C–H functionalisation: a new bond at an
+   *  unactivated carbon is its stated outcome. Nothing verifies the claim. */
+  radical?: boolean;
+  /** Set when a bond edit at carbon is one the step cannot explain: a 1,2-shift that was not
+   *  declared, or a new C–C or C–heteroatom bond at a carbon nothing activates. */
+  skeletonProblem?: string;
 }
 export interface RouteLinkAudit {
   from: number;

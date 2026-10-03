@@ -23,6 +23,37 @@ function rdkit(): Promise<RDKitModule> {
   return engine ??= (requireVendored<RDKitLoader | { default: RDKitLoader }>('@rdkit/rdkit') as { default?: RDKitLoader } & RDKitLoader).default?.() ?? (requireVendored<RDKitLoader>('@rdkit/rdkit'))();
 }
 
+/** A structure's heavy-atom graph: element, formal charge and radical count per atom, and each
+ *  bond's order in the Kekulé form (an aromatic ring reads as alternating 1 and 2). The ions of
+ *  a salt are atoms of the same graph with no bond between them. */
+export interface MoleculeGraph { elements: number[]; charges: number[]; radicals: number[]; bonds: Array<[number, number, number]> }
+
+export async function moleculeGraph(smiles: string): Promise<MoleculeGraph> {
+  const kit = await rdkit();
+  const molecule = kit.get_mol(smiles);
+  if (!molecule) throw new Error('RDKit rejected the molecular graph.');
+  try {
+    if (!molecule.is_valid()) throw new Error('Invalid molecular graph.');
+    const json = JSON.parse(molecule.get_json()) as {
+      defaults: { atom: { z: number; chg: number; nRad: number }; bond: { bo: number } };
+      molecules: Array<{ atoms: Array<{ z?: number; chg?: number; nRad?: number }>; bonds?: Array<{ atoms: [number, number]; bo?: number }> }>;
+    };
+    const graph: MoleculeGraph = { elements: [], charges: [], radicals: [], bonds: [] };
+    for (const raw of json.molecules) {
+      const offset = graph.elements.length;
+      for (const atom of raw.atoms) {
+        graph.elements.push(atom.z ?? json.defaults.atom.z);
+        graph.charges.push(atom.chg ?? json.defaults.atom.chg);
+        graph.radicals.push(atom.nRad ?? json.defaults.atom.nRad);
+      }
+      for (const bond of raw.bonds ?? []) graph.bonds.push([bond.atoms[0] + offset, bond.atoms[1] + offset, bond.bo ?? json.defaults.bond.bo]);
+    }
+    return graph;
+  } finally {
+    molecule.delete();
+  }
+}
+
 /**
  * Whether an unspecified double bond is genuinely ambiguous.
  *
