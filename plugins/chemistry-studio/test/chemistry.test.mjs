@@ -361,6 +361,33 @@ test('skeleton: omitted by-products are opt-in — a recorded reaction may drop 
   assert.equal(ozonolysis.formed, 0);
 });
 
+test('solid support: a solid-phase route keeps its resin as one conserved * and checks every step', async () => {
+  const FMOC = 'C(=O)OCC1c2ccccc2-c2ccccc21';
+  const route = [
+    // load Fmoc-Gly onto a chloro resin
+    `*Cl.OC(=O)CN${FMOC}>CCN(C(C)C)C(C)C>*OC(=O)CN${FMOC}.Cl`,
+    // remove Fmoc (piperidine): dibenzofulvene and CO2 leave
+    `*OC(=O)CN${FMOC}>C1CCNCC1>*OC(=O)CN.C=C1c2ccccc2-c2ccccc21.O=C=O`,
+    // couple Fmoc-L-Ala
+    `*OC(=O)CN.C[C@H](N${FMOC})C(=O)O>>*OC(=O)CNC(=O)[C@H](C)N${FMOC}.O`,
+    // cleave: the support leaves as *O
+    `*OC(=O)CNC(=O)[C@H](C)N${FMOC}.O>OC(=O)C(F)(F)F>OC(=O)CNC(=O)[C@H](C)N${FMOC}.*O`,
+  ];
+  const audit = await lib.auditRoute({ steps: route });
+  assert.equal(audit.continuous, true, audit.blocked.join(' | '));
+  assert.deepEqual(audit.steps.map(step => step.balanced), [true, true, true, true]);
+  assert.match(audit.steps[0].products.find(p => p.canonicalSmiles.includes('*')).formula, /–\(support\)$/);
+  // A cleavage that loses the resin does not balance, and says so.
+  const lost = await lib.auditRoute({ steps: [`*OC(=O)CNC(=O)[C@H](C)N${FMOC}.O>OC(=O)C(F)(F)F>OC(=O)CNC(=O)[C@H](C)N${FMOC}`] });
+  assert.equal(lost.steps[0].balanced, false);
+  assert.match(lost.blocked.join(' '), /\(support\)/);
+  // Two supports in one species, or a labelled one, is a generic structure: still refused.
+  const generic = await lib.auditRoute({ steps: ['*CC*>>*CC(O)*'] });
+  assert.equal(generic.continuous, false);
+  const labelled = await lib.auditRoute({ steps: ['[*:1]Cl.OCC>>[*:1]OCC.Cl'] });
+  assert.equal(labelled.continuous, false);
+});
+
 test('skeleton: a radical C–H halogenation is refused unless the step declares it', async () => {
   const step = 'C1CCCCC1.BrBr>>BrC1CCCCC1.Br';
   const undeclared = await lib.auditRoute({ steps: [step] });

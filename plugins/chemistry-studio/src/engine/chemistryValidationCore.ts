@@ -108,10 +108,18 @@ function compositionOf(atoms: ChemistryGraph['atoms']): { composition: Record<st
   return { composition, charge, heavyAtoms: atoms.length };
 }
 
+/** A `*` is accepted only as one solid support (chemistryElements SUPPORT): a single bare `*` or
+ *  `[*]`. Several, or a labelled or isotopic one (`[*:1]`, `[1*]`), is a generic structure. */
+function supportAllowed(smiles: string): boolean {
+  const stars = (smiles.match(/\*/g) ?? []).length;
+  if (stars === 0) return true;
+  return stars === 1 && /(^|[^\[])\*|\[\*\]/.test(smiles);
+}
+
 /** Call only inside a killable process: WASM cannot be interrupted by Promise.race. */
 export async function validateChemicalReferences(request: ChemistryValidationRequest): Promise<ChemistryValidationResult> {
   if (!Array.isArray(request.references) || request.references.length < 1 || request.references.length > 3
-    || request.references.some(s => typeof s !== 'string' || !s || s.length > 2000 || /\s|\||\*/.test(s))) {
+    || request.references.some(s => typeof s !== 'string' || !s || s.length > 2000 || /\s|\|/.test(s) || !supportAllowed(s))) {
     throw new Error('Unsupported molecular input.');
   }
   if (request.references.some(s => /@(?:AL|SP|TB|OH|TH)/.test(s))) throw new Error('Extended or non-tetrahedral stereochemistry is outside the validated scope.');

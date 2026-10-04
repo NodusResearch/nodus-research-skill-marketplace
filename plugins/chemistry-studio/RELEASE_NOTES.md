@@ -1,3 +1,17 @@
+# Chemistry Studio 2.5.12
+
+## Solid-phase routes: a resin is one conserved `*`
+A species attached to a solid support is written with one `*` at its attachment atom, standing for
+the resin with its linker (for example `*OC(=O)CN`, glycine on the resin). The support is a
+pseudo-element: conserved in every balance, labelled "(support)" in formulas and in a balance
+shortfall, so a cleavage that loses the resin is refused and says why. Exactly one plain `*` or
+`[*]` per species is accepted; several, or a labelled or isotopic one, is still a generic structure
+and refused. Before this every solid-phase peptide route failed at its resin steps ("Unsupported
+molecular input").
+
+A balance shortfall now names every element from the shared table (a missing Mn or Cr once read
+"element 25").
+
 # Chemistry Studio 2.5.11
 
 The bond-edit gate can audit recorded reactions, not only checked routes, and route search keeps up

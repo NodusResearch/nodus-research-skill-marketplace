@@ -1,7 +1,7 @@
 import type { ChemistryReactionArtifact, ChemistryValidationRequest, ChemistryValidationResult, ReactionSpecies } from './chemistryDocument';
 import { compileChemfig } from './chemistry';
 import { colourChemfigAtoms } from './elementColours';
-import { formulaOf } from './chemistryElements';
+import { elementSymbol, formulaOf } from './chemistryElements';
 
 type Validate = (request: ChemistryValidationRequest) => Promise<ChemistryValidationResult>;
 
@@ -279,10 +279,11 @@ function toIntegerCoefficients(vector: Frac[]): number[] | null {
   return whole.some(value => value > MAX_COEFFICIENT) ? null : whole;
 }
 
-const ELEMENT_SYMBOLS: Record<number, string> = { 1: 'H', 3: 'Li', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 19: 'K', 35: 'Br', 53: 'I' };
+// The shared table names every element (a shortfall in Mn or Cr once read "element 25") and the
+// solid support, a conserved pseudo-element.
 const elementLabel = (key: string): string => {
   const [atomicNumber, isotope] = key.split(':').map(Number);
-  const symbol = ELEMENT_SYMBOLS[atomicNumber] ?? `element ${atomicNumber}`;
+  const symbol = elementSymbol(atomicNumber);
   return isotope ? `${symbol}-${isotope}` : symbol;
 };
 
