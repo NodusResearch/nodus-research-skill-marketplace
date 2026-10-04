@@ -44,8 +44,56 @@ export interface SkeletonReport {
   /** Carbons nothing activates that gain a bond to a heteroatom, and the elements they gain. */
   unactivatedHetero: number;
   heteroElements: string[];
+  /** Carbons that left as unlisted by-products (only with `omittedByproducts`). */
+  departed?: number;
   /** Why the step is unchecked. */
   reason?: string;
+}
+
+export interface SkeletonOptions {
+  /** A recorded reaction usually lists only its main product: let whole carbon fragments of the
+   *  left side leave as unlisted by-products (a Boc group, an ester's alkoxy carbon, CO2). Off for a
+   *  checked route, whose steps are balanced, so a missing carbon there is still reported. */
+  omittedByproducts?: boolean;
+}
+
+/** The vertex sets left after dropping whole components of `query` totalling `excess` carbons —
+ *  the fragments that departed. With no excess, every vertex in order (the plain search). */
+function* keptSets(query: Array<Set<number>>, excess: number): Generator<number[]> {
+  const all = query.map((_set, index) => index);
+  if (!excess) { yield all; return; }
+  const components = connectedComponents(query).filter(c => c.length <= excess).sort((a, b) => a.length - b.length);
+  // reach[i][s]: some subset of components i.. totals s carbons. Following only branches that can
+  // still total the excess keeps the choice linear per answer; without it, an excess no subset can
+  // make (an odd count from two-carbon fragments) explored every subset before giving up.
+  const reach: Uint8Array[] = new Array(components.length + 1);
+  reach[components.length] = new Uint8Array(excess + 1);
+  reach[components.length][0] = 1;
+  for (let i = components.length - 1; i >= 0; i -= 1) {
+    const next = reach[i + 1], size = components[i].length, here = next.slice();
+    for (let total = excess; total >= size; total -= 1) if (next[total - size]) here[total] = 1;
+    reach[i] = here;
+  }
+  if (!reach[0][excess]) return;
+  let yielded = 0;
+  const chosen: number[][] = [];
+  function* pick(from: number, left: number): Generator<number[]> {
+    if (left === 0) {
+      const gone = new Set(chosen.flat());
+      yield all.filter(v => !gone.has(v));
+      return;
+    }
+    for (let i = from; i < components.length && components[i].length <= left; i += 1) {
+      if (!reach[i + 1][left - components[i].length]) continue;
+      chosen.push(components[i]);
+      yield* pick(i + 1, left - components[i].length);
+      chosen.pop();
+    }
+  }
+  for (const keep of pick(0, excess)) {
+    yield keep;
+    if (++yielded >= MAX_DEPARTURE_CHOICES) return;
+  }
 }
 
 interface SideGraph {
@@ -64,6 +112,8 @@ interface LoadedSpecies { graph: MoleculeGraph; copies: number }
 const MAX_CUT = 2;
 const MAX_EMBEDDINGS = 300;
 const SEARCH_BUDGET = 400_000;
+// Ways to choose the departing fragments that are tried per cut (a recorded reaction's by-products).
+const MAX_DEPARTURE_CHOICES = 64;
 
 /** Only carbon-bearing species enter (a bond edit at carbon and a carbon's activation are both
  *  within one molecule). Their coefficients are divided by their common factor: 3 camphene →
@@ -312,60 +362,96 @@ export async function bondLedger(reactants: SkeletonSpecies[], products: Skeleto
   return Object.fromEntries([...tally].filter(([, net]) => net !== 0).sort(([a], [b]) => order(a).localeCompare(order(b))));
 }
 
-export async function skeletonChange(reactants: SkeletonSpecies[], products: SkeletonSpecies[]): Promise<SkeletonReport> {
+export async function skeletonChange(reactants: SkeletonSpecies[], products: SkeletonSpecies[], options: SkeletonOptions = {}): Promise<SkeletonReport> {
   const [left, right] = await loadSides(reactants, products);
   const budget = { left: SEARCH_BUDGET };
   const [r, p] = withoutSpectators(buildSide(left), buildSide(right), budget);
-  if (r.adjacency.length !== p.adjacency.length) return blank('unchecked', `${r.adjacency.length} carbons on the left, ${p.adjacency.length} on the right`);
-  if (!r.adjacency.length) return blank('none');
+  // Carbons can leave as an unlisted by-product (only when the caller says by-products are
+  // omitted); they cannot arrive from nowhere.
+  const excess = r.adjacency.length - p.adjacency.length;
+  if (excess < 0 || (excess > 0 && !options.omittedByproducts)) return blank('unchecked', `${r.adjacency.length} carbons on the left, ${p.adjacency.length} on the right`);
+  // Every product carbon was an unchanged spectator; what is left on the left departed.
+  if (!p.adjacency.length) return excess ? { ...blank('none'), departed: excess } : blank('none');
   const prefer = (q: number, t: number) => sameHetero(r.hetero[q], p.hetero[t]);
-  const fewest = Math.max(0, r.edges.length - p.edges.length);
+  // Dropped fragments take their own C–C bonds with them, so the edge-count bound only holds
+  // when nothing departs.
+  const fewest = excess ? 0 : Math.max(0, r.edges.length - p.edges.length);
+  // With fragments departing, how many bonds change is no longer fixed by the cut size: dropping
+  // the real starting material and stitching the product from solvent fragments needs no cut but
+  // many new bonds. So the reading with the fewest bond changes wins, searched past the first cut
+  // size until no larger cut could do better. (Nothing departing: the first size found, as before.)
+  let overall: { score: number[]; report: SkeletonReport } | null = null;
   for (let size = fewest; size <= MAX_CUT; size += 1) {
     let best: { score: number[]; report: SkeletonReport } | null = null;
     for (const cut of cuts(r.edges.length, size)) {
       const query = r.adjacency.map(set => new Set(set));
       for (const index of cut) { const [a, b] = r.edges[index]; query[a].delete(b); query[b].delete(a); }
-      if (!degreesAllow(query, p.adjacency)) continue;
-      let seen = 0;
-      for (const map of embeddings(query, p.adjacency, budget, prefer)) {
-        const inverse = new Int32Array(map.length);
-        map.forEach((image, vertex) => { inverse[image] = vertex; });
-        const formed = p.edges.map(([x, y]) => [inverse[x], inverse[y]] as [number, number]).filter(([a, b]) => !query[a].has(b));
-        const cleaved = cut.map(index => r.edges[index]);
-        // A substitution at one carbon (Br out, O in) is one change: count the larger of what
-        // the carbon loses and what it gains.
-        let heteroEdits = 0;
-        const heteroAtUnactivated: number[] = [];
-        map.forEach((image, vertex) => {
-          const gain = gained(r.hetero[vertex], p.hetero[image]);
-          const loss = gained(p.hetero[image], r.hetero[vertex]);
-          heteroEdits += Math.max(gain.length, loss.length);
-          if (gain.length && !r.activated[vertex]) heteroAtUnactivated.push(...gain);
-        });
-        const migration = formed.some(bond => cleaved.some(broken => bond.some(shared => {
-          if (!broken.includes(shared)) return false;
-          const arrives = bond[0] === shared ? bond[1] : bond[0];
-          const leaves = broken[0] === shared ? broken[1] : broken[0];
-          return r.adjacency[arrives].has(leaves);
-        })));
-        const unactivated = formed.filter(([a, b]) => !(r.activated[a] && r.activated[b])).length;
-        // A broken C–C bond whose two carbons are still joined in the product: the skeleton is
-        // reorganised, not cut (a decarboxylation's CO2 carbon leaves the molecule; a Cope or a
-        // ring expansion stays). Only a rearrangement explains it.
-        const reorganised = !migration && formed.length > 0 && cleaved.some(([a, b]) => connected(p.adjacency, map[a], map[b]));
-        const unactivatedHetero = heteroAtUnactivated.length;
-        const score = [heteroEdits, migration || reorganised ? 1 : 0, unactivated, unactivatedHetero];
-        if (!best || better(score, best.score)) {
-          const ringSizes = formed.map(([a, b]) => ringSize(r.adjacency, a, b)).filter((value): value is number => value !== null);
-          const change = !formed.length && !cleaved.length ? 'none' : !cleaved.length ? 'formed' : !formed.length ? 'cleaved' : 'formed+cleaved';
-          best = { score, report: { change, formed: formed.length, cleaved: cleaved.length, ringSizes, migration, reorganised, unactivated, unactivatedHetero,
-            heteroElements: [...new Set(heteroAtUnactivated)].sort((x, y) => x - y).map(elementSymbol) } };
+      for (const keep of keptSets(query, excess)) {
+        // Choosing what departs is search work too: charged to the budget, so a large molecule's
+        // many cut-and-drop combinations end as "unchecked" instead of running for minutes. (With
+        // nothing departing there is one choice per cut and the accounting is unchanged.)
+        if (excess) {
+          budget.left -= keep.length;
+          if (budget.left < 0) return blank('unchecked', 'the skeleton search ran out of budget');
         }
-        if (++seen >= MAX_EMBEDDINGS) break;
+        // The kept carbons, renumbered 0..n-1 for the search (identity when nothing departs).
+        const local = new Int32Array(r.adjacency.length).fill(-1);
+        keep.forEach((vertex, index) => { local[vertex] = index; });
+        const kept = excess ? keep.map(v => new Set([...query[v]].filter(u => local[u] >= 0).map(u => local[u]))) : query;
+        if (!degreesAllow(kept, p.adjacency)) continue;
+        let seen = 0;
+        for (const found of embeddings(kept, p.adjacency, budget, excess ? (q, t) => prefer(keep[q], t) : prefer)) {
+          // map: left carbon -> product carbon (-1 for a departed carbon); inverse: the reverse.
+          const map = new Int32Array(r.adjacency.length).fill(-1);
+          const inverse = new Int32Array(p.adjacency.length);
+          found.forEach((image, index) => { map[keep[index]] = image; inverse[image] = keep[index]; });
+          const formed = p.edges.map(([x, y]) => [inverse[x], inverse[y]] as [number, number]).filter(([a, b]) => !query[a].has(b));
+          const cleaved = cut.map(index => r.edges[index]);
+          // A bond cut to let a fragment depart (decarboxylation's CO2) is not a skeletal shift.
+          const within = cleaved.filter(([a, b]) => map[a] >= 0 && map[b] >= 0);
+          // A substitution at one carbon (Br out, O in) is one change: count the larger of what
+          // the carbon loses and what it gains.
+          let heteroEdits = 0;
+          const heteroAtUnactivated: number[] = [];
+          for (const vertex of keep) {
+            const image = map[vertex];
+            const gain = gained(r.hetero[vertex], p.hetero[image]);
+            const loss = gained(p.hetero[image], r.hetero[vertex]);
+            heteroEdits += Math.max(gain.length, loss.length);
+            if (gain.length && !r.activated[vertex]) heteroAtUnactivated.push(...gain);
+          }
+          const migration = formed.some(bond => within.some(broken => bond.some(shared => {
+            if (!broken.includes(shared)) return false;
+            const arrives = bond[0] === shared ? bond[1] : bond[0];
+            const leaves = broken[0] === shared ? broken[1] : broken[0];
+            return r.adjacency[arrives].has(leaves);
+          })));
+          const unactivated = formed.filter(([a, b]) => !(r.activated[a] && r.activated[b])).length;
+          // A broken C–C bond whose two carbons are still joined in the product: the skeleton is
+          // reorganised, not cut (a decarboxylation's CO2 carbon leaves the molecule; a Cope or a
+          // ring expansion stays). Only a rearrangement explains it.
+          const reorganised = !migration && formed.length > 0 && within.some(([a, b]) => connected(p.adjacency, map[a], map[b]));
+          const unactivatedHetero = heteroAtUnactivated.length;
+          const score = excess
+            ? [formed.length + cleaved.length, heteroEdits, migration || reorganised ? 1 : 0, unactivated, unactivatedHetero]
+            : [heteroEdits, migration || reorganised ? 1 : 0, unactivated, unactivatedHetero];
+          if (!best || better(score, best.score)) {
+            const ringSizes = formed.map(([a, b]) => ringSize(r.adjacency, a, b)).filter((value): value is number => value !== null);
+            const change = !formed.length && !cleaved.length ? 'none' : !cleaved.length ? 'formed' : !formed.length ? 'cleaved' : 'formed+cleaved';
+            best = { score, report: { change, formed: formed.length, cleaved: cleaved.length, ringSizes, migration, reorganised, unactivated, unactivatedHetero,
+              heteroElements: [...new Set(heteroAtUnactivated)].sort((x, y) => x - y).map(elementSymbol), ...(excess ? { departed: excess } : {}) } };
+          }
+          if (++seen >= MAX_EMBEDDINGS) break;
+        }
+        if (budget.left < 0) return blank('unchecked', 'the skeleton search ran out of budget');
       }
-      if (budget.left < 0) return blank('unchecked', 'the skeleton search ran out of budget');
     }
-    if (best) return best.report;
+    if (best && !excess) return best.report;
+    if (best && (!overall || better(best.score, overall.score))) overall = best;
+    // A larger cut changes at least size + 1 bonds, so once nothing larger can do strictly better
+    // the search stops (a tie keeps the smaller cut, as when nothing departs).
+    if (overall && overall.score[0] <= size + 1) return overall.report;
   }
+  if (overall) return overall.report;
   return blank('unchecked', `the step breaks more than ${MAX_CUT} C–C bonds`);
 }

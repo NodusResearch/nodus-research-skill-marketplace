@@ -40,6 +40,7 @@ await build({
       export { balanceReaction } from './src/engine/chemistryReaction';
       export { parseChemistryIntent } from './src/engine/chemistryIdentity';
       export { auditRoute } from './src/engine/chemistryRouteAudit';
+      export { skeletonChange } from './src/engine/chemistrySkeleton';
     `,
     resolveDir: root, loader: 'ts',
   },
@@ -325,6 +326,39 @@ test('skeleton: unchanged spectators are set aside, so their symmetry cannot hid
   // used up the embedding cap before the ring was mapped, and a bromine looked newly placed.
   const audit = await lib.auditRoute({ steps: ['BrC1CC2(OCCO2)C(Br)C1Br.CC(C)(C)[O-].[K+].CC(C)(C)[O-].[K+]>>BrC1=CC=CC12OCCO2.CC(C)(C)O.CC(C)(C)O.[K+].[Br-].[K+].[Br-]'], racemic: true });
   assert.equal(audit.steps[0].skeletonProblem, undefined, audit.blocked.join(' | '));
+});
+
+test('skeleton: omitted by-products are opt-in — a recorded reaction may drop whole carbon fragments, a checked route may not', async () => {
+  const species = list => list.map(smiles => ({ smiles }));
+  // Boc removal and ester hydrolysis as a database records them: main product only.
+  const boc = [species(['CC(C)(C)OC(=O)NCc1ccccc1']), species(['NCc1ccccc1'])];
+  assert.equal((await lib.skeletonChange(...boc)).change, 'unchecked', 'a route step must stay balanced');
+  const bocOpen = await lib.skeletonChange(...boc, { omittedByproducts: true });
+  assert.equal(bocOpen.change, 'none');
+  assert.equal(bocOpen.departed, 5);
+  const ester = await lib.skeletonChange(species(['COC(=O)c1ccccc1']), species(['OC(=O)c1ccccc1']), { omittedByproducts: true });
+  assert.equal(ester.change, 'none');
+  assert.equal(ester.departed, 1);
+  // Decarboxylation: the CO2 carbon leaves through a cut bond; that is not a skeletal shift.
+  const decarb = await lib.skeletonChange(species(['OC(=O)CC(=O)O']), species(['CC(=O)O']), { omittedByproducts: true });
+  assert.equal(decarb.change, 'cleaved');
+  assert.equal(decarb.migration, false);
+  assert.equal(decarb.reorganised, false);
+  // What remains must still be a sound edit: an alkylation at an unactivated carbon is still caught.
+  const wrong = await lib.skeletonChange(species(['CCCC', 'CC(C)(C)OC(=O)N']), species(['CCC(C)C']), { omittedByproducts: true });
+  assert.ok(wrong.unactivated > 0 || wrong.change === 'unchecked', JSON.stringify(wrong));
+  // Carbons never arrive from nowhere.
+  const extra = await lib.skeletonChange(species(['CC']), species(['CCC']), { omittedByproducts: true });
+  assert.equal(extra.change, 'unchecked');
+  // A patent's ozonolysis, solvents listed among the reactants: the reading with the fewest bond
+  // changes cuts the C=C and lets the CH3CH leave — not one that drops the starting material and
+  // stitches the product out of solvent fragments at unactivated carbons.
+  const ozonolysis = await lib.skeletonChange(
+    species(['CC=CCC1Cc2c(OC)cccc2C1=O', 'CCCCCC', 'CCOC(C)=O', 'CO', 'ClCCl', 'O=[O+][O-]']),
+    species(['COc1cccc2c1CC(CC=O)C2=O']), { omittedByproducts: true });
+  assert.equal(ozonolysis.unactivated, 0, JSON.stringify(ozonolysis));
+  assert.equal(ozonolysis.cleaved, 1);
+  assert.equal(ozonolysis.formed, 0);
 });
 
 test('skeleton: a radical C–H halogenation is refused unless the step declares it', async () => {

@@ -1,3 +1,31 @@
+# Chemistry Studio 2.5.11
+
+The bond-edit gate can audit recorded reactions, not only checked routes, and route search keeps up
+with a much larger reaction index.
+
+## Recorded reactions: omitted by-products (opt-in)
+A recorded reaction usually lists only its main product. `skeletonChange(…, { omittedByproducts: true })`
+lets whole carbon fragments of the left side leave as unlisted by-products — a Boc group, an ester's
+alkoxy carbon, the CO2 of a decarboxylation (through a cut bond, which is not counted as a skeletal
+shift) — while what remains must still be a sound edit. Carbons never arrive from nowhere. In this mode
+the reading with the fewest bond changes wins, so a record that lists its solvents is not explained by
+dropping the starting material and building the product from solvent fragments. Choosing what departs
+is charged to the search budget and pruned to totals that can be reached, so a large molecule ends as
+"unchecked" instead of searching for minutes. Off by default: a checked route's steps are balanced, so
+a missing carbon there is still reported, and route checking is unchanged.
+
+## Audit flags on recorded reactions
+A reaction index built with the audit lists the records it flagged but kept (`audit-flags.tsv.zst`:
+a record has no prose, so a real rearrangement cannot be declared and looks like a flagged one).
+Precedent results — exact matches, the closest recorded reaction, recorded preparations and recorded
+disconnections — now carry their `auditFlags`.
+
+## Route search on a large index
+Retro templates are screened by pattern fingerprint before any substructure search (a template can
+only match a molecule holding all of its fingerprint bits), and table lookups find each wanted row
+in its frame directly instead of splitting the frame. Both leave results unchanged; with a 9× larger
+template set a one-step disconnection stays well inside route search's time budget.
+
 # Chemistry Studio 2.5.10
 
 The route checker now reads each balanced step as a bond edit, not only an atom count.
