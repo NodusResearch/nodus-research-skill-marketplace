@@ -1,7 +1,8 @@
+import { MAX_SPECIES_CHARS } from './chemistryLimits';
 import type { ChemistryReactionArtifact, ChemistryValidationRequest, ChemistryValidationResult, ReactionSpecies } from './chemistryDocument';
 import { compileChemfig } from './chemistry';
 import { colourChemfigAtoms } from './elementColours';
-import { formulaOf } from './chemistryElements';
+import { elementSymbol, formulaOf } from './chemistryElements';
 
 type Validate = (request: ChemistryValidationRequest) => Promise<ChemistryValidationResult>;
 
@@ -84,7 +85,7 @@ export async function renderBalancedReaction(species: ReactionSpecies[], validat
   for (const item of species) {
     if (!item || !/^[a-z][a-z0-9-]{0,39}$/.test(item.id) || ids.has(item.id)
       || !['reactant', 'product', 'agent'].includes(item.role) || !Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > MAX_COEFFICIENT
-      || typeof item.smiles !== 'string' || !item.smiles || item.smiles.length > 2000) throw new Error('Invalid reaction species or coefficient.');
+      || typeof item.smiles !== 'string' || !item.smiles || item.smiles.length > MAX_SPECIES_CHARS) throw new Error('Invalid reaction species or coefficient.');
     ids.add(item.id);
     const checked = await validate({ references: [item.smiles], ...(racemic ? { racemic: true } : {}), ...(openStereo ? { openStereo: true } : {}) });
     canonical.push({ ...item, smiles: checked.graph.canonicalSmiles });
@@ -279,10 +280,11 @@ function toIntegerCoefficients(vector: Frac[]): number[] | null {
   return whole.some(value => value > MAX_COEFFICIENT) ? null : whole;
 }
 
-const ELEMENT_SYMBOLS: Record<number, string> = { 1: 'H', 3: 'Li', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 19: 'K', 35: 'Br', 53: 'I' };
+// The shared table names every element (a shortfall in Mn or Cr once read "element 25") and the
+// solid support, a conserved pseudo-element.
 const elementLabel = (key: string): string => {
   const [atomicNumber, isotope] = key.split(':').map(Number);
-  const symbol = ELEMENT_SYMBOLS[atomicNumber] ?? `element ${atomicNumber}`;
+  const symbol = elementSymbol(atomicNumber);
   return isotope ? `${symbol}-${isotope}` : symbol;
 };
 
@@ -504,7 +506,27 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
     // only with it removed. Water or a solvent written into a step that neither consumes nor
     // produces it is the common case, so name the idle molecule rather than the totals.
     const idle = basis[0].map((value, position) => (value[0] === 0n ? position : -1)).filter(position => position >= 0);
-    if (idle.length) {
+    // ...but only when the idle species are incidental. A spurious byproduct — water, or a
+    // phosphine oxide copied in from a different step — is beside the point of the step, and
+    // deleting it is the right advice however heavy it happens to be.
+    //
+    // The case to withhold it for is narrower: when the heaviest species on BOTH sides comes
+    // out at zero, the solver has balanced some other equation hiding inside this one, and
+    // telling the author to delete the thing the step exists to make sends them in a circle.
+    // Seen on a step whose product and its principal precursor were both zeroed while the
+    // small leftovers balanced; the real fault was a consumed species declared as an Agent,
+    // which the atom totals below name. One side alone is not that: a zeroed product beside a
+    // reactant that still carries the step is an ordinary spurious byproduct.
+    const heavyAtoms = (position: number) => Object.entries(reduced[position].composition.atoms)
+      .filter(([element]) => !element.startsWith('1:')).reduce((sum, [, count]) => sum + count, 0);
+    const heaviestOf = (role: ReactionSpecies['role']) => reduced
+      .map((_, position) => position).filter(position => roles[reduced[position].index] === role)
+      .sort((a, b) => heavyAtoms(b) - heavyAtoms(a))[0];
+    const heaviestReactant = heaviestOf('reactant');
+    const heaviestProduct = heaviestOf('product');
+    const balancedSomethingElse = heaviestReactant !== undefined && heaviestProduct !== undefined
+      && idle.includes(heaviestReactant) && idle.includes(heaviestProduct);
+    if (idle.length && !balancedSomethingElse) {
       const names = idle.map(position => `"${formulaOf(reduced[position].composition.atoms)}"`).join(', ');
       throw new Error(`The declared species cannot be balanced: ${names} take(s) no part (coefficient 0), so the equation balances only if ${idle.length > 1 ? 'those molecules are' : 'that molecule is'} removed. Delete the molecule the step neither consumes nor produces — water and a solvent are the usual ones.`);
     }

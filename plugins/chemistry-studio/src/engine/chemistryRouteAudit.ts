@@ -1,7 +1,9 @@
+import { MAX_REACTION_CHARS } from './chemistryLimits';
 import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit, RouteTargetAudit } from './chemistryDocument';
 import { balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
 import { validateChemicalReferences } from './chemistryValidationCore';
+import { bondLedger, skeletonChange, type SkeletonReport } from './chemistrySkeleton';
 
 /** The read-only route checker. It never draws: it parses each step with RDKit and answers
  *  two questions the model cannot be trusted to answer about its own plan — is every
@@ -18,7 +20,7 @@ const MAX_STEPS = 96;
 // and the whole route separately, and the subworker is killable and time-bounded.
 const MAX_SPECIES_PER_STEP = 48;
 const MAX_SPECIES_TOTAL = 1024;
-const MAX_REACTION_CHARS = 4000;
+
 
 async function summarize(input: string): Promise<RouteSpeciesSummary> {
   try {
@@ -229,6 +231,17 @@ function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: fal
   try { packed = fit(0); } catch { return 'unchecked'; }
   if (packed) return { ok: true };
 
+  // Packing assigns each product to one substrate, which is only valid for a fragmentation of a
+  // SINGLE molecule. With two or more substrate molecules the step may be a convergent coupling
+  // whose product draws carbon from more than one substrate — a Wittig forms stilbene from the
+  // phosphonium's benzyl and the aldehyde while the phosphonium also sheds triphenylphosphine
+  // oxide; an aldol, a Claisen or a Grignard addition are the same shape. The single-substrate
+  // model cannot represent that, so it must not refuse it; atom and charge balance still apply.
+  // Two or more distinct carbon-bearing substrates, not the coefficient count: a single substrate
+  // taken several times (8 citric acid -> 9 acetonedicarboxylic) is a redistribution of one molecule
+  // and is still a real impossibility to refuse.
+  if (substrates.length >= 2) return 'unchecked';
+
   const bottleneck = packingBottleneck(bins, items);
   const culprit = bottleneck ? products.find((entry) => carbonOf(entry) === bottleneck.size) : undefined;
   const detail = bottleneck && culprit
@@ -264,6 +277,12 @@ export interface RouteAuditInput {
   /** A declared racemate, per step or for the whole route: open stereocentres on those steps
    *  are reported, not refused. */
   racemic?: boolean | Array<boolean | null | undefined>;
+  /** A declared rearrangement, per step or for the whole route: a 1,2-shift or a new bond at an
+   *  unactivated carbon on those steps is reported, not refused. */
+  rearrangement?: boolean | Array<boolean | null | undefined>;
+  /** A declared radical or C–H functionalisation, per step or for the whole route: a new bond at
+   *  an unactivated carbon on those steps is reported, not refused. */
+  radical?: boolean | Array<boolean | null | undefined>;
   /** The requested target as SMILES. When given, the route must form it. */
   target?: string | null;
   /** Per-step species labels. Each label's name is checked against the structure its SMILES
@@ -281,6 +300,48 @@ export interface StereoChoice { open: number; mirrorOnly: boolean }
 
 /** A stereoChoices entry as given: the current object, or a bare count from an older runtime
  *  (where 1 meant an enantiomer pair). */
+/** Read a balanced step as a C–C graph edit (chemistrySkeleton.ts) and keep the facts on the
+ *  step. Returns the refusal, or null when the skeleton change is explained or declared. A step
+ *  the search cannot settle is never refused for it. */
+async function checkSkeleton(step: RouteStepAudit, declared: { rearrangement: boolean; radical: boolean }): Promise<string | null> {
+  const species = (side: RouteSpeciesSummary[]) => side.map(entry => ({ smiles: entry.canonicalSmiles, coefficient: entry.coefficient }));
+  let report: SkeletonReport;
+  try {
+    report = await skeletonChange(species(step.reactants), species(step.products));
+    const bonds = await bondLedger(species(step.reactants), species(step.products));
+    if (Object.keys(bonds).length) step.bonds = bonds;
+  } catch {
+    return null;
+  }
+  step.skeleton = report;
+  if (declared.rearrangement) step.rearrangement = true;
+  if (declared.radical) step.radical = true;
+  if (report.change === 'unchecked') return null;
+  const unactivatedNote = 'a carbon nothing activates — no leaving group, metal, heteroatom or multiple bond on it, and not next to a carbonyl, alkene or arene';
+  // A rearrangement is the only thing that explains a 1,2-shift; an unactivated carbon reacting
+  // is also explained by a radical or C–H functionalisation.
+  if (report.migration && !declared.rearrangement) {
+    return 'the carbon skeleton is rearranged: a carbon leaves one carbon and bonds to its neighbour (a 1,2-shift), so a C–C bond breaks and another forms. '
+      + 'If this step is a rearrangement (Wagner–Meerwein, pinacol, benzilic acid, Favorskii, Wolff…), name it in this step\'s prose; if not, the product does not follow from the reactants';
+  }
+  if (report.reorganised && !declared.rearrangement) {
+    return 'the carbon skeleton is reorganised: a C–C bond is broken while its two carbons stay joined in the product, and new C–C bonds form elsewhere, so the starting skeleton cannot simply close to the product. '
+      + 'Check that the precursor\'s carbons are where the product needs them (a cyclisation forms bonds, it does not move branches); if this step is a rearrangement (Cope, ring expansion…), name it in this step\'s prose';
+  }
+  if (declared.rearrangement || declared.radical) return null;
+  if (report.unactivated > 0) {
+    const ring = report.ringSizes.length ? ` (closing a ${report.ringSizes.join('-, ')}-membered ring)` : '';
+    return `a new C–C bond${ring} forms at ${unactivatedNote}, so the product does not follow from the reactants as written. `
+      + 'Check which carbon reacts (the regiochemistry) and the amounts of each reactant; if a rearrangement or a radical or C–H functionalisation is intended, name it in this step\'s prose';
+  }
+  if (report.unactivatedHetero > 0) {
+    const bonds = report.heteroElements.map(element => `C–${element}`).join(', ');
+    return `a new ${bonds} bond forms at ${unactivatedNote}, so the product does not follow from the reactants as written. `
+      + 'Check which carbon reacts (the regiochemistry: an enol or enolate reacts only at the α-carbon); if a radical or C–H functionalisation is intended (light, NBS, a peroxide initiator…), name it in this step\'s prose';
+  }
+  return null;
+}
+
 function stereoChoiceOf(value: StereoChoice | number | null | undefined): StereoChoice | null {
   if (typeof value === 'number') return value >= 0 ? { open: value, mirrorOnly: value === 1 } : null;
   if (value && typeof value === 'object' && typeof value.open === 'number' && value.open >= 0) return { open: value.open, mirrorOnly: value.mirrorOnly === true };
@@ -295,6 +356,14 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
   const declaredRacemic = (index: number): boolean => Array.isArray(racemicInput)
     ? Boolean(racemicInput[index])
     : racemicInput === true;
+  const rearrangementInput = input?.rearrangement;
+  const declaredRearrangement = (index: number): boolean => Array.isArray(rearrangementInput)
+    ? Boolean(rearrangementInput[index])
+    : rearrangementInput === true;
+  const radicalInput = input?.radical;
+  const declaredRadical = (index: number): boolean => Array.isArray(radicalInput)
+    ? Boolean(radicalInput[index])
+    : radicalInput === true;
   const audited: RouteStepAudit[] = [];
   let totalSpecies = 0;
 
@@ -585,6 +654,12 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
     if (packing !== 'unchecked' && !packing.ok) {
       step.assemblyProblem = packing.reason;
       blocked.push(`Step ${step.index + 1}: ${packing.reason}.`);
+      continue;
+    }
+    const skeletonProblem = await checkSkeleton(step, { rearrangement: declaredRearrangement(step.index), radical: declaredRadical(step.index) });
+    if (skeletonProblem) {
+      step.skeletonProblem = skeletonProblem;
+      blocked.push(`Step ${step.index + 1}: ${skeletonProblem}.`);
       continue;
     }
     if (step.unspecifiedStereocentres > 0 && !step.racemic && !step.stereoNotRequired) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);

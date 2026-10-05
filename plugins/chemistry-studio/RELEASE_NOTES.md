@@ -1,3 +1,106 @@
+# Chemistry Studio 2.5.14
+
+Three places where a check returned a confident verdict when it could not actually apply.
+
+## Cumulated bonds
+A cumulated system is refused only when both ends carry two substituents, which is when the axis
+has a configuration SMILES can state. An end with one substituent and a lone pair has none, so a
+standard amide coupling reagent is no longer refused, and nor is any route that uses one. Allenes
+are still refused; ketenes, isocyanates and carbon dioxide pass.
+
+## Degenerate balances
+When the heaviest species on its own side comes out at coefficient 0, the solver has balanced a
+different equation hidden inside the step. The step is now reported with the actual atom difference instead of
+advice to delete the species, which would remove the thing the step exists to make. Zeroing a
+small spurious byproduct is still reported as before.
+
+## Larger steps
+`verify-route` accepts steps up to 16,000 characters (was 4,000); label names, label SMILES and
+carriers up to 4,000; `inspect` and `resolve-structure` SMILES up to 4,000. A step with ~40
+reactants needs this.
+
+## Compatibility
+Capability API, Nodus minimum version and permissions are unchanged.
+
+# Chemistry Studio 2.5.13
+
+## Peptide building blocks resolve offline; resin intermediates ask for SMILES
+A built-in dictionary of standard protected amino acids and the free proteinogenic set (PubChem-
+sourced, RDKit-validated) resolves before the network, so a solid-phase route resolves consistently
+offline. Name matching ignores spacing, dash style and case. Non-natural residues are not in the
+dictionary and must be given as SMILES (route rules). A resin-bound intermediate name is detected and
+returns an actionable message to give it as SMILES with the solid support as a single `*`, instead of
+retrying a name that can never resolve.
+
+# Chemistry Studio 2.5.12
+
+## Solid-phase routes: a resin is one conserved `*`
+A species attached to a solid support is written with one `*` at its attachment atom, standing for
+the resin with its linker (for example `*OC(=O)CN`, glycine on the resin). The support is a
+pseudo-element: conserved in every balance, labelled "(support)" in formulas and in a balance
+shortfall, so a cleavage that loses the resin is refused and says why. Exactly one plain `*` or
+`[*]` per species is accepted; several, or a labelled or isotopic one, is still a generic structure
+and refused. Before this every solid-phase peptide route failed at its resin steps ("Unsupported
+molecular input").
+
+A balance shortfall now names every element from the shared table (a missing Mn or Cr once read
+"element 25").
+
+# Chemistry Studio 2.5.11
+
+The bond-edit gate can audit recorded reactions, not only checked routes, and route search keeps up
+with a much larger reaction index.
+
+## Recorded reactions: omitted by-products (opt-in)
+A recorded reaction usually lists only its main product. `skeletonChange(…, { omittedByproducts: true })`
+lets whole carbon fragments of the left side leave as unlisted by-products — a Boc group, an ester's
+alkoxy carbon, the CO2 of a decarboxylation (through a cut bond, which is not counted as a skeletal
+shift) — while what remains must still be a sound edit. Carbons never arrive from nowhere. In this mode
+the reading with the fewest bond changes wins, so a record that lists its solvents is not explained by
+dropping the starting material and building the product from solvent fragments. Choosing what departs
+is charged to the search budget and pruned to totals that can be reached, so a large molecule ends as
+"unchecked" instead of searching for minutes. Off by default: a checked route's steps are balanced, so
+a missing carbon there is still reported, and route checking is unchanged.
+
+## Audit flags on recorded reactions
+A reaction index built with the audit lists the records it flagged but kept (`audit-flags.tsv.zst`:
+a record has no prose, so a real rearrangement cannot be declared and looks like a flagged one).
+Precedent results — exact matches, the closest recorded reaction, recorded preparations and recorded
+disconnections — now carry their `auditFlags`.
+
+## Route search on a large index
+Retro templates are screened by pattern fingerprint before any substructure search (a template can
+only match a molecule holding all of its fingerprint bits), and table lookups find each wanted row
+in its frame directly instead of splitting the frame. Both leave results unchanged; with a 9× larger
+template set a one-step disconnection stays well inside route search's time budget.
+
+# Chemistry Studio 2.5.10
+
+The route checker now reads each balanced step as a bond edit, not only an atom count.
+
+## Which bonds a step makes and breaks
+After balance and continuity, each step is read as a graph edit: the carbon skeletons of both
+sides are mapped (spectator fragments set aside, the fewest reactant C–C bonds broken to fit), then
+extended to heteroatoms, giving a per-step ledger of bonds made (+) and broken (−) by element pair.
+
+A step is refused — unless its prose declares a rearrangement, or a radical / C–H functionalisation
+— when a carbon migrates (a 1,2-shift), a new C–C or C–heteroatom bond forms at a carbon nothing
+activates (no charge, radical, multiple bond, heteroatom, leaving group or metal on it, and not next
+to a carbonyl, alkene or arene), or a C–C bond breaks while its two carbons stay joined in the
+product. The refusal names what to check; a passing step keeps its bond ledger for the report. Over
+183 already-verified routes this refused no correctly described reaction and caught five balanced but
+impossible ones.
+
+New optional `rearrangement` and `radical` route inputs; new `skeleton` and `bonds` fields per step.
+
+## A covalent metal oxide is one species
+Chromium trioxide, osmium tetroxide and the like, returned by a reference as bare ions
+(`[Cr+6].[O-2].[O-2].[O-2]`), now resolve to the covalent oxide, so a balance reads `CrO3`, not loose
+`Cr` and `O` atoms.
+
+Earlier 2.5.7–2.5.9 iterations (the carbon-packing escape for convergent couplings) are folded in.
+
+---
 # Chemistry Studio 2.5.8
 
 Route proposals now carry more evidence and more specific feedback. A proposed route remains

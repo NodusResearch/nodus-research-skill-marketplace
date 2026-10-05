@@ -1,3 +1,4 @@
+import { MAX_LABEL_NAME_CHARS, MAX_SPECIES_CHARS } from './engine/chemistryLimits';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bindHost, completeText, host, type CapabilityHost } from './engine/host';
@@ -90,7 +91,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[]; indexDirs?: string[]; maxSteps?: number; budgetSeconds?: number }; locale: string; chat?: { question?: string; nodeId?: string } }) {
+    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; rearrangement?: boolean | Array<boolean | null>; radical?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[]; indexDirs?: string[]; maxSteps?: number; budgetSeconds?: number }; locale: string; chat?: { question?: string; nodeId?: string } }) {
       if (toolId === 'resolve-names') return resolveNames(input, referenceCache);
       if (toolId === 'resolve-structure') return nameStructures(input);
       if (toolId === 'inspect') return inspectMolecule(input);
@@ -289,8 +290,8 @@ function dossierArtifact(graph: ChemistryGraph, smiles: string) {
 
 async function inspectMolecule(input: { smiles?: string[] }) {
   const list = Array.isArray(input?.smiles) ? input.smiles : [];
-  const cleaned = [...new Set(list.filter(entry => typeof entry === 'string' && entry.trim() && entry.length <= 2000).map(entry => entry.trim()))].slice(0, 24);
-  if (!cleaned.length) throw new Error('Provide at least one SMILES string (max 2000 characters each).');
+  const cleaned = [...new Set(list.filter(entry => typeof entry === 'string' && entry.trim() && entry.length <= MAX_SPECIES_CHARS).map(entry => entry.trim()))].slice(0, 24);
+  if (!cleaned.length) throw new Error(`Provide at least one SMILES string (max ${MAX_SPECIES_CHARS} characters each).`);
   const results = await chemistryDependencies().inspectBatch(cleaned, host().signal);
   const artifacts = results
     .filter((entry): entry is ChemistryInspectionResult & { graph: ChemistryGraph } => Boolean(entry.ok && entry.graph && Array.isArray(entry.graph.atoms) && Array.isArray(entry.graph.bonds)))
@@ -375,9 +376,28 @@ function dihydrogenForHydrogen(resolutions: SpeciesNameResolution[]): void {
   }
 }
 
+/** A covalent metal oxide (chromium trioxide, osmium tetroxide, selenium dioxide…) comes back from
+ *  PubChem as bare ions — `[Cr+6].[O-2].[O-2].[O-2]`. The route checker reads each ion as its own
+ *  species, so the equation showed "2 Cr + 4 O" and the bond ledger counted loose atoms. When a
+ *  name resolves to one high-valent metal cation and exactly the oxide anions that balance it,
+ *  write the covalent oxide instead (`O=[Cr](=O)=O`). */
+function covalentForIonicOxide(resolutions: SpeciesNameResolution[]): void {
+  for (const entry of resolutions) {
+    if (entry.status !== 'resolved' || !entry.smiles) continue;
+    const parts = entry.smiles.trim().split('.');
+    const cation = parts.map((part) => /^\[([A-Z][a-z]?)\+(\d)\]$/.exec(part)).filter(Boolean);
+    const oxides = parts.filter((part) => part === '[O-2]').length;
+    if (cation.length !== 1 || cation.length + oxides !== parts.length) continue;
+    const [, metal, charge] = cation[0]!;
+    if (Number(charge) < 3 || Number(charge) !== 2 * oxides) continue;
+    entry.smiles = `O=[${metal}]${'(=O)'.repeat(Math.max(0, oxides - 2))}${oxides > 1 ? '=O' : ''}`;
+  }
+}
+
 async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cache: ReferenceCache, signal: AbortSignal): Promise<void> {
   refuseUnbalancedSalts(resolutions);
   dihydrogenForHydrogen(resolutions);
+  covalentForIonicOxide(resolutions);
   const inputs = [...new Set(resolutions
     .filter((entry) => entry.status === 'resolved' && entry.smiles)
     .map((entry) => entry.smiles!))];
@@ -501,7 +521,7 @@ async function resolveRouteLabels(
     for (const entry of list.slice(0, MAX_LABELS_PER_STEP)) {
       if (!entry || typeof entry !== 'object') continue;
       const role = entry.role === 'reactant' || entry.role === 'product' || entry.role === 'agent' ? entry.role : null;
-      const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, 200) : '';
+      const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, MAX_LABEL_NAME_CHARS) : '';
       const smiles = typeof entry.smiles === 'string' ? entry.smiles.trim() : '';
       if (!role || !name || !smiles) continue;
       // A name the resolve pass already looked up is reused here: the reference is the same
@@ -541,9 +561,9 @@ async function productStereoChoices(steps: string[]): Promise<Record<string, { o
   }
 }
 
-async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; enumerateStereo?: boolean }, cache: ReferenceCache) {
+async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; rearrangement?: boolean | Array<boolean | null>; radical?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; enumerateStereo?: boolean }, cache: ReferenceCache) {
   // An empty entry is a step the application could not build. It is kept, not dropped, so the
-  // labels, carriers and racemic flags — all indexed by step — stay aligned with the steps.
+  // labels, carriers, racemic, rearrangement and radical flags — all indexed by step — stay aligned with the steps.
   // Not cut here: the route audit refuses a route over its step limit by name, where a silent
   // cut would check only the first steps and report the rest as never written.
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
@@ -553,12 +573,18 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
   const racemic = typeof input?.racemic === 'boolean'
     ? input.racemic
     : Array.isArray(input?.racemic) ? input.racemic.slice(0, steps.length) : undefined;
+  const rearrangement = typeof input?.rearrangement === 'boolean'
+    ? input.rearrangement
+    : Array.isArray(input?.rearrangement) ? input.rearrangement.slice(0, steps.length) : undefined;
+  const radical = typeof input?.radical === 'boolean'
+    ? input.radical
+    : Array.isArray(input?.radical) ? input.radical.slice(0, steps.length) : undefined;
   const target = typeof input?.target === 'string' && input.target.trim() ? input.target.trim().slice(0, 2000) : undefined;
   const labels = await resolveRouteLabels(input?.labels, steps.length, cache, host().signal);
   // The enumeration needs the shared Python runtime; the application asks for it only where that
   // runtime is already installed (the reaction index is), so a route check never installs it.
   const stereoChoices = input?.enumerateStereo === true ? await productStereoChoices(steps) : {};
-  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target, ...(labels.some(step => step.length) ? { labels } : {}), ...(Object.keys(stereoChoices).length ? { stereoChoices } : {}) }, host().signal);
+  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, ...(rearrangement !== undefined ? { rearrangement } : {}), ...(radical !== undefined ? { radical } : {}), target, ...(labels.some(step => step.length) ? { labels } : {}), ...(Object.keys(stereoChoices).length ? { stereoChoices } : {}) }, host().signal);
   if (!audit) throw new Error('The route could not be verified.');
   const summary = audit.continuous
     ? `Route verified: ${audit.steps.length} step(s), every intermediate carried over unchanged`
