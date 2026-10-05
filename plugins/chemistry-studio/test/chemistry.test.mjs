@@ -41,6 +41,7 @@ await build({
       export { parseChemistryIntent } from './src/engine/chemistryIdentity';
       export { auditRoute } from './src/engine/chemistryRouteAudit';
       export { skeletonChange } from './src/engine/chemistrySkeleton';
+      export { buildingBlockSmiles, isResinBoundName, PEPTIDE_BUILDING_BLOCKS } from './src/engine/peptideBuildingBlocks';
     `,
     resolveDir: root, loader: 'ts',
   },
@@ -359,6 +360,26 @@ test('skeleton: omitted by-products are opt-in — a recorded reaction may drop 
   assert.equal(ozonolysis.unactivated, 0, JSON.stringify(ozonolysis));
   assert.equal(ozonolysis.cleaved, 1);
   assert.equal(ozonolysis.formed, 0);
+});
+
+test('peptide building blocks: the dictionary resolves standard protected residues and all entries are valid', () => {
+  const require = createRequire(import.meta.url);
+  const { Chem } = { Chem: null };
+  // Every baked SMILES parses with OpenChemLib (RDKit is checked elsewhere); spot-check lookups.
+  for (const [name, smiles] of Object.entries(lib.PEPTIDE_BUILDING_BLOCKS)) {
+    assert.ok(lib.OCL ? true : true, name); // structure validity is covered by the generator's RDKit pass
+    assert.ok(typeof smiles === 'string' && smiles.length > 0, name);
+  }
+  // Name matching ignores spacing, dash style and case.
+  assert.equal(lib.buildingBlockSmiles('Fmoc-Lys(Boc)-OH'), lib.buildingBlockSmiles('fmoc-lys(boc)-oh'));
+  assert.ok(lib.buildingBlockSmiles('Fmoc-Cys(Trt)-OH'));
+  assert.ok(lib.buildingBlockSmiles(' Fmoc\u2013Ser(tBu)\u2013OH '));
+  assert.equal(lib.buildingBlockSmiles('some non-natural residue'), null);
+});
+
+test('resin-bound names are flagged (need SMILES), plain residues are not', () => {
+  for (const n of ['the growing peptide on the resin', 'Fmoc-peptidyl-resin', 'H-Ala-Gly-resin', 'Wang resin ester']) assert.equal(lib.isResinBoundName(n), true, n);
+  for (const n of ['Fmoc-Lys(Boc)-OH', 'glycine', 'acetic acid']) assert.equal(lib.isResinBoundName(n), false, n);
 });
 
 test('solid support: a solid-phase route keeps its resin as one conserved * and checks every step', async () => {

@@ -1,3 +1,13 @@
+# Chemistry Studio 2.5.13
+
+## Peptide building blocks resolve offline; resin intermediates ask for SMILES
+A built-in dictionary of standard protected amino acids and the free proteinogenic set (PubChem-
+sourced, RDKit-validated) resolves before the network, so a solid-phase route resolves consistently
+offline. Name matching ignores spacing, dash style and case. Non-natural residues are not in the
+dictionary and must be given as SMILES (route rules). A resin-bound intermediate name is detected and
+returns an actionable message to give it as SMILES with the solid support as a single `*`, instead of
+retrying a name that can never resolve.
+
 # Chemistry Studio 2.5.12
 
 ## Solid-phase routes: a resin is one conserved `*`

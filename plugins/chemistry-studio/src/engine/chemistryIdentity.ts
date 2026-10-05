@@ -1,5 +1,6 @@
 import type { ChemistryIntent, ChemistryPartialReason, ChemistryReference, ChemistryResolution, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
 import { reactionSmilesSpecies } from './chemistryReactionShared';
+import { buildingBlockSmiles, isResinBoundName } from './peptideBuildingBlocks';
 
 export interface ChemistryIdentityDependencies {
   fetch: typeof fetch;
@@ -315,7 +316,7 @@ export interface SpeciesNameResolution {
   status: 'resolved' | 'ambiguous' | 'unresolved';
   smiles?: string;
   formula?: string;
-  source?: 'pubchem' | 'opsin';
+  source?: 'pubchem' | 'opsin' | 'builtin';
   /** Why it did not resolve, phrased so the model can correct the name. */
   feedback?: string;
 }
@@ -384,6 +385,13 @@ function showsIonicMetal(smiles: string, symbol: string): boolean {
 export async function resolveSpeciesName(rawName: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
   const name = typeof rawName === 'string' ? rawName.trim().slice(0, 200) : '';
   if (!name || !/\p{L}/u.test(name)) return { name, status: 'unresolved', feedback: 'Not a chemical name.' };
+  // Standard protected/building-block amino acids: the built-in dictionary (PubChem-sourced) first,
+  // so a solid-phase route resolves offline and regardless of network. Non-natural residues are not
+  // here and fall through to the resolvers / the author's SMILES.
+  const builtin = buildingBlockSmiles(name);
+  if (builtin) return { name, status: 'resolved', smiles: builtin, source: 'builtin' };
+  // A resin-bound intermediate has no resolvable name: ask for a structure instead of retrying a name.
+  if (isResinBoundName(name)) return { name, status: 'unresolved', feedback: 'A resin-bound species has no resolvable name — give it as SMILES with the solid support written as a single `*` at the attachment atom (for example `*OC(=O)CN…`).' };
   const metal = metalElementForName(name);
   let pubchem: SpeciesNameResolution | null = null;
   try { pubchem = await pubchemByName(name, deps, signal); } catch { pubchem = null; }
