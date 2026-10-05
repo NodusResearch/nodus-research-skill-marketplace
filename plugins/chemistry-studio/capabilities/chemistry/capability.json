@@ -92,8 +92,8 @@
           "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 16000 }, "minItems": 1, "maxItems": 96 },
           "carriers": { "type": "array", "items": { "type": "string", "maxLength": 4000 }, "maxItems": 96 },
           "racemic": { "type": "boolean" },
-          "rearrangement": { "type": "boolean" },
-          "radical": { "type": "boolean" },
+          "rearrangement": { "type": "array", "items": { "type": "boolean" }, "maxItems": 96 },
+          "radical": { "type": "array", "items": { "type": "boolean" }, "maxItems": 96 },
           "target": { "type": "string", "minLength": 1, "maxLength": 2000 },
           "enumerateStereo": { "type": "boolean" },
           "labels": {

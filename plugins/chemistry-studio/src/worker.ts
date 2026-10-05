@@ -1,3 +1,4 @@
+import { MAX_LABEL_NAME_CHARS, MAX_SPECIES_CHARS } from './engine/chemistryLimits';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bindHost, completeText, host, type CapabilityHost } from './engine/host';
@@ -289,8 +290,8 @@ function dossierArtifact(graph: ChemistryGraph, smiles: string) {
 
 async function inspectMolecule(input: { smiles?: string[] }) {
   const list = Array.isArray(input?.smiles) ? input.smiles : [];
-  const cleaned = [...new Set(list.filter(entry => typeof entry === 'string' && entry.trim() && entry.length <= 2000).map(entry => entry.trim()))].slice(0, 24);
-  if (!cleaned.length) throw new Error('Provide at least one SMILES string (max 2000 characters each).');
+  const cleaned = [...new Set(list.filter(entry => typeof entry === 'string' && entry.trim() && entry.length <= MAX_SPECIES_CHARS).map(entry => entry.trim()))].slice(0, 24);
+  if (!cleaned.length) throw new Error(`Provide at least one SMILES string (max ${MAX_SPECIES_CHARS} characters each).`);
   const results = await chemistryDependencies().inspectBatch(cleaned, host().signal);
   const artifacts = results
     .filter((entry): entry is ChemistryInspectionResult & { graph: ChemistryGraph } => Boolean(entry.ok && entry.graph && Array.isArray(entry.graph.atoms) && Array.isArray(entry.graph.bonds)))
@@ -520,7 +521,7 @@ async function resolveRouteLabels(
     for (const entry of list.slice(0, MAX_LABELS_PER_STEP)) {
       if (!entry || typeof entry !== 'object') continue;
       const role = entry.role === 'reactant' || entry.role === 'product' || entry.role === 'agent' ? entry.role : null;
-      const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, 200) : '';
+      const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, MAX_LABEL_NAME_CHARS) : '';
       const smiles = typeof entry.smiles === 'string' ? entry.smiles.trim() : '';
       if (!role || !name || !smiles) continue;
       // A name the resolve pass already looked up is reused here: the reference is the same

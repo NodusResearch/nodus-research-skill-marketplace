@@ -1645,6 +1645,21 @@ test('a solution that zeroes the principal species is not reported as an idle mo
   assert.match(said, /cannot be balanced/);
 });
 
+test('a spurious byproduct is still named however heavy it is', async () => {
+  // The rule above withholds the delete advice only when the heaviest species on BOTH sides is
+  // zeroed. One side alone is an ordinary copy-paste byproduct, and size is not the test: a
+  // phosphine oxide or a urea carried in from another step outweighs the real product, and the
+  // author still wants to be told to delete it rather than hunting a missing reagent.
+  const worker = lib.createWorker(stubHost());
+  const ester = await worker.invoke({ invocationId: 'idle-heavy', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CC(=O)OCC.O>>CC(=O)O.CCO.O=P(c1ccccc1)(c1ccccc1)c1ccccc1'] } });
+  const step = ester.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, false);
+  const said = step.differences.join(' ');
+  assert.match(said, /take\(s\) no part/, 'the heavy spurious byproduct is named');
+  assert.match(said, /Delete the molecule/);
+});
+
 test('a cumulated system is refused only when both of its ends could twist — carbodiimides pass', async () => {
   // The guard is for axial chirality: an allene or butatriene is stereogenic because each
   // end carries two substituents. A carbodiimide's nitrogens carry one substituent and a
@@ -1659,6 +1674,15 @@ test('a cumulated system is refused only when both of its ends could twist — c
   // SMILES can state and this validator does not certify — still refused.
   await assert.rejects(lib.validateChemicalReferences({ references: ['CC(Cl)=C=C(Cl)C'] }),
     /Cumulated double bonds/, 'a substituted allene is still outside the scope');
+  // The ends are the ends of the WHOLE chain. A longer cumulene with an even number of double
+  // bonds is perpendicular too, so it is axially stereogenic and equally outside the scope —
+  // its inner atoms each see a neighbour carrying nothing but the chain, so looking only at
+  // the immediate neighbours accepted it.
+  await assert.rejects(lib.validateChemicalReferences({ references: ['CC(C)=C=C=C=C(C)C'] }),
+    /Cumulated double bonds/, 'a substituted [4]cumulene is axially stereogenic');
+  // An odd number of double bonds is coplanar, so there is no axis: butatriene passes, and any
+  // geometry it does have is judged by the bond-parity check rather than refused here.
+  await lib.validateChemicalReferences({ references: ['C=C=C=C'] });
 });
 
 test('a bare counterion does not downgrade the document, but a bonded out-of-set element does', async () => {

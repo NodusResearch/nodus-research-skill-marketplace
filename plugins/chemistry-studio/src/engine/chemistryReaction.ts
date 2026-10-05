@@ -1,3 +1,4 @@
+import { MAX_SPECIES_CHARS } from './chemistryLimits';
 import type { ChemistryReactionArtifact, ChemistryValidationRequest, ChemistryValidationResult, ReactionSpecies } from './chemistryDocument';
 import { compileChemfig } from './chemistry';
 import { colourChemfigAtoms } from './elementColours';
@@ -84,7 +85,7 @@ export async function renderBalancedReaction(species: ReactionSpecies[], validat
   for (const item of species) {
     if (!item || !/^[a-z][a-z0-9-]{0,39}$/.test(item.id) || ids.has(item.id)
       || !['reactant', 'product', 'agent'].includes(item.role) || !Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > MAX_COEFFICIENT
-      || typeof item.smiles !== 'string' || !item.smiles || item.smiles.length > 2000) throw new Error('Invalid reaction species or coefficient.');
+      || typeof item.smiles !== 'string' || !item.smiles || item.smiles.length > MAX_SPECIES_CHARS) throw new Error('Invalid reaction species or coefficient.');
     ids.add(item.id);
     const checked = await validate({ references: [item.smiles], ...(racemic ? { racemic: true } : {}), ...(openStereo ? { openStereo: true } : {}) });
     canonical.push({ ...item, smiles: checked.graph.canonicalSmiles });
@@ -505,21 +506,27 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
     // only with it removed. Water or a solvent written into a step that neither consumes nor
     // produces it is the common case, so name the idle molecule rather than the totals.
     const idle = basis[0].map((value, position) => (value[0] === 0n ? position : -1)).filter(position => position >= 0);
-    // ...but only when the idle species are incidental. A spurious byproduct — water on a
-    // step that makes none — is small beside what the step is really transforming, and
-    // deleting it is the right advice. The principal species are not: when the heaviest
-    // molecule on its own side comes out at coefficient 0, the solver has balanced some
-    // other equation hiding inside this one, and telling the author to delete the thing the
-    // step exists to make sends them in a circle. Seen on a step whose product and its
-    // principal precursor were both zeroed while the small leftovers balanced; the real fault
-    // was a consumed species declared as an Agent, which the atom totals below name.
+    // ...but only when the idle species are incidental. A spurious byproduct — water, or a
+    // phosphine oxide copied in from a different step — is beside the point of the step, and
+    // deleting it is the right advice however heavy it happens to be.
+    //
+    // The case to withhold it for is narrower: when the heaviest species on BOTH sides comes
+    // out at zero, the solver has balanced some other equation hiding inside this one, and
+    // telling the author to delete the thing the step exists to make sends them in a circle.
+    // Seen on a step whose product and its principal precursor were both zeroed while the
+    // small leftovers balanced; the real fault was a consumed species declared as an Agent,
+    // which the atom totals below name. One side alone is not that: a zeroed product beside a
+    // reactant that still carries the step is an ordinary spurious byproduct.
     const heavyAtoms = (position: number) => Object.entries(reduced[position].composition.atoms)
       .filter(([element]) => !element.startsWith('1:')).reduce((sum, [, count]) => sum + count, 0);
     const heaviestOf = (role: ReactionSpecies['role']) => reduced
       .map((_, position) => position).filter(position => roles[reduced[position].index] === role)
       .sort((a, b) => heavyAtoms(b) - heavyAtoms(a))[0];
-    const principal = new Set([heaviestOf('reactant'), heaviestOf('product')]);
-    if (idle.length && !idle.some(position => principal.has(position))) {
+    const heaviestReactant = heaviestOf('reactant');
+    const heaviestProduct = heaviestOf('product');
+    const balancedSomethingElse = heaviestReactant !== undefined && heaviestProduct !== undefined
+      && idle.includes(heaviestReactant) && idle.includes(heaviestProduct);
+    if (idle.length && !balancedSomethingElse) {
       const names = idle.map(position => `"${formulaOf(reduced[position].composition.atoms)}"`).join(', ');
       throw new Error(`The declared species cannot be balanced: ${names} take(s) no part (coefficient 0), so the equation balances only if ${idle.length > 1 ? 'those molecules are' : 'that molecule is'} removed. Delete the molecule the step neither consumes nor produces — water and a solvent are the usual ones.`);
     }

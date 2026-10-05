@@ -1,3 +1,4 @@
+import { MAX_SPECIES_CHARS } from './chemistryLimits';
 import { Molecule } from 'openchemlib';
 import type { RDKitLoader, RDKitModule, JSMol } from '@rdkit/rdkit';
 import { requireVendored } from './vendor';
@@ -113,13 +114,24 @@ function compositionOf(atoms: ChemistryGraph['atoms']): { composition: Record<st
 function supportAllowed(smiles: string): boolean {
   const stars = (smiles.match(/\*/g) ?? []).length;
   if (stars === 0) return true;
-  return stars === 1 && /(^|[^\[])\*|\[\*\]/.test(smiles);
+  // The bracketed form must be exactly `[*]`. Testing "not preceded by `[`" accepted `[1*]`,
+  // because the digit satisfied it — an isotopically labelled attachment point, which is a
+  // generic structure and would otherwise have been conserved through the balance as a support.
+  if (stars !== 1) return false;
+  const bare = smiles.replace(/\[\*\]/g, '');
+  if (!bare.includes('*')) return true;
+  // The one remaining `*` is unbracketed only if no `[` is open where it sits.
+  const index = bare.indexOf('*');
+  const before = bare.slice(0, index);
+  const opened = (before.match(/\[/g) ?? []).length;
+  const closed = (before.match(/\]/g) ?? []).length;
+  return opened === closed;
 }
 
 /** Call only inside a killable process: WASM cannot be interrupted by Promise.race. */
 export async function validateChemicalReferences(request: ChemistryValidationRequest): Promise<ChemistryValidationResult> {
   if (!Array.isArray(request.references) || request.references.length < 1 || request.references.length > 3
-    || request.references.some(s => typeof s !== 'string' || !s || s.length > 2000 || /\s|\|/.test(s) || !supportAllowed(s))) {
+    || request.references.some(s => typeof s !== 'string' || !s || s.length > MAX_SPECIES_CHARS || /\s|\|/.test(s) || !supportAllowed(s))) {
     throw new Error('Unsupported molecular input.');
   }
   if (request.references.some(s => /@(?:AL|SP|TB|OH|TH)/.test(s))) throw new Error('Extended or non-tetrahedral stereochemistry is outside the validated scope.');
@@ -187,19 +199,55 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
         if (ocl.getBondAtom(0, b) === atom) doubleNeighbours.push(ocl.getBondAtom(1, b));
         else if (ocl.getBondAtom(1, b) === atom) doubleNeighbours.push(ocl.getBondAtom(0, b));
       }
-      // A cumulated system has a stereogenic axis only when BOTH of its ends carry two
-      // substituents: the end groups then lie in perpendicular planes and the axis has a
-      // configuration — the allene case, which SMILES writes as @/@@ on the central atom
-      // and which this validator does not certify. An end that carries one substituent and
-      // a lone pair (a carbodiimide nitrogen, R–N=C=N–R') or none at all (a ketene oxygen,
-      // carbon dioxide) has no configuration to express, so there is nothing here to get
-      // wrong and nothing to refuse.
-      // Counting the double bonds alone refused carbon dioxide; asking only that ONE end
-      // carries the chain onwards then refused every carbodiimide — the standard amide
-      // coupling reagent — and so failed every route that forms an amide with one.
-      const substituents = (neighbour: number) => degree[neighbour] - 1 + ocl.getImplicitHydrogens(neighbour);
-      if (doubleNeighbours.length > 1 && doubleNeighbours.every(neighbour => substituents(neighbour) >= 2)) {
-        throw new Error('Cumulated double bonds are outside the validated stereochemical scope.');
+      // A cumulated system has a stereogenic axis only when BOTH ends of the WHOLE chain carry
+      // two substituents and the chain has an even number of double bonds. The end groups then
+      // lie in perpendicular planes and the axis has a configuration — the allene case, which
+      // SMILES writes as @/@@ on the central atom and which this validator does not certify.
+      //
+      // The parity matters: an even count (allene, [4]cumulene) is perpendicular and so axial,
+      // an odd count (butatriene) is coplanar and is ordinary E/Z, which the bond-parity check
+      // below already handles. An end carrying one substituent and a lone pair (a carbodiimide
+      // nitrogen, R–N=C=N–R') or none (a ketene oxygen, carbon dioxide) has no configuration to
+      // express, so there is nothing to get wrong and nothing to refuse.
+      //
+      // Both ends means the ends of the chain, not the atoms next to this one: counting the
+      // double bonds alone refused carbon dioxide; asking only that ONE end carries the chain
+      // onwards then refused every carbodiimide — the standard amide coupling reagent — and so
+      // failed every route that forms an amide with one; and inspecting only the immediate
+      // neighbours accepted a substituted [4]cumulene, whose inner atoms each see a neighbour
+      // carrying nothing but the chain.
+      if (doubleNeighbours.length === 2) {
+        const substituents = (end: number) => degree[end] - 1 + ocl.getImplicitHydrogens(end);
+        const ends: number[] = [];
+        let doubleBonds = 0;
+        let cyclic = false;
+        for (const direction of doubleNeighbours) {
+          const seen = new Set<number>([atom]);
+          let previous = atom;
+          let current = direction;
+          doubleBonds += 1;
+          // Walk to the end of the cumulated chain: an atom with two double bonds carries it
+          // onwards, one with a single double bond is an end. `seen` stops a cyclic cumulene.
+          for (;;) {
+            if (seen.has(current)) { cyclic = true; break; }
+            seen.add(current);
+            const onwards: number[] = [];
+            for (let b = 0; b < ocl.getAllBonds(); b++) {
+              if (ocl.getBondOrder(b) !== 2) continue;
+              const a0 = ocl.getBondAtom(0, b), a1 = ocl.getBondAtom(1, b);
+              if (a0 === current && a1 !== previous) onwards.push(a1);
+              else if (a1 === current && a0 !== previous) onwards.push(a0);
+            }
+            if (onwards.length !== 1) { ends.push(current); break; }
+            doubleBonds += 1;
+            previous = current;
+            current = onwards[0];
+          }
+        }
+        if (!cyclic && ends.length === 2 && doubleBonds % 2 === 0
+          && ends.every(end => substituents(end) >= 2)) {
+          throw new Error('Cumulated double bonds are outside the validated stereochemical scope.');
+        }
       }
     }
     const rings = ocl.getRingSet();
