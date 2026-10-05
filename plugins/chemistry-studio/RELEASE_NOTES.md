@@ -1,3 +1,27 @@
+# Chemistry Studio 2.5.14
+
+Three places where a check returned a confident verdict when it could not actually apply.
+
+## Cumulated bonds
+A cumulated system is refused only when both ends carry two substituents, which is when the axis
+has a configuration SMILES can state. An end with one substituent and a lone pair has none, so a
+standard amide coupling reagent is no longer refused, and nor is any route that uses one. Allenes
+are still refused; ketenes, isocyanates and carbon dioxide pass.
+
+## Degenerate balances
+When the heaviest species on its own side comes out at coefficient 0, the solver has balanced a
+different equation hidden inside the step. The step is now reported with the actual atom difference instead of
+advice to delete the species, which would remove the thing the step exists to make. Zeroing a
+small spurious byproduct is still reported as before.
+
+## Larger steps
+`verify-route` accepts steps up to 16,000 characters (was 4,000); label names, label SMILES and
+carriers up to 4,000; `inspect` and `resolve-structure` SMILES up to 4,000. A step with ~40
+reactants needs this.
+
+## Compatibility
+Capability API, Nodus minimum version and permissions are unchanged.
+
 # Chemistry Studio 2.5.13
 
 ## Peptide building blocks resolve offline; resin intermediates ask for SMILES
