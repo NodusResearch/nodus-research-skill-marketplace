@@ -19,7 +19,7 @@ const MAX_STEPS = 96;
 // and the whole route separately, and the subworker is killable and time-bounded.
 const MAX_SPECIES_PER_STEP = 48;
 const MAX_SPECIES_TOTAL = 1024;
-const MAX_REACTION_CHARS = 4000;
+const MAX_REACTION_CHARS = 16000;
 
 async function summarize(input: string): Promise<RouteSpeciesSummary> {
   try {

@@ -505,7 +505,21 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
     // only with it removed. Water or a solvent written into a step that neither consumes nor
     // produces it is the common case, so name the idle molecule rather than the totals.
     const idle = basis[0].map((value, position) => (value[0] === 0n ? position : -1)).filter(position => position >= 0);
-    if (idle.length) {
+    // ...but only when the idle species are incidental. A spurious byproduct — water on a
+    // step that makes none — is small beside what the step is really transforming, and
+    // deleting it is the right advice. The principal species are not: when the heaviest
+    // molecule on its own side comes out at coefficient 0, the solver has balanced some
+    // other equation hiding inside this one, and telling the author to delete the thing the
+    // step exists to make sends them in a circle. Seen on a step whose product and its
+    // principal precursor were both zeroed while the small leftovers balanced; the real fault
+    // was a consumed species declared as an Agent, which the atom totals below name.
+    const heavyAtoms = (position: number) => Object.entries(reduced[position].composition.atoms)
+      .filter(([element]) => !element.startsWith('1:')).reduce((sum, [, count]) => sum + count, 0);
+    const heaviestOf = (role: ReactionSpecies['role']) => reduced
+      .map((_, position) => position).filter(position => roles[reduced[position].index] === role)
+      .sort((a, b) => heavyAtoms(b) - heavyAtoms(a))[0];
+    const principal = new Set([heaviestOf('reactant'), heaviestOf('product')]);
+    if (idle.length && !idle.some(position => principal.has(position))) {
       const names = idle.map(position => `"${formulaOf(reduced[position].composition.atoms)}"`).join(', ');
       throw new Error(`The declared species cannot be balanced: ${names} take(s) no part (coefficient 0), so the equation balances only if ${idle.length > 1 ? 'those molecules are' : 'that molecule is'} removed. Delete the molecule the step neither consumes nor produces — water and a solvent are the usual ones.`);
     }

@@ -1629,6 +1629,38 @@ test('when only one reference resolves a metal name, that one is used', async ()
   assert.equal(entry.smiles, '[Cl][Sn][Cl]');
 });
 
+test('a solution that zeroes the principal species is not reported as an idle molecule to delete', async () => {
+  // Benzene and octane cannot balance, but the carbon dioxide written on both sides can —
+  // so the only solution gives the two principal species coefficient 0. Advising their
+  // deletion would be advising the author to delete the step. Seen for real on a step whose
+  // product and principal precursor were both zeroed while the small leftovers balanced;
+  // the atom totals name the actual fault.
+  const worker = lib.createWorker(stubHost());
+  const degenerate = await worker.invoke({ invocationId: 'degen1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['c1ccccc1.O=C=O>>CCCCCCCC.O=C=O'] } });
+  const step = degenerate.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, false);
+  const said = step.differences.join(' ');
+  assert.doesNotMatch(said, /take\(s\) no part/, 'the target of a step is never the molecule to delete');
+  assert.match(said, /cannot be balanced/);
+});
+
+test('a cumulated system is refused only when both of its ends could twist — carbodiimides pass', async () => {
+  // The guard is for axial chirality: an allene or butatriene is stereogenic because each
+  // end carries two substituents. A carbodiimide's nitrogens carry one substituent and a
+  // lone pair, so there is no axis to get wrong — and it is the standard amide coupling
+  // reagent, so refusing it failed every route that forms an amide with one.
+  // diisopropylcarbodiimide, a standard amide coupling reagent
+  await lib.validateChemicalReferences({ references: ['CC(C)N=C=NC(C)C'] });
+  await lib.validateChemicalReferences({ references: ['C=C=O'] });        // ketene: one end bare
+  await lib.validateChemicalReferences({ references: ['O=C=O'] });        // carbon dioxide: both ends bare
+  await lib.validateChemicalReferences({ references: ['CN=C=O'] });       // isocyanate
+  // A substituted allene has two substituents at each end, so the axis has a configuration
+  // SMILES can state and this validator does not certify — still refused.
+  await assert.rejects(lib.validateChemicalReferences({ references: ['CC(Cl)=C=C(Cl)C'] }),
+    /Cumulated double bonds/, 'a substituted allene is still outside the scope');
+});
+
 test('a bare counterion does not downgrade the document, but a bonded out-of-set element does', async () => {
   const salt = await lib.validateChemicalReferences({ references: ['[Na+].[O-]C1=CC=CC=C1'] });
   assert.ok(!(salt.partialReasons ?? []).includes('element-outside-cip-scope'), 'a bare Na+ is a spectator with no stereochemistry or implicit valence to certify');

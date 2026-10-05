@@ -187,10 +187,18 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
         if (ocl.getBondAtom(0, b) === atom) doubleNeighbours.push(ocl.getBondAtom(1, b));
         else if (ocl.getBondAtom(1, b) === atom) doubleNeighbours.push(ocl.getBondAtom(0, b));
       }
-      // Two double bonds on one carbon is axial chirality only when a double-bonded
-      // neighbour carries the chain onwards, as in an allene or a butatriene. Counting
-      // the bonds alone refused carbon dioxide, which has no stereochemistry to get wrong.
-      if (doubleNeighbours.length > 1 && doubleNeighbours.some(neighbour => degree[neighbour] > 1 || ocl.getImplicitHydrogens(neighbour) > 0)) {
+      // A cumulated system has a stereogenic axis only when BOTH of its ends carry two
+      // substituents: the end groups then lie in perpendicular planes and the axis has a
+      // configuration — the allene case, which SMILES writes as @/@@ on the central atom
+      // and which this validator does not certify. An end that carries one substituent and
+      // a lone pair (a carbodiimide nitrogen, R–N=C=N–R') or none at all (a ketene oxygen,
+      // carbon dioxide) has no configuration to express, so there is nothing here to get
+      // wrong and nothing to refuse.
+      // Counting the double bonds alone refused carbon dioxide; asking only that ONE end
+      // carries the chain onwards then refused every carbodiimide — the standard amide
+      // coupling reagent — and so failed every route that forms an amide with one.
+      const substituents = (neighbour: number) => degree[neighbour] - 1 + ocl.getImplicitHydrogens(neighbour);
+      if (doubleNeighbours.length > 1 && doubleNeighbours.every(neighbour => substituents(neighbour) >= 2)) {
         throw new Error('Cumulated double bonds are outside the validated stereochemical scope.');
       }
     }

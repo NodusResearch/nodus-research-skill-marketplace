@@ -32,7 +32,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 24 }
+          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 24 }
         },
         "required": ["smiles"],
         "additionalProperties": false
@@ -70,7 +70,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 48 }
+          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 48 }
         },
         "required": ["smiles"],
         "additionalProperties": false
@@ -89,8 +89,8 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "minItems": 1, "maxItems": 96 },
-          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 96 },
+          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 16000 }, "minItems": 1, "maxItems": 96 },
+          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 4000 }, "maxItems": 96 },
           "racemic": { "type": "boolean" },
           "rearrangement": { "type": "boolean" },
           "radical": { "type": "boolean" },
@@ -107,8 +107,8 @@
                 "properties": {
                   "role": { "type": "string", "enum": ["reactant", "product", "agent"] },
                   "byproduct": { "type": "boolean" },
-                  "name": { "type": "string", "minLength": 1, "maxLength": 1000 },
-                  "smiles": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                  "name": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                  "smiles": { "type": "string", "minLength": 1, "maxLength": 4000 }
                 },
                 "required": ["role", "name", "smiles"],
                 "additionalProperties": false
