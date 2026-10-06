@@ -55,6 +55,62 @@ async function summarizeField(field: string): Promise<RouteSpeciesSummary[]> {
   return out;
 }
 
+/** One side's species, grouped as the AUTHOR declared them rather than as the reaction string
+ *  happens to be punctuated.
+ *
+ *  A reaction SMILES separates components with `.` and cannot say which of them belong to one
+ *  species, so a salt the author declared once — `[Mg+2].[Br-].[OH-]` — arrives as three
+ *  independent species, and each one is a free coefficient for the solver. That freedom lets a
+ *  wrong equation balance: a hydrolysis one hydrogen short came back balanced by taking two of
+ *  the organometallic and one water, at 2/1/2/2/2/1, when the author's own equation was 1:1 and
+ *  simply had oxide where it needed hydroxide. The arithmetic was right and the chemistry was
+ *  not, which is the worst way for a check to be wrong.
+ *
+ *  The boundary is not lost, only absent from the string: `labels` carries each declared species
+ *  with its own SMILES. So each label claims its fragments from the side's pool and becomes ONE
+ *  species with ONE coefficient. A fragment no label claims stays a species of its own, which is
+ *  what happens for every route that sends no labels, so nothing changes for them. */
+async function summarizeFieldGrouped(field: string, declared: string[]): Promise<RouteSpeciesSummary[]> {
+  const tokens = splitField(field);
+  if (!declared.length) return summarizeField(field);
+  const unclaimed = tokens.map((token) => ({ token, taken: false }));
+  const claim = (fragment: string): boolean => {
+    const slot = unclaimed.find((entry) => !entry.taken && entry.token === fragment);
+    if (!slot) return false;
+    slot.taken = true;
+    return true;
+  };
+  const grouped: Array<{ position: number; smiles: string }> = [];
+  for (const smiles of declared) {
+    const fragments = smiles.split('.').map((part) => part.trim()).filter(Boolean);
+    if (fragments.length < 2) continue;        // a single-fragment species is already one species
+    const first = unclaimed.findIndex((entry) => !entry.taken && entry.token === fragments[0]);
+    if (first < 0) continue;
+    // All of a declared species' fragments must be present, or the grouping would silently drop
+    // atoms. A partial match leaves every fragment where it was.
+    const snapshot = unclaimed.map((entry) => entry.taken);
+    if (fragments.every((fragment) => claim(fragment))) grouped.push({ position: first, smiles });
+    else unclaimed.forEach((entry, index) => { entry.taken = snapshot[index]; });
+  }
+  if (!grouped.length) return summarizeField(field);
+  // Keep document order: a grouped species sits where its first fragment was.
+  const entries = [
+    ...grouped.map((entry) => ({ position: entry.position, smiles: entry.smiles })),
+    ...unclaimed.map((entry, index) => (entry.taken ? null : { position: index, smiles: entry.token }))
+      .filter((entry): entry is { position: number; smiles: string } => entry !== null),
+  ].sort((a, b) => a.position - b.position);
+  const out: RouteSpeciesSummary[] = [];
+  for (const entry of entries) out.push(await summarize(entry.smiles));
+  return out;
+}
+
+/** The SMILES of every species the author declared for one role on one step, in order. */
+function declaredFor(labels: Array<RouteLabelInput | null | undefined>, role: 'reactant' | 'agent' | 'product'): string[] {
+  return labels
+    .filter((label): label is RouteLabelInput => Boolean(label) && label!.role === role && typeof label!.smiles === 'string' && label!.smiles.trim().length > 0)
+    .map((label) => label.smiles!.trim());
+}
+
 /** Sum a side's composition and charge. Agents are never passed here: a catalyst is
  *  recovered and a solvent is not consumed, so neither belongs in a balance. */
 function sumSide(species: RouteSpeciesSummary[]): { composition: Record<string, number>; charge: number } {
@@ -187,6 +243,24 @@ function agentMisplacementHint(reactants: RouteSpeciesSummary[], agents: RouteSp
   if (!carriers.length) return '';
   const labels = carriers.map((agent) => agent.formula || agent.canonicalSmiles).join(', ');
   return ` ${labels} ${carriers.length > 1 ? 'are' : 'is'} listed under Agents, but the reactants are missing atoms that species contains. Move it to Reactants only if it is actually consumed: adding it does not balance the step either, so the declared products or byproducts are probably incomplete.`;
+}
+
+/** A bare multiply-charged monatomic anion: free oxide, nitride, sulfide. These are not species a
+ *  solution-phase route consumes or releases — the author means the salt, the hydroxide or the
+ *  acid — and each one that reaches the equation is a free coefficient for the solver, because a
+ *  species declared as one salt arrives as several independent fragments.
+ *
+ *  That freedom lets a wrong equation balance. CH3MgBr + H2O -> CH4 + Mg(2+) + Br(-) + O(2-) is
+ *  one hydrogen short as written, and the solver rescues it at 2:1 by taking two of the metal
+ *  species and one water. The hydroxide form of the same step balances at unit coefficients,
+ *  which is the answer the author wanted. Naming the species is the fix; the solver cannot tell
+ *  which of several arithmetic answers is the chemistry. */
+function freeMultiplyChargedAnion(species: RouteSpeciesSummary): string | null {
+  const smiles = species.canonicalSmiles.trim();
+  const match = /^\[([A-Z][a-z]?)(?:H0)?((?:-{2,})|(?:-[2-9]))\]$/.exec(smiles);
+  if (!match) return null;
+  // Only the non-metals a route would otherwise have named as part of a salt or an acid.
+  return ['O', 'N', 'S', 'P', 'C'].includes(match[1]) ? smiles : null;
 }
 
 /** A bound on the packing search and on the copies it will consider, so a pathological step
@@ -390,6 +464,8 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
     : radicalInput === true;
   const audited: RouteStepAudit[] = [];
   let totalSpecies = 0;
+  const labelInput: Array<Array<RouteLabelInput | null | undefined> | null | undefined> =
+    Array.isArray(input?.labels) ? input.labels : [];
 
   for (const [index, raw] of steps.entries()) {
     const reaction = typeof raw === 'string' ? raw.trim() : '';
@@ -403,15 +479,29 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       if (!reaction) throw new Error('This step could not be built: a species it names has no resolved structure.');
       if (reaction.length > MAX_REACTION_CHARS) throw new Error(`A step must be a reaction SMILES under ${MAX_REACTION_CHARS} characters.`);
       const { reactants: reactantField, agents: agentField, products: productField } = splitReactionSmiles(reaction);
-      const reactants = await summarizeField(reactantField);
-      const agents = await summarizeField(agentField);
-      const products = await summarizeField(productField);
+      // Group each side's fragments back into the species the author declared, so a salt counts
+      // once and takes one coefficient. Without labels this is exactly the old behaviour.
+      const stepLabels = Array.isArray(labelInput[index]) ? labelInput[index]!.filter(Boolean) : [];
+      const reactants = await summarizeFieldGrouped(reactantField, declaredFor(stepLabels, 'reactant'));
+      const agents = await summarizeFieldGrouped(agentField, declaredFor(stepLabels, 'agent'));
+      const products = await summarizeFieldGrouped(productField, declaredFor(stepLabels, 'product'));
       if (!reactants.length || !products.length) throw new Error('A step needs at least one reactant and one product.');
       const count = reactants.length + agents.length + products.length;
       if (count > MAX_SPECIES_PER_STEP) throw new Error(`A step may name at most ${MAX_SPECIES_PER_STEP} species.`);
       totalSpecies += count;
       if (totalSpecies > MAX_SPECIES_TOTAL) throw new Error(`A route may name at most ${MAX_SPECIES_TOTAL} species.`);
       let balance = stepBalance(reactants, agents, products);
+      // A free oxide or nitride is never the species the author meant, and it hands the solver a
+      // degree of freedom that can make a wrong equation balance. Refuse the balance and name it,
+      // rather than reporting a verdict the arithmetic supports and the chemistry does not.
+      const freeAnions = [...reactants, ...products]
+        .map(freeMultiplyChargedAnion).filter((value): value is string => value !== null);
+      if (freeAnions.length) {
+        const names = [...new Set(freeAnions)].map(value => `"${value}"`).join(', ');
+        balance = { ...balance, balanced: false, differences: [
+          `${names} ${freeAnions.length > 1 ? 'are' : 'is'} a free multiply-charged anion, which is not a species a route consumes or releases: name the salt, the hydroxide or the acid that carries it. As written it also leaves the balance underdetermined, so an equation that is wrong can still be solved.`,
+        ] };
+      }
       // A reactant-side species that takes no part in the only balance is a reagent or a
       // condition (a catalyst, a solvent) the author listed with the reactants: file it under
       // agents and check again, rather than refusing an otherwise balanced step. Products are
