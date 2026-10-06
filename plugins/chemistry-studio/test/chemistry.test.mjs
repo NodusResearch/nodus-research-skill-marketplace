@@ -2178,3 +2178,38 @@ test('two salts sharing an ion balance from their declared stoichiometry, not th
   assert.ok(named.includes('sodium sulfate'), 'and so does the other one');
   assert.equal(audit.steps[0].balanced, true, 'and the classic oxidation balances');
 });
+
+test('an ester reduction is not classed as a hydrolysis (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // Reaction classes are read from functional-group changes and used as textbook SEARCH TERMS, so
+  // a wrong class retrieves the wrong page — worse than retrieving nothing. The rule treated
+  // "ester gone, alcohol appeared" as a hydrolysis, so a hydride reduction searched for
+  // saponification pages. A hydrolysis needs the ACID to appear; the alcohol test cannot stand in
+  // for it, because in `ester + X -> Y + ethanol` the leaving group is itself an alcohol.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location('rw', ${JSON.stringify(new URL('../python/reactions_worker.py', import.meta.url).pathname)})
+m = importlib.util.module_from_spec(spec); sys.modules['rw'] = m
+spec.loader.exec_module(m)
+cases = [
+  ('CCOC(=O)c1ccccc1', 'OCc1ccccc1.CCO'),                      # hydride reduction
+  ('CCOC(=O)c1ccccc1.[OH-]', 'OC(=O)c1ccccc1.CCO'),            # saponification
+  ('CCOC(=O)c1ccccc1.C[Mg]Br', 'CC(=O)c1ccccc1.CCO'),          # organometallic addition
+  ('CCOC(=O)c1ccccc1', 'O=Cc1ccccc1.CCO'),                     # partial reduction to the aldehyde
+  ('CC(=O)c1ccccc1', 'CC(O)c1ccccc1'),                         # plain carbonyl reduction
+]
+print(json.dumps([m._reaction_classes(a, b) for a, b in cases]))
+`;
+  const [reduction, hydrolysis, grignard, aldehyde, carbonyl] =
+    JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+
+  assert.deepEqual(reduction, ['reduction of an ester to an alcohol'], 'the hydride reduction is named for what it is');
+  assert.ok(!reduction.includes('ester hydrolysis'), 'and is no longer called a hydrolysis');
+  assert.ok(hydrolysis.includes('ester hydrolysis'), 'saponification still is one');
+  // An organometallic addition is neither, and claims neither rather than claiming the wrong one.
+  assert.ok(!grignard.includes('ester hydrolysis'), 'the addition is not a hydrolysis');
+  assert.ok(!grignard.includes('reduction of an ester to an alcohol'), 'nor a reduction');
+  assert.ok(grignard.includes('Grignard reaction'), 'and it is still recognised for what it is');
+  assert.deepEqual(aldehyde.filter((c) => c.includes('ester')), [], 'a partial reduction claims no ester class rather than a wrong one');
+  assert.deepEqual(carbonyl, ['reduction of a carbonyl compound'], 'an ordinary carbonyl reduction is unaffected');
+});
