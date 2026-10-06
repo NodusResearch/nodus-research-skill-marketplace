@@ -2074,3 +2074,107 @@ test('an Agent that would balance the step exactly is named with the count, and 
   assert.match(looseBlocked, /products or byproducts are probably incomplete/);
   assert.doesNotMatch(looseBlocked, /balances the step exactly/);
 });
+
+test('loose ions give the solver free coefficients, so a wrong equation can balance', async () => {
+  // The metal-ion fault, reproduced. Every one of these is arithmetically correct; the point is
+  // that a species declared as ONE salt arrives as several independent fragments, each with its
+  // own coefficient, and the solver can use that freedom to rescue an equation that is wrong.
+  //
+  // CH3MgBr + H2O -> CH4 + Mg(2+) + Br(-) + O(2-) is one hydrogen short as written, and comes
+  // back "balanced" as 2/1/2/2/2/1. Correct as written, it needs hydroxide, not oxide.
+  const wrong = await lib.auditRoute({ steps: ['C[Mg]Br.O>>C.[Mg+2].[Br-].[O-2]'] });
+  assert.equal(wrong.steps[0].ok, true, 'the step parses');
+  assert.equal(wrong.steps[0].balanced, false, 'it used to come back balanced at 2/1/2/2/2/1');
+  assert.match(wrong.steps[0].differences.join(' '), /"\[O-2\]" is a free multiply-charged anion/);
+  assert.match(wrong.steps[0].differences.join(' '), /name the salt, the hydroxide or the acid/);
+  assert.match(wrong.steps[0].differences.join(' '), /an equation that is wrong can still be solved/);
+
+  // What does behave correctly today, so a fix does not regress it.
+  const right = await lib.auditRoute({ steps: ['C[Mg]Br.O>>C.[Mg+2].[Br-].[OH-]'] });
+  assert.equal(right.steps[0].balanced, true, 'the hydroxide form is genuinely balanced');
+  assert.deepEqual([...right.steps[0].reactants, ...right.steps[0].products].map((e) => e.coefficient ?? 1),
+    [1, 1, 1, 1, 1, 1], 'and at unit coefficients');
+
+  for (const reaction of [
+    'C[Mg]Br.O>>C',                                   // salt omitted entirely
+    'CC(=O)C.C[Mg]Br.O>>CC(C)(C)O',                   // no metal on the product side
+    'c1ccccc1.[Br]>>Brc1ccccc1',                      // a loose atom on one side only
+    'CC(=O)C.[Mg+2].[Br-].[Br-]>>CC(C)O.[Mg+2].[Br-].[Br-]', // spectator ions, 2 H missing
+  ]) {
+    const audit = await lib.auditRoute({ steps: [reaction] });
+    assert.equal(audit.steps[0].balanced, false, `must not balance: ${reaction}`);
+  }
+
+  // A valid reaction is not pushed off by the ionic form of its byproduct.
+  for (const reaction of [
+    'O=Cc1ccccc1.c1ccc(cc1)[P+](c1ccccc1)(c1ccccc1)[CH-]c1ccccc1>>C(=C/c1ccccc1)\\c1ccccc1.O=P(c1ccccc1)(c1ccccc1)c1ccccc1',
+    'O=Cc1ccccc1.c1ccc(cc1)[P+](c1ccccc1)(c1ccccc1)[CH-]c1ccccc1>>C(=C/c1ccccc1)\\c1ccccc1.[O-][P+](c1ccccc1)(c1ccccc1)c1ccccc1',
+  ]) {
+    const audit = await lib.auditRoute({ steps: [reaction] });
+    assert.equal(audit.steps[0].balanced, true, `must still balance: ${reaction.slice(0, 40)}`);
+  }
+});
+
+test('a species declared as one salt takes one coefficient, not one per ion', async () => {
+  // The full fix for the loose-ion fault. A reaction SMILES cannot say which components belong
+  // to one species, so a salt declared once arrives as several fragments and each is a free
+  // coefficient. With the author's labels the boundary is recoverable, so the salt counts once.
+  const step = 'C[Mg]Br.O>>C.[Mg+2].[Br-].[OH-]';
+  const labels = [[
+    { role: 'reactant', name: 'methylmagnesium bromide', smiles: 'C[Mg]Br' },
+    { role: 'reactant', name: 'water', smiles: 'O' },
+    { role: 'product', name: 'methane', smiles: 'C' },
+    { role: 'product', byproduct: true, name: 'magnesium bromide hydroxide', smiles: '[Mg+2].[Br-].[OH-]' },
+  ]];
+  const grouped = await lib.auditRoute({ steps: [step], labels });
+  assert.equal(grouped.steps[0].balanced, true, 'the hydrolysis still balances');
+  assert.equal(grouped.steps[0].products.length, 2, 'the salt is ONE product species, not three ions');
+  assert.deepEqual(grouped.steps[0].products.map((e) => e.coefficient ?? 1), [1, 1]);
+  const salt = grouped.steps[0].products.find((e) => e.canonicalSmiles.includes('.'));
+  assert.ok(salt, 'the grouped species keeps its multi-fragment structure');
+  assert.equal(salt.name, 'magnesium bromide hydroxide', 'and the label\'s name now attaches to it');
+
+  // Ungrouped, the same step still reports three ions — unchanged for a caller that sends no
+  // labels, so nothing regresses for them.
+  const ungrouped = await lib.auditRoute({ steps: [step] });
+  assert.equal(ungrouped.steps[0].products.length, 4);
+
+  // A partial match must not silently drop atoms: a label whose fragments are not all present
+  // leaves every fragment where it was.
+  const partial = await lib.auditRoute({
+    steps: ['C[Mg]Br.O>>C.[Mg+2].[Br-]'],
+    labels: [[{ role: 'product', byproduct: true, name: 'magnesium bromide hydroxide', smiles: '[Mg+2].[Br-].[OH-]' }]],
+  });
+  assert.equal(partial.steps[0].products.length, 3, 'no grouping, so the missing hydroxide is still missing');
+  assert.equal(partial.steps[0].balanced, false, 'and the step correctly does not balance');
+});
+
+test('two salts sharing an ion balance from their declared stoichiometry, not the solver\'s guess', async () => {
+  // The case the old write-each-ion-once design existed for, now done by grouping. The host
+  // writes every fragment of every species; the labels say where each species begins, so
+  // chromium(III) sulfate keeps its 2:3 ratio instead of becoming one chromium and one sulfate
+  // whose counts the solver re-derives.
+  const sulfate = 'S(=O)(=O)([O-])[O-]';
+  const chromiumSulfate = `${sulfate}.[Cr+3].${sulfate}.${sulfate}.[Cr+3]`;
+  const sodiumSulfate = `${sulfate}.[Na+].[Na+]`;
+  const dichromate = '[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-].[Na+].[Na+]';
+  const sulfuric = 'O=S(=O)(O)O';
+  const step = `C1CCC(CC1)O.${dichromate}.${sulfuric}>>O=C1CCCCC1.${chromiumSulfate}.${sodiumSulfate}.O`;
+  const labels = [[
+    { role: 'reactant', name: 'cyclohexanol', smiles: 'C1CCC(CC1)O' },
+    { role: 'reactant', name: 'sodium dichromate', smiles: dichromate },
+    { role: 'reactant', name: 'sulfuric acid', smiles: sulfuric },
+    { role: 'product', name: 'cyclohexanone', smiles: 'O=C1CCCCC1' },
+    { role: 'product', byproduct: true, name: 'chromium(III) sulfate', smiles: chromiumSulfate },
+    { role: 'product', byproduct: true, name: 'sodium sulfate', smiles: sodiumSulfate },
+    { role: 'product', byproduct: true, name: 'water', smiles: 'O' },
+  ]];
+  const audit = await lib.auditRoute({ steps: [step], labels });
+  assert.equal(audit.steps[0].ok, true, 'the step parses');
+  assert.equal(audit.steps[0].reactants.length, 3, 'three declared reactants, not nine fragments');
+  assert.equal(audit.steps[0].products.length, 4, 'four declared products, not eleven fragments');
+  const named = audit.steps[0].products.map((entry) => entry.name);
+  assert.ok(named.includes('chromium(III) sulfate'), 'the grouped salt carries its name');
+  assert.ok(named.includes('sodium sulfate'), 'and so does the other one');
+  assert.equal(audit.steps[0].balanced, true, 'and the classic oxidation balances');
+});

@@ -1,3 +1,52 @@
+# Chemistry Studio 2.5.16
+
+A balance that the arithmetic supported and the chemistry did not.
+
+## A declared species takes one coefficient, not one per fragment
+
+A reaction SMILES separates components with `.` and cannot say which of them belong to one
+species, so a salt the author declared once arrived as several independent species — and each one
+was a free coefficient for the solver. That freedom let a wrong equation balance:
+
+    CH3MgBr + H2O -> CH4 + Mg(2+) + Br(-) + O(2-)
+
+is one hydrogen short as written, and came back **balanced** at 2/1/2/2/2/1 — two of the
+organometallic and one water. The author's own equation was 1:1 and simply had oxide where it
+needed hydroxide. The arithmetic was right and the chemistry was not, which is the worst way for a
+check to be wrong, because nothing in the report looks unusual except the coefficients.
+
+The boundary was never lost, only absent from the string: `labels` carries each declared species
+with its own SMILES. Each label now claims its fragments from its side and becomes one species
+with one coefficient. A fragment no label claims stays a species of its own, so a caller that
+sends no labels sees exactly the previous behaviour. A label whose fragments are not all present
+groups nothing, rather than silently dropping atoms.
+
+This also fixes two things that fell out of it. A multi-fragment label never matched any single
+fragment, so a salt's name never attached to it in the report; now it does. And a salt's declared
+stoichiometry survives: chromium(III) sulfate keeps its 2:3 ratio instead of being reduced to one
+chromium and one sulfate whose counts the solver re-derives.
+
+## A free oxide is not a species
+
+A bare multiply-charged monatomic anion — `[O-2]`, `[N-3]`, `[S-2]` — is refused with its own
+message. It is never the species a solution-phase route consumes or releases; the author means the
+salt, the hydroxide or the acid. It was also exactly the free coefficient that enabled the balance
+above, so this is the same fault caught at the other end.
+
+## Pairs with a host change
+
+The host that writes the reaction string previously discarded a repeated fragment, to stop two
+salts sharing an ion from putting the same token on one side twice. That cost atoms: the set was
+per role, so calcium chloride written as `[Ca+2].[Cl-].[Cl-]` lost a chloride, and any salt with
+repeated counterions could then never balance. A host that writes every fragment needs this
+version to regroup them; an older package sees the duplicates and reports several possible
+equations, which is visible rather than silent.
+
+## Compatibility
+
+Additive and opportunistic. No schema change: `labels` already carried per-species SMILES. Without
+labels, grouping does nothing.
+
 # Chemistry Studio 2.5.15
 
 Two reports that said more than the check could support.
