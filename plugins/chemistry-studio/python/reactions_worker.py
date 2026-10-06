@@ -366,7 +366,17 @@ def _reaction_classes(precursors, product):
     if up("ester") and before["acid"] and not before["acyl_halide"] and not before["anhydride"]: classes.append("Fischer esterification")
     if up("ester") and (before["acyl_halide"] or before["anhydride"]): classes.append("acylation of an alcohol or phenol")
     if up("amide") and (before["acyl_halide"] or before["anhydride"] or before["ester"] or before["acid"]): classes.append("amide formation by acylation of an amine")
-    if down("ester") and (up("acid") or up("alcohol") or up("ketone")): classes.append("ester hydrolysis")
+    # An ester that disappears is a hydrolysis only when the ACID appears: saponification gives the
+    # acid (or its salt) alongside the alcohol. A hydride reduction gives an alcohol and NO acid,
+    # and used to be labelled "ester hydrolysis" — LiAlH4 on an ester was read that way. These
+    # classes are search terms, and a wrong term retrieves the wrong textbook page, which is worse
+    # than no term. The alcohol test alone is not enough either: in `ester + X -> Y + ethanol` the
+    # leaving group IS an alcohol, so an alcohol appears in almost every ester reaction. A new
+    # carbonyl therefore rules the reduction out — an ester consumed with a ketone appearing is an
+    # organometallic addition, and this claims nothing rather than claiming the wrong thing.
+    if down("ester") and up("acid"): classes.append("ester hydrolysis")
+    elif down("ester") and up("alcohol") and not (up("ketone") or up("aldehyde")):
+        classes.append("reduction of an ester to an alcohol")
     if down("amide") and (up("arylamine") or up("amine")): classes.append("amide hydrolysis (deprotection of an acetamide)")
     if up("acid") and down("nitrile"): classes.append("nitrile hydrolysis")
     if up("acyl_halide") and before["acid"]: classes.append("acid chloride formation with thionyl chloride")
