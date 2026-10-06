@@ -1,3 +1,32 @@
+# Chemistry Studio 2.5.17
+
+A reaction class that named the wrong reaction.
+
+## An ester reduction is not a hydrolysis
+
+A step's reaction classes are read from its functional-group changes and used as search terms, so
+a wrong class retrieves the wrong textbook page — which is worse than retrieving nothing. The rule
+was:
+
+    down("ester") and (up("acid") or up("alcohol") or up("ketone"))  ->  "ester hydrolysis"
+
+A hydride reduction of an ester loses the ester and gains an alcohol, so it matched: a lithium
+aluminium hydride step was labelled an ester hydrolysis.
+
+A disappearing ester is a hydrolysis only when the **acid** appears — saponification gives the acid
+or its salt alongside the alcohol. The alcohol test alone cannot stand in for it, because in
+`ester + X -> Y + ethanol` the leaving group *is* an alcohol, so an alcohol appears in almost every
+ester reaction. A reduction therefore also requires that no new carbonyl appears, which keeps an
+organometallic addition (ester plus a Grignard reagent, giving a ketone) out of both classes: it
+now claims neither rather than claiming the wrong one.
+
+New class name: `reduction of an ester to an alcohol`. The host pairs it with a relevance rule, so
+a passage offered for it has to be about reducing an ester rather than merely mentioning esters.
+
+## Compatibility
+
+Additive. One class name changes for one family of steps, and the search term changes with it.
+
 # Chemistry Studio 2.5.16
 
 A balance that the arithmetic supported and the chemistry did not.
