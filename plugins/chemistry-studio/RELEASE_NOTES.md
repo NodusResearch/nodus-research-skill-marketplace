@@ -1,3 +1,34 @@
+# Chemistry Studio 2.5.15
+
+Two reports that said more than the check could support.
+
+## Configuration of a chiral building block
+`inspect` and `verify-route` now report `alphaConfiguration` for a species written as a free acid
+whose stereocentre carries a nitrogen: the CIP descriptor at that centre, or `unassigned` when the
+author left it open. Absent for anything without such a centre.
+
+This is reported, never judged. A block of the opposite configuration has the same formula, the
+same atom counts and the same constitution as the intended one, so balance and continuity both
+pass and no deterministic check can see the difference. The descriptor is put where a reader can
+compare it with the name the author wrote. No verdict is implied: which letter belongs to a given
+series flips when a sulfur-bearing branch outranks the carboxyl, so the letter alone proves
+nothing.
+
+## A species under Agents is no longer blamed on a guess
+When a step does not balance, a species listed under Agents is named as the cause only when adding
+whole copies of it to the reactant side balances the step exactly — and then the copy count is
+given. The previous test was "this Agent contains some element the reactants are short of", which
+on a large step named the reaction medium, because a medium contains carbon, hydrogen, nitrogen and
+oxygen, and advised moving it to Reactants. That was wrong chemistry stated confidently.
+
+When no species under Agents can account for the shortfall, one that carries the missing elements
+is still named, but the instruction is conditional and the likelier fault is said out loud: the
+declared products or byproducts are incomplete.
+
+## Compatibility
+Additive. `alphaConfiguration` is optional and absent unless measured; hosts that ignore it are
+unaffected. No schema limits changed.
+
 # Chemistry Studio 2.5.14
 
 Three places where a check returned a confident verdict when it could not actually apply.

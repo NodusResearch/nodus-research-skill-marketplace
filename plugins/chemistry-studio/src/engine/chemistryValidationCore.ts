@@ -128,6 +128,31 @@ function supportAllowed(smiles: string): boolean {
   return opened === closed;
 }
 
+/** The CIP descriptor at the nitrogen-bearing stereocentre of a species written as a free acid:
+ *  a chiral building block. Reported, never judged: a block of the opposite configuration parses
+ *  and balances exactly like the intended one, so atom counting can never see it, and an author
+ *  who names one series while drawing the other leaves no other trace. The letter alone is not a
+ *  verdict, because which letter belongs to a series flips when a sulfur-bearing branch outranks
+ *  the carboxyl; the reader compares the measurement with the name.
+ *
+ *  Matched by the free-acid environment, so a centre already inside an amide chain is not
+ *  reported — only the blocks a route consumes. */
+function alphaConfigurationOf(kit: RDKitModule, scene: JSMol, cipAtoms: Array<[number, string]>): ChemistryInspectionSummary['alphaConfiguration'] {
+  const query = kit.get_qmol('[CX4;H1]([NX3])C(=O)[OX2H1]');
+  if (!query) return undefined;
+  try {
+    const match = JSON.parse(scene.get_substruct_match(query) || '{}') as { atoms?: number[] };
+    const alpha = match.atoms?.[0];
+    if (typeof alpha !== 'number') return undefined;
+    const tag = cipAtoms.find(([index]) => index === alpha)?.[1];
+    return tag === '(R)' || tag === '(S)' ? tag : 'unassigned';
+  } catch {
+    return undefined;
+  } finally {
+    query.delete();
+  }
+}
+
 /** Call only inside a killable process: WASM cannot be interrupted by Promise.race. */
 export async function validateChemicalReferences(request: ChemistryValidationRequest): Promise<ChemistryValidationResult> {
   if (!Array.isArray(request.references) || request.references.length < 1 || request.references.length > 3
@@ -334,11 +359,13 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
       let skeletonSmiles = canonicalSmiles;
       try { skeletonSmiles = parse(canonicalSmiles.replace(/@/g, '').replace(/[\\/]/g, '')).get_smiles(); } catch { /* keep the canonical form */ }
       const specifiedAtoms = stereo.CIP_atoms.filter(([, tag]) => tag !== '(?)').length;
+      const alphaConfiguration = alphaConfigurationOf(kit, scene, stereo.CIP_atoms);
       return {
         canonicalSmiles, skeletonSmiles, formula: formulaOf(composition), charge, heavyAtoms,
         stereocentres: specifiedAtoms + stereo.CIP_bonds.length,
         unspecifiedStereocentres: unspecifiedAtoms + unspecifiedBonds,
         composition,
+        ...(alphaConfiguration ? { alphaConfiguration } : {}),
       };
     })() : undefined;
     // Render the exact round-tripped scene, not the original text or another layout.

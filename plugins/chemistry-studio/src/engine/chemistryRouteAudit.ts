@@ -147,22 +147,46 @@ function agentsThatBalance(reactants: RouteSpeciesSummary[], agents: RouteSpecie
   return null;
 }
 
-/** When a step will not balance and a species is listed under Agents that carries atoms the
- *  reactants are short of, the usual cause is a consumed species mislabelled as a catalyst: a
- *  "citric acid catalyst" that is really decarboxylated and consumed. Name it. Only fires when
- *  an Agent actually contains a deficient element, so a plain solvent on an unrelated imbalance
- *  is left alone. */
+/** When a step will not balance, whether a species listed under Agents is the cause. The usual
+ *  case is a consumed species mislabelled as a catalyst: a "citric acid catalyst" that is really
+ *  decarboxylated and consumed. Name it only when adding whole copies of it to the reactant side
+ *  balances the step EXACTLY.
+ *
+ *  The old test was "this Agent contains some element the reactants are short of", which named
+ *  the wrong species on any large step: a solvent contains C, H, N and O, so it was blamed for a
+ *  shortfall it could not explain, and the advice to move it to Reactants was wrong chemistry.
+ *  When no Agent can account for the shortfall, that is itself the finding — the declared
+ *  products or byproducts are incomplete — so say that instead of implicating a condition. */
 function agentMisplacementHint(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
   if (!agents.length) return '';
   const keys = new Set<string>();
-  for (const entry of [...reactants, ...products]) for (const key of Object.keys(entry.composition)) keys.add(key);
+  for (const entry of [...reactants, ...products, ...agents]) for (const key of Object.keys(entry.composition)) keys.add(key);
   const total = (list: RouteSpeciesSummary[], key: string): number => list.reduce((sum, entry) => sum + (entry.composition[key] ?? 0), 0);
-  const deficient = [...keys].filter((key) => total(products, key) > total(reactants, key));
-  if (!deficient.length) return '';
-  const culprits = agents.filter((agent) => deficient.some((key) => (agent.composition[key] ?? 0) > 0));
-  if (!culprits.length) return '';
-  const labels = culprits.map((agent) => agent.formula || agent.canonicalSmiles).join(', ');
-  return ` ${labels} ${culprits.length > 1 ? 'are' : 'is'} listed under Agents, but the reactants are missing atoms that species contains: an Agent takes no part in the balance, so move it to Reactants if it is actually consumed.`;
+  const deficit = new Map<string, number>();
+  for (const key of keys) {
+    const diff = total(products, key) - total(reactants, key);
+    if (diff !== 0) deficit.set(key, diff);
+  }
+  if (![...deficit.values()].some((value) => value > 0)) return '';
+  const closesExactly = (agent: RouteSpeciesSummary, copies: number): boolean =>
+    [...keys].every((key) => total(reactants, key) + copies * (agent.composition[key] ?? 0) === total(products, key));
+  for (const agent of agents) {
+    // The copy count is fixed by any one deficient element the agent carries; the rest must agree.
+    const anchor = [...deficit].find(([key, diff]) => diff > 0 && (agent.composition[key] ?? 0) > 0);
+    if (!anchor) continue;
+    const copies = anchor[1] / (agent.composition[anchor[0]] ?? 1);
+    if (!Number.isInteger(copies) || copies < 1 || !closesExactly(agent, copies)) continue;
+    const label = agent.formula || agent.canonicalSmiles;
+    return ` "${label}" is listed under Agents, and adding ${copies === 1 ? 'it' : `${copies} copies of it`} to the reactants balances the step exactly: an Agent takes no part in the balance, so list it under Reactants (${copies} ${label}) if it is actually consumed.`;
+  }
+  // No Agent closes the balance. One may still be a consumed species, so it is still named —
+  // but the instruction is conditional now, and the likelier fault is said out loud. Blaming a
+  // solvent outright is how a large step with incomplete byproducts came back advising that the
+  // reaction medium be moved to Reactants.
+  const carriers = agents.filter((agent) => [...deficit].some(([key, diff]) => diff > 0 && (agent.composition[key] ?? 0) > 0));
+  if (!carriers.length) return '';
+  const labels = carriers.map((agent) => agent.formula || agent.canonicalSmiles).join(', ');
+  return ` ${labels} ${carriers.length > 1 ? 'are' : 'is'} listed under Agents, but the reactants are missing atoms that species contains. Move it to Reactants only if it is actually consumed: adding it does not balance the step either, so the declared products or byproducts are probably incomplete.`;
 }
 
 /** A bound on the packing search and on the copies it will consider, so a pathological step
