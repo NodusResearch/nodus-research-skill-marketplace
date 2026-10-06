@@ -200,6 +200,13 @@ export interface ChemistryInspectionSummary {
   /** Tetrahedral centres and stereogenic double bonds the author left unspecified. */
   unspecifiedStereocentres: number;
   composition: Record<string, number>;
+  /** For a species written as a free acid whose stereocentre carries a nitrogen — a chiral
+   *  building block — the CIP descriptor at that centre, or 'unassigned' when the author left it
+   *  open. Absent for anything without such a centre. Reported, never judged: the letter that
+   *  corresponds to a given series flips when a sulfur-bearing branch outranks the carboxyl, so
+   *  the letter alone is not a verdict. It is here because a block of the opposite configuration
+   *  parses and balances exactly like the intended one, and nothing else in the check sees it. */
+  alphaConfiguration?: '(R)' | '(S)' | 'unassigned';
 }
 /** One step of a synthesis route, as the read-only route checker reports it. */
 export interface RouteSpeciesSummary extends ChemistryInspectionSummary {

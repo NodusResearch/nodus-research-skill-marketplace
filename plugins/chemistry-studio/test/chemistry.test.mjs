@@ -2025,3 +2025,52 @@ print(json.dumps(w._compatibility(steps)))
   assert.match(out[1].hazards[0].suggestion, /silyl ether/);
   assert.deepEqual(out[1].hazards[0].protectedForms, ['TBS ether', 'TBDPS ether', 'benzyl ether']);
 });
+
+test('the inspection reports the configuration next to a free acid\'s nitrogen-bearing centre', async () => {
+  // The one wrong-structure class the deterministic checks cannot see: the opposite
+  // configuration has the same formula, the same atom counts and the same constitution, so
+  // balance and continuity both pass. The letter is reported, never judged — which letter
+  // belongs to a series flips when a sulfur-bearing branch outranks the carboxyl.
+  // Structures are the ones a real route declared, so this pins the measurement to live data.
+  const cases = [
+    ['O=C(N[C@H](Cc1cccnc1)C(=O)O)OCC1c2ccccc2-c2ccccc21', '(R)'],
+    ['O=C(N[C@H](Cc1ccc2ccccc2c1)C(=O)O)OCC1c2ccccc2-c2ccccc21', '(R)'],
+    ['CC(C)(C)OC(=O)NCCOc1ccc(C[C@@H](NC(=O)OCC2c3ccccc3-c3ccccc32)C(=O)O)cc1', '(R)'],
+    ['Cc1cccc2c(C[C@@H](NC(=O)OCC3c4ccccc4-c4ccccc43)C(=O)O)c[nH]c12', '(R)'],
+    ['O=C(C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O)NC(c1ccccc1)(c1ccccc1)c1ccccc1', '(S)'],
+    ['CC(=O)N[C@H](C(=O)O)C(C)(C)SC(c1ccccc1)(c1ccccc1)c1ccccc1', '(R)'],
+  ];
+  for (const [smiles, expected] of cases) {
+    const checked = await lib.validateChemicalReferences({ references: [smiles], inspect: true });
+    assert.equal(checked.inspection?.alphaConfiguration, expected, smiles.slice(0, 40));
+  }
+});
+
+test('a species with no such centre carries no configuration', async () => {
+  for (const smiles of ['C1=CC=C2C(=C1)C(C3=CC=CC=C32)COC(=O)NCC(=O)O', 'CCO', 'O', 'CS(C)=O']) {
+    const checked = await lib.validateChemicalReferences({ references: [smiles], inspect: true });
+    assert.equal(checked.inspection?.alphaConfiguration, undefined, smiles);
+  }
+});
+
+test('an open centre is reported as unassigned rather than guessed', async () => {
+  const checked = await lib.validateChemicalReferences({ references: ['CC(N)C(=O)O'], inspect: true });
+  assert.equal(checked.inspection?.alphaConfiguration, 'unassigned');
+});
+
+test('an Agent that would balance the step exactly is named with the count, and one that would not is only a suggestion', async () => {
+  // Exact: the acid is under Agents, and one copy of it on the reactant side closes the equation.
+  const exact = await lib.auditRoute({ steps: ['CCO>CC(=O)O>CC(=O)OCC.O'] });
+  const exactBlocked = exact.blocked.join(' ');
+  assert.match(exactBlocked, /adding it to the reactants balances the step exactly/);
+  assert.match(exactBlocked, /list it under Reactants \(1 C2H4O2\)/);
+  // Not exact: the medium carries the deficient elements but cannot account for the shortfall,
+  // so it is named as a possibility and the likelier fault is stated. Advising that the medium be
+  // moved to Reactants outright is how a large step with incomplete byproducts was misdiagnosed.
+  const loose = await lib.auditRoute({ steps: ['O=CCCC=O.CN>CN(C)C=O>CN1C2CCC1CC(=O)C2.O'] });
+  const looseBlocked = loose.blocked.join(' ');
+  assert.match(looseBlocked, /listed under Agents, but the reactants are missing atoms that species contains/);
+  assert.match(looseBlocked, /Move it to Reactants only if it is actually consumed/);
+  assert.match(looseBlocked, /products or byproducts are probably incomplete/);
+  assert.doesNotMatch(looseBlocked, /balances the step exactly/);
+});
