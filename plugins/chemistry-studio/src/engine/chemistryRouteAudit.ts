@@ -652,7 +652,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
         if (typeof nameOk === 'boolean') target.nameOk = nameOk;
       }
       if (nameOk === false) {
-        const problem = `the IUPAC name "${raw.name.trim().slice(0, 200)}" denotes a different structure than \`${declared.canonicalSmiles}\`${declared.formula ? ` (${declared.formula})` : ''}`;
+        const problem = `the name "${raw.name.trim().slice(0, 200)}" denotes a different structure than \`${declared.canonicalSmiles}\`${declared.formula ? ` (${declared.formula})` : ''}`;
         (step.nameProblems ??= []).push(problem);
       }
     }

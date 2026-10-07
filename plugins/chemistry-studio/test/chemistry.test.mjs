@@ -1376,7 +1376,32 @@ test('a name that denotes a different compound is refused like an unbalanced ste
   assert.equal(audit.continuous, false);
   assert.equal(audit.steps[0].reactants[0].nameOk, false);
   assert.equal(audit.steps[0].nameProblems.length, 1);
-  assert.match(audit.blocked.join(' '), /the IUPAC name "ethanol" denotes a different structure/);
+  assert.match(audit.blocked.join(' '), /the name "ethanol" denotes a different structure/);
+  assert.doesNotMatch(audit.blocked.join(' '), /IUPAC/, 'the message must not call a declared name IUPAC');
+});
+
+test('a declared name that is not systematic is reported without being called IUPAC', async () => {
+  // "aspirin" is a common name, not a systematic one. The checker may still disagree with the
+  // structure beside it, but it must not assert that what the author wrote was an IUPAC name:
+  // a trade or common name is the normal way to write many species, and the old wording told the
+  // author their correct common name was a malformed systematic one.
+  const host = stubHost({
+    fetch: (endpointId, target) => endpointId === 'opsin' && target.includes('/opsin/ws/')
+      ? { status: 'SUCCESS', smiles: 'CC=O' }
+      : undefined,
+  });
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({
+    invocationId: 'rn2b', toolId: 'verify-route', locale: 'en',
+    input: {
+      steps: ['CCO>>CC=O.[H][H]'],
+      labels: [[{ role: 'reactant', name: 'aspirin', smiles: 'CCO' }]],
+    },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.steps[0].reactants[0].nameOk, false, 'the disagreement is still reported');
+  assert.match(audit.blocked.join(' '), /the name "aspirin" denotes a different structure/);
+  assert.doesNotMatch(audit.blocked.join(' '), /IUPAC/);
 });
 
 test('an unresolvable name is reported as unchecked, never as a disagreement', async () => {
