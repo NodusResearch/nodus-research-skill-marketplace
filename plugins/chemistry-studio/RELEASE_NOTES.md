@@ -1,3 +1,48 @@
+# Chemistry Studio 2.5.24
+
+Three fixes to what the route report tells the author. Each was found in a real run artifact, and
+each had cost a correction round the author could not act on.
+
+## A declared name is no longer called an IUPAC name
+
+When a name disagrees with the structure written beside it, the message said "the IUPAC name X
+denotes a different structure than Y". Nothing requires X to be systematic — a trade or common
+name is the normal way to write many species — so for those the sentence asserted something false
+about the author's own input before disagreeing with it. The disagreement is reported exactly as
+before; only the claim about what kind of name it was is gone.
+
+## A structure left partly undrawn has its name left unchecked
+
+A structure carrying a dummy atom is an abstraction: the author has deliberately left part of it
+unspecified, an attachment to something not drawn, which is what this package asks for. Any
+reference record draws the whole thing, so the two graphs differ by construction and a
+disagreement was reported for a structure written exactly as instructed.
+
+It was also escapable only in the wrong direction. A name a reference can resolve is compared and
+fails; a vaguer name resolves to nothing and is waved through. On a real run the author's correct,
+conventional name was refused and the successful correction was to replace it with a LESS specific
+one and change nothing else — so the version that passed described the chemistry worse than the
+version that failed.
+
+The check is now gated on the structure rather than on how the name is spelled, which is the fact
+that matters and needs no list of names to maintain. A dummy atom survives canonicalisation as `*`
+and appears in no real species, verified against this package's own RDKit for both the bare and
+the bracketed form. Such a name is left unchecked and is NOT counted as unresolved: it resolved
+fine, it is the structure that is partly undrawn. A fully drawn structure is compared as before.
+
+## An unreadable structure says which delimiter is wrong
+
+RDKit reports only that it could not build a graph, so "RDKit rejected the molecular graph" was
+the whole of the advice. Across two real runs, five refused structures were each a SINGLE delimiter
+from a sound string — 33 `(` against 34 `)` in one, 26 against 24 in another, in opposite
+directions. In both cases the author rewrote the entire 240-character string in a different
+orientation and kept the fault, which is what a message naming no character invites.
+
+Counting delimiters costs nothing, runs before RDKit is asked, and names that defect exactly: both
+a mismatched count and a closing bracket that arrives before anything opens. Anything else keeps
+the general message, because a guess about an unrecognised token would be worse than silence. Both
+parse sites now share one function so they cannot drift apart.
+
 # Chemistry Studio 2.5.23
 
 A declared name is now compared against the built-in dictionary, which it never was.
