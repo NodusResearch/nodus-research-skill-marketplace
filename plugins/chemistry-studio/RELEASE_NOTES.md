@@ -1,3 +1,36 @@
+# Chemistry Studio 2.5.25
+
+Two findings about what a route report leaves the author guessing at. Both came out of real runs.
+
+## A reactant nothing accounts for is named, not quietly refiled
+
+When a step would not balance, a species the author had listed under Reactants was moved to Agents
+if that made the arithmetic close, and the step was then reported balanced with nothing said. The
+move is often the right reading — an author files a solvent or a catalyst with the reactants — but
+the arithmetic cannot tell that case from the opposite one: a reagent that really was consumed, and
+whose co-product the author forgot to name. Those two readings call for opposite corrections.
+
+Measured on a coupling whose reagent was listed as consumed, as the request asks for, with its
+co-product omitted: the step came back balanced, with no differences, and the species refiled under
+a bare molecular formula so even its name was gone from the report.
+
+The verdict is not flipped, because guessing the other way would be just as wrong. The step now
+carries one sentence naming the species, stating which reading was assumed, and giving both
+corrections: list it under Agents if it is a condition, or name the product it becomes if it is
+consumed. A step that balances on its own terms carries no such sentence.
+
+## An inverted stereocentre says which species and which centre
+
+The refusal gave counts — "its reactants carry 1 (S) and 0 (R) specified centres and its products
+0 (S) and 1 (R)". With two centres in play that is enough to act on; with a dozen it is not, and
+the advice that followed ("give the product the configuration its reactant carries") did not say
+which one had moved.
+
+Each side is now listed species by species, under the name the author wrote, with every specified
+centre and its atom index in the structure as the package parsed it — so the centre can be found in
+the very string the author typed. Species carrying no specified centre are left out rather than
+listed as having none. The counts, the reasoning and the refusal itself are unchanged.
+
 # Chemistry Studio 2.5.24
 
 Three fixes to what the route report tells the author. Each was found in a real run artifact, and

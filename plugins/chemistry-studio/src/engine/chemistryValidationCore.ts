@@ -397,6 +397,7 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
         canonicalSmiles, skeletonSmiles, formula: formulaOf(composition), charge, heavyAtoms,
         stereocentres: specifiedAtoms + stereo.CIP_bonds.length,
         cipTags: stereo.CIP_atoms.filter(([, tag]) => tag !== '(?)').map(([, tag]) => tag).sort(),
+        cipCentres: stereo.CIP_atoms.filter(([, tag]) => tag !== '(?)').map(([atom, tag]) => ({ atom, tag })),
         unspecifiedStereocentres: unspecifiedAtoms + unspecifiedBonds,
         composition,
         ...(alphaConfiguration ? { alphaConfiguration } : {}),

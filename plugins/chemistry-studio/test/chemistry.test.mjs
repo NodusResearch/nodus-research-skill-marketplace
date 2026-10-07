@@ -1752,6 +1752,18 @@ test('a step that inverts a stereocentre is refused, though its equation balance
   assert.match(why, /inverts a stereocentre/);
   assert.match(why, /1 \(S\) and 0 \(R\)/);   // what went in
   assert.match(why, /0 \(S\) and 1 \(R\)/);   // what came out
+
+  // Counts alone cannot be acted on: with a dozen centres in play, "give the product the
+  // configuration its reactant carries" does not say which one moved. Each side is therefore
+  // named species by species, with the atom index of every specified centre, so the reader can
+  // find it in the string they wrote.
+  assert.match(why, /In: L-alanine: \(S\) at atom \d+\./, why);
+  assert.match(why, /Out: the amide: \(R\) at atom \d+\./, why);
+  assert.match(why, /Atom indices count from zero/);
+  // The species with no specified centre is left out rather than listed as having none.
+  assert.ok(!why.includes('N-methylmethanamine'), why);
+  // And the preserved route still says nothing at all.
+  assert.ok(!kept.steps[0].differences.join(' ').includes('inverts a stereocentre'));
 });
 
 test('creating a stereocentre is not reported as an inversion', async () => {
@@ -2396,4 +2408,45 @@ print(json.dumps([m._reaction_classes(a, b) for a, b in cases]))
   assert.ok(grignard.includes('Grignard reaction'), 'and it is still recognised for what it is');
   assert.deepEqual(aldehyde.filter((c) => c.includes('ester')), [], 'a partial reduction claims no ester class rather than a wrong one');
   assert.deepEqual(carbonyl, ['reduction of a carbonyl compound'], 'an ordinary carbonyl reduction is unaffected');
+});
+
+test('a reactant nothing accounts for is named, not silently refiled', async () => {
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  // The amide coupling balances WITHOUT the carbodiimide: acid + amine -> amide + water. The
+  // author lists the carbodiimide under Reactants, which is what the request asks for when a
+  // reagent is consumed, and omits the urea it becomes. Its atoms are therefore wholly
+  // unaccounted for on the product side.
+  const result = await lib.auditRoute({
+    steps: ['CC(=O)O.CNC.C1CCCCC1N=C=NC1CCCCC1>>CC(=O)N(C)C.O'],
+    labels: [[
+      label('reactant', 'ethanoic acid', 'CC(=O)O'),
+      label('reactant', 'N-methylmethanamine', 'CNC'),
+      label('reactant', 'the carbodiimide', 'C1CCCCC1N=C=NC1CCCCC1'),
+      label('product', 'the amide', 'CC(=O)N(C)C'),
+      label('product', 'water', 'O', true),
+    ]],
+  });
+  const step = result.steps[0];
+  // The verdict is NOT flipped: the arithmetic cannot tell a condition that was never consumed
+  // from a reagent that was, so guessing either way would be wrong.
+  assert.equal(step.balanced, true);
+  assert.deepEqual(step.differences, []);
+  // What used to be missing: the step said nothing, and the species lost its name in the move.
+  assert.ok(step.refiledReactant, 'the assumption is reported');
+  assert.match(step.refiledReactant, /"the carbodiimide" was listed under Reactants/);
+  assert.match(step.refiledReactant, /treated it as a condition/);
+  assert.match(step.refiledReactant, /the product it becomes is missing from this step/);
+
+  // A step that balances on its own terms carries no such note.
+  const clean = await lib.auditRoute({
+    steps: ['CC(=O)O.CNC>>CC(=O)N(C)C.O'],
+    labels: [[
+      label('reactant', 'ethanoic acid', 'CC(=O)O'),
+      label('reactant', 'N-methylmethanamine', 'CNC'),
+      label('product', 'the amide', 'CC(=O)N(C)C'),
+      label('product', 'water', 'O', true),
+    ]],
+  });
+  assert.equal(clean.steps[0].balanced, true);
+  assert.equal(clean.steps[0].refiledReactant, undefined);
 });

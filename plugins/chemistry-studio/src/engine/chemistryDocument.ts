@@ -202,6 +202,11 @@ export interface ChemistryInspectionSummary {
    *  and comparing them is the only check that reaches an epimer: it has identical atom counts,
    *  carries over as the same structure, and leaves every bond where it belongs. */
   cipTags?: string[];
+  /** The same specified centres, in the molecule's own atom order and each with its atom index,
+   *  so a report can say WHICH centre changed rather than only how many did. `cipTags` stays
+   *  sorted because the inversion check compares it as a multiset; sorting destroys the position,
+   *  and the position is the only thing that locates a centre among a dozen of them. */
+  cipCentres?: Array<{ atom: number; tag: string }>;
   /** Tetrahedral centres and stereogenic double bonds the author left unspecified. */
   unspecifiedStereocentres: number;
   composition: Record<string, number>;
@@ -271,6 +276,13 @@ export interface RouteStepAudit {
   /** Set when a bond edit at carbon is one the step cannot explain: a 1,2-shift that was not
    *  declared, or a new C–C or C–heteroatom bond at a carbon nothing activates. */
   skeletonProblem?: string;
+  /** Set when the step balanced only because a species the author listed under Reactants was
+   *  treated as taking no part. The move itself is often right — an author files a solvent or a
+   *  catalyst with the reactants — but it used to happen in silence, and silence is wrong here:
+   *  the arithmetic cannot tell a condition that was never consumed from a reagent that WAS
+   *  consumed and whose product the author forgot to name. Those two readings differ, and the
+   *  author is the only one who knows which applies, so the step says what was assumed. */
+  refiledReactant?: string;
 }
 export interface RouteLinkAudit {
   from: number;

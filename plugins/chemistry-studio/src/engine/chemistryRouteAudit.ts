@@ -106,6 +106,14 @@ async function summarizeFieldGrouped(field: string, declared: string[]): Promise
 }
 
 /** The SMILES of every species the author declared for one role on one step, in order. */
+/** The names the author gave each species of one role, in the same order `declaredFor` hands the
+ *  structures over, so a summary can be matched back to the name the author wrote. */
+function namesFor(labels: Array<RouteLabelInput | null | undefined>, role: 'reactant' | 'agent' | 'product'): string[] {
+  return labels
+    .filter((label): label is RouteLabelInput => Boolean(label) && label!.role === role && typeof label!.smiles === 'string' && label!.smiles.trim().length > 0)
+    .map((label) => label.name);
+}
+
 function declaredFor(labels: Array<RouteLabelInput | null | undefined>, role: 'reactant' | 'agent' | 'product'): string[] {
   return labels
     .filter((label): label is RouteLabelInput => Boolean(label) && label!.role === role && typeof label!.smiles === 'string' && label!.smiles.trim().length > 0)
@@ -140,7 +148,7 @@ function sumSide(species: RouteSpeciesSummary[]): { composition: Record<string, 
  *  Descriptors, not geometry, because a CIP label is what the toolkit reports here — sound for
  *  this comparison since the ranking at such a centre does not change when a neighbouring acid
  *  becomes an amide, which is the change these steps make. */
-function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[], names: { reactants: string[]; products: string[] } = { reactants: [], products: [] }): string {
   const tags = (list: RouteSpeciesSummary[]): string[] => list.flatMap(entry => entry.cipTags ?? []).sort();
   const left = tags(reactants);
   const right = tags(products);
@@ -149,7 +157,26 @@ function invertedConfiguration(reactants: RouteSpeciesSummary[], products: Route
   // stereocentres shows, so match that form rather than a bare letter.
   const count = (list: string[], tag: string) => list.filter(entry => entry.replace(/[()]/g, '') === tag).length;
   const describe = (list: string[]) => `${count(list, 'S')} (S) and ${count(list, 'R')} (R)`;
-  return `This step inverts a stereocentre: its reactants carry ${describe(left)} specified centres and its products ${describe(right)}, the same number on each side. A coupling, a deprotection or a cleavage does not change configuration, so either a declared structure has the wrong descriptor at one centre — give the product the configuration its reactant carries — or, if an inversion is genuinely intended, say in this step's own prose which centre inverts and why.`;
+  // Counts alone are not actionable. "Give the product the configuration its reactant carries" is
+  // advice a reader can follow with two centres in play and cannot follow with a dozen: nothing in
+  // the sentence says which one moved. So each side is also listed species by species, in the
+  // molecule's own atom order, with the atom index of every specified centre — the index locates
+  // it in the very string the author wrote, which is the only handle they have on it.
+  const perSpecies = (list: RouteSpeciesSummary[], labelled: string[]) => list
+    .map((entry, position) => ({ entry, name: entry.name ?? labelled[position] ?? entry.formula }))
+    .filter(({ entry }) => (entry.cipCentres ?? entry.cipTags ?? []).length)
+    .map(({ entry, name }) => {
+      const centres = entry.cipCentres?.length
+        ? entry.cipCentres.map(centre => `${centre.tag} at atom ${centre.atom}`).join(', ')
+        : (entry.cipTags ?? []).join(', ');
+      return `${name}: ${centres}`;
+    })
+    .join(' · ');
+  const sides = [perSpecies(reactants, names.reactants), perSpecies(products, names.products)];
+  const where = sides.every(Boolean)
+    ? ` In: ${sides[0]}. Out: ${sides[1]}. Atom indices count from zero in the structure as the application parsed it.`
+    : '';
+  return `This step inverts a stereocentre: its reactants carry ${describe(left)} specified centres and its products ${describe(right)}, the same number on each side.${where} A coupling, a deprotection or a cleavage does not change configuration, so either a declared structure has the wrong descriptor at one centre — give the product the configuration its reactant carries — or, if an inversion is genuinely intended, say in this step's own prose which centre inverts and why.`;
 }
 
 /** Whether the declared species admit a balanced equation, solved exactly as the drawing
@@ -545,7 +572,9 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
         ] };
       }
       // An inverted stereocentre balances perfectly, so it has to be refused separately.
-      const inverted = balance.balanced ? invertedConfiguration(reactants, products) : '';
+      const inverted = balance.balanced
+        ? invertedConfiguration(reactants, products, { reactants: namesFor(stepLabels, 'reactant'), products: namesFor(stepLabels, 'product') })
+        : '';
       if (inverted) balance = { ...balance, balanced: false, differences: [inverted] };
       // A reactant-side species that takes no part in the only balance is a reagent or a
       // condition (a catalyst, a solvent) the author listed with the reactants: file it under
@@ -558,6 +587,17 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
           const asAgents = [...agents, ...moved.map(position => reactants[position])];
           const retried = stepBalance(kept, asAgents, products);
           if (retried.balanced) {
+            // Say what was assumed. The arithmetic is the same whether the species is a condition
+            // that was never consumed or a reagent that was consumed and whose product the author
+            // forgot — so moving it in silence reported a balanced step for the exact mistake the
+            // request warns about ("if a reagent is used up, list it as a reactant and name what it
+            // becomes"). Measured: a coupling reagent listed under Reactants with its co-product
+            // omitted came back balanced, no differences, and refiled under Agents under a bare
+            // formula. The verdict is not flipped on a guess; the reading is named instead.
+            const names = namesFor(stepLabels, 'reactant');
+            const refiled = moved.map(position => reactants[position].name ?? names[position] ?? reactants[position].formula ?? reactants[position].canonicalSmiles);
+            const list = refiled.map(name => `"${name}"`).join(' and ');
+            step.refiledReactant = `${list} ${refiled.length > 1 ? 'were' : 'was'} listed under Reactants, and the step balances only if ${refiled.length > 1 ? 'they take' : 'it takes'} no part, so the check treated ${refiled.length > 1 ? 'them' : 'it'} as ${refiled.length > 1 ? 'conditions' : 'a condition'}. If that is right, list ${refiled.length > 1 ? 'them' : 'it'} under Agents. If ${refiled.length > 1 ? 'they are' : 'it is'} genuinely consumed, then the product ${refiled.length > 1 ? 'they become' : 'it becomes'} is missing from this step, and naming it is what makes the equation close.`;
             reactants.splice(0, reactants.length, ...kept);
             agents.splice(0, agents.length, ...asAgents);
             balance = retried;
