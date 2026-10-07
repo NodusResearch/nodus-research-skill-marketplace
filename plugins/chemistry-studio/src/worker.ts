@@ -131,7 +131,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
         // `unsupported` means the intent's shape was wrong and the error names the field.
         // `needs-clarification` means the chemistry itself is underdetermined.
         if (document.status !== 'unsupported' || attempt >= REPAIR_ATTEMPTS) {
-          return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback);
+          return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback, source);
         }
         const { repairChemistryIntent } = await import('./engine/chemistryRepair');
         const repaired = await repairChemistryIntent({
@@ -139,7 +139,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
           instructions: CHEMISTRY_INSTRUCTIONS, final: attempt === REPAIR_ATTEMPTS - 1,
           signal: host().signal,
         });
-        if (!repaired) return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback);
+        if (!repaired) return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback, source);
         source = repaired;
       }
     },
@@ -204,20 +204,30 @@ function looksLikeIntent(content: string): boolean {
  *  a notice, ask once for a drawing in plain SVG — and label it, everywhere, as unverified.
  *  A direct application call passes `allowFallback: false`: it wants the refusal, not a
  *  drawing it will discard, so no model call is spent. */
-async function abstain(reason: string, question: string, locale: string, notices: Array<Record<string, unknown>>, allowFallback = true) {
+async function abstain(reason: string, question: string, locale: string, notices: Array<Record<string, unknown>>, allowFallback = true, plan = '') {
   if (!allowFallback) return { notices: [...notices, noticeView('not-drawn', locale, reason)] };
-  const rescued = await rescueWithSvg(question, reason);
+  const rescued = await rescueWithSvg(question, reason, plan);
   if (!rescued) return { notices: [...notices, noticeView('not-drawn', locale, reason)] };
   return { notices, view: unverifiedSvgView(rescued, locale, reason) };
 }
 
-async function rescueWithSvg(question: string, reason: string): Promise<string | null> {
+/** The unverified fallback, scoped to what the plan asked for.
+ *
+ *  It used to be given the whole request and told to "draw the chemistry the request actually asks
+ *  for", which is a different question from the one the plan asked. Measured in a real reply: the
+ *  plan asked for one target structure, the request was a multi-step route, and the rescue drew the
+ *  entire route as a four-panel scheme with reagents and conditions — an unverified picture of a
+ *  route nothing had checked, in an answer whose author had asked for the pictures to stop. The
+ *  request still travels, because it names the species, but the plan is what sets the subject. */
+async function rescueWithSvg(question: string, reason: string, plan = ''): Promise<string | null> {
   try {
     const answer = await completeText({
       system: `${chemistrySvgAuditSystem(CHEMISTRY_INSTRUCTIONS, chemistrySvgMode(question))}
 
-Chemistry Studio could not produce a verified drawing for this request. Draw it yourself as one complete, self-contained SVG, using classical textbook notation with labelled atoms, explicit formal charges, and curved arrows where the request involves electron movement. Accompany nothing: return only the fenced svg block. Draw the chemistry the request actually asks for; do not narrow it to a simpler example, and do not refuse because a verified rule was unavailable.`,
-      user: JSON.stringify({ request: question, verifiedLaneReported: reason.slice(0, 700) }),
+Chemistry Studio could not produce a verified drawing for this request. Draw it yourself as one complete, self-contained SVG, using classical textbook notation with labelled atoms, explicit formal charges, and curved arrows where the request involves electron movement. Accompany nothing: return only the fenced svg block.
+
+Draw EXACTLY what the plan asked for and nothing else. The plan is in \`plan\`; the request is in \`request\` only so you can tell which species the plan names. If the plan names a single structure, draw that one structure: not the route that makes it, not its starting materials, not a reaction scheme, and no reagents, conditions, step numbers or commentary. Add a panel only where the plan itself asks for one. Do not narrow the plan to a simpler example, and do not refuse because a verified rule was unavailable.`,
+      user: JSON.stringify({ plan: plan.slice(0, 4_000), request: question, verifiedLaneReported: reason.slice(0, 700) }),
       maxTokens: 12_000,
     });
     const part = splitFences(answer).find(entry => entry.kind === 'svg' && entry.complete);

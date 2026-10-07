@@ -2450,3 +2450,16 @@ test('a reactant nothing accounts for is named, not silently refiled', async () 
   assert.equal(clean.steps[0].balanced, true);
   assert.equal(clean.steps[0].refiledReactant, undefined);
 });
+
+test('the unverified fallback is scoped to the plan, not to the whole request', async () => {
+  // The shape that produced an unverified picture of a whole route: the plan asked for one target
+  // structure and the request was a multi-step synthesis. The fallback used to be handed only the
+  // request, and drew the route.
+  const source = fs.readFileSync(path.join(root, 'src/worker.ts'), 'utf8');
+  assert.match(source, /async function rescueWithSvg\(question: string, reason: string, plan = ''\)/);
+  assert.match(source, /Draw EXACTLY what the plan asked for and nothing else/);
+  assert.match(source, /If the plan names a single structure, draw that one structure/);
+  assert.match(source, /plan: plan\.slice\(0, 4_000\), request: question/);
+  // Both abstain paths pass the plan, or the scoping is only half applied.
+  assert.equal((source.match(/allowFallback, source\)/g) ?? []).length, 2, 'both abstain call sites carry the plan');
+});

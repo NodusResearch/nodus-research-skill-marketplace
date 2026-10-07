@@ -1,6 +1,22 @@
 # Chemistry Studio 2.5.25
 
-Two findings about what a route report leaves the author guessing at. Both came out of real runs.
+Three findings from real runs: two about what a route report leaves the author guessing at, and one
+about the picture that appears when the verified lane cannot draw.
+
+## The unverified fallback draws what the plan asked for
+
+When the verified lane abstains, the package asks the model for a plain SVG and labels it
+unverified. That fallback was handed the whole request and told to draw "the chemistry the request
+actually asks for" — which is a different question from the one the plan asked.
+
+Measured in a real reply: the plan asked for one target structure, the request was a multi-step
+synthesis, and the fallback drew the entire route as a four-panel scheme with reagents and
+conditions. An unverified picture of a route nothing had checked, in a reply whose author had asked
+for the pictures to stop.
+
+The plan now sets the subject. The request still travels, because it names the species, but the
+instruction is explicit: draw what the plan names and nothing else — no route, no starting
+materials, no scheme, no reagents or step numbers unless the plan itself asks for them.
 
 ## A reactant nothing accounts for is named, not quietly refiled
 
