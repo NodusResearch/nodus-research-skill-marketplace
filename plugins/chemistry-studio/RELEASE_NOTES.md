@@ -1,3 +1,37 @@
+# Chemistry Studio 2.5.23
+
+A declared name is now compared against the built-in dictionary, which it never was.
+
+## Two resolvers, and only one of them read the dictionary
+
+The package carries a dictionary of 45 standard building-block structures, PubChem-sourced and
+RDKit-validated. `resolveSpeciesName`, behind the `resolve-names` tool, has always tried it first,
+so a route resolves those names offline.
+
+`resolveNameReferences` did not. It is the other path — the one that fills `nameSmiles`, which is
+what the route audit's name-versus-structure comparison actually reads — and it went straight to
+OPSIN and then PubChem. Neither service reads the standard shorthand: `Fmoc-Lys(Boc)-OH` resolves
+at neither. So for exactly the names the dictionary exists to cover, the candidate list came back
+empty, the name was counted unresolved, and the comparison never ran — against a structure the
+package already held a trusted answer for. The same path also meant no name could be checked at
+all without a network, although the dictionary needed none.
+
+It now consults the dictionary first, as the other resolver does.
+
+The comparison itself is unchanged and was never wrong: it matches canonical structures, falls back
+to skeleton and charge, treats a name silent about configuration as agreement, and treats an
+unparseable candidate as silence rather than as a disagreement. What changes is that it is now
+reachable for these names.
+
+A dictionary hit is returned **alone**, not alongside whatever the network says. The comparison
+accepts any one candidate that agrees, and a candidate silent about configuration satisfies the
+skeleton-and-charge fallback — so offering a second answer beside the dictionary's would let an
+inverted centre pass as agreement. One trusted answer is the point of holding the dictionary.
+
+Covered by a test that stubs the network to throw and asserts the dictionary answers without a
+single request, that a name outside the dictionary still reaches the resolvers, and that a resolver
+failure is still silence.
+
 # Chemistry Studio 2.5.22
 
 A check that could not run no longer looks like a check that passed.
