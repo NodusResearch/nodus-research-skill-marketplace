@@ -624,8 +624,19 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       try { declared = await summarize(raw.smiles); } catch { continue; }
       const candidates = (Array.isArray(raw.nameSmiles) ? raw.nameSmiles : [])
         .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+      // A structure carrying a dummy atom is an ABSTRACTION: the author has deliberately left
+      // part of it unspecified, an attachment to something not drawn, which is what the engine
+      // itself asks them to do. No catalogue record can match such a structure, so resolving the
+      // name and comparing would report a disagreement that is really just the abstraction —
+      // and the only way to satisfy it would be to write a VAGUER name, one the references
+      // cannot resolve at all. Leave the name unchecked rather than wrong. A dummy atom survives
+      // canonicalisation as `*` and no real species contains one, so the test is exact.
+      const abstracted = declared.canonicalSmiles.includes('*');
       let nameOk: boolean | undefined;
-      if (candidates.length) {
+      if (abstracted) {
+        // Not checked, and deliberately not counted as unresolved: the name resolved fine, it is
+        // the structure that is partly undrawn.
+      } else if (candidates.length) {
         nameOk = false;
         for (const candidate of candidates) {
           try {

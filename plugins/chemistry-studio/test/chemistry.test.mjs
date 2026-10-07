@@ -1404,6 +1404,33 @@ test('a declared name that is not systematic is reported without being called IU
   assert.doesNotMatch(audit.blocked.join(' '), /IUPAC/);
 });
 
+test('a structure left partly undrawn has its name left unchecked, not called a mismatch', async () => {
+  // The author wrote an attachment point as a dummy atom, which is what the engine asks for when
+  // part of a species is deliberately not drawn. Its name resolves to a real catalogue record —
+  // necessarily a DIFFERENT graph, because the record draws the whole thing. Comparing them
+  // reports a disagreement that is only the abstraction, and the sole way to silence it is to
+  // write a vaguer name the references cannot resolve: the check would be rewarding vagueness.
+  const host = stubHost({
+    fetch: (endpointId, target) => endpointId === 'opsin' && target.includes('/opsin/ws/')
+      ? { status: 'SUCCESS', smiles: 'CCOC(=O)C' }
+      : undefined,
+  });
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({
+    invocationId: 'rn2c', toolId: 'verify-route', locale: 'en',
+    input: {
+      steps: ['*OC(=O)C.O>>*O.CC(=O)O'],
+      labels: [[{ role: 'reactant', name: 'acetate ester', smiles: '*OC(=O)C' }]],
+    },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.steps[0].ok, true, `the step itself must balance: ${JSON.stringify(audit.blocked)}`);
+  assert.equal(audit.steps[0].reactants.find(e => e.name === 'acetate ester')?.nameOk, undefined,
+    'the name is left unchecked, neither confirmed nor contradicted');
+  assert.equal(audit.steps[0].nameProblems, undefined, 'no name problem is raised');
+  assert.doesNotMatch(audit.blocked.join(' '), /denotes a different structure/);
+});
+
 test('an unresolvable name is reported as unchecked, never as a disagreement', async () => {
   const host = stubHost();
   const worker = lib.createWorker(host);
