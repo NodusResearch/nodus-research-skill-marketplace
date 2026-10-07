@@ -29,10 +29,43 @@ function rdkit(): Promise<RDKitModule> {
  *  a salt are atoms of the same graph with no bond between them. */
 export interface MoleculeGraph { elements: number[]; charges: number[]; radicals: number[]; bonds: Array<[number, number, number]> }
 
+/** The reason a SMILES was refused, when the reason is mechanically visible before RDKit is asked.
+ *
+ *  RDKit reports only that it could not build a graph, which leaves the author re-deriving a long
+ *  string from scratch instead of repairing it. Measured on real routes: a 242-character species
+ *  that differed from a valid one by a SINGLE bracket, and the author's answer was to rewrite the
+ *  whole species in a different orientation rather than fix the character — because nothing told
+ *  them which character was wrong. Counting delimiters costs nothing and names that defect
+ *  exactly. Anything else keeps the general message: a guess would be worse than silence. */
+function delimiterFault(smiles: string): string | null {
+  for (const [open, close] of [['(', ')'], ['[', ']']] as const) {
+    const opened = smiles.split(open).length - 1;
+    const closed = smiles.split(close).length - 1;
+    if (opened !== closed) return `${opened} "${open}" against ${closed} "${close}"`;
+    let depth = 0;
+    for (const character of smiles) {
+      if (character === open) depth += 1;
+      else if (character === close) {
+        depth -= 1;
+        if (depth < 0) return `a "${close}" that closes before anything opens`;
+      }
+    }
+  }
+  return null;
+}
+
+/** One message for both parse sites, so they cannot drift apart. */
+function rejectedGraph(smiles: string): Error {
+  const fault = delimiterFault(smiles);
+  return new Error(fault
+    ? `RDKit rejected the molecular graph: the SMILES has ${fault}. The rest of the string may be sound, so repair the delimiter rather than rewriting the species.`
+    : 'RDKit rejected the molecular graph.');
+}
+
 export async function moleculeGraph(smiles: string): Promise<MoleculeGraph> {
   const kit = await rdkit();
   const molecule = kit.get_mol(smiles);
-  if (!molecule) throw new Error('RDKit rejected the molecular graph.');
+  if (!molecule) throw rejectedGraph(smiles);
   try {
     if (!molecule.is_valid()) throw new Error('Invalid molecular graph.');
     const json = JSON.parse(molecule.get_json()) as {
@@ -164,7 +197,7 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
   const owned: JSMol[] = [];
   const parse = (source: string): JSMol => {
     const molecule = kit.get_mol(source);
-    if (!molecule) throw new Error('RDKit rejected the molecular graph.');
+    if (!molecule) throw rejectedGraph(source);
     owned.push(molecule);
     if (!molecule.is_valid()) throw new Error('Invalid molecular graph.');
     return molecule;

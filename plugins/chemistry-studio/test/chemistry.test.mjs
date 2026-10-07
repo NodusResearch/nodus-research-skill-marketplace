@@ -1431,6 +1431,61 @@ test('a structure left partly undrawn has its name left unchecked, not called a 
   assert.doesNotMatch(audit.blocked.join(' '), /denotes a different structure/);
 });
 
+test('a refused SMILES names the delimiter that is wrong, not just that RDKit refused', async () => {
+  // Measured on real routes: a 242-character species differed from a valid one by a single
+  // bracket, and the author rewrote the whole species in a different orientation instead of
+  // repairing the character, because the message named no character. Both directions occurred —
+  // one too few and one too many — so both are covered.
+  const worker = lib.createWorker(stubHost());
+  const refusal = async (smiles) => {
+    const result = await worker.invoke({
+      invocationId: `bad-${smiles.length}`, toolId: 'verify-route', locale: 'en',
+      input: { steps: [`${smiles}>>CC=O`] },
+    });
+    const step = result.artifacts[0].data.steps[0];
+    assert.equal(step.ok, false, smiles);
+    return step.error ?? '';
+  };
+
+  const extra = await refusal('CC(C)(C))O');
+  assert.ok(extra.includes('2 "(" against 3 ")"'), `an extra closing bracket is counted: ${extra}`);
+  assert.match(extra, /repair the delimiter rather than rewriting/);
+  assert.ok(extra.includes('"CC(C)(C))O"'), 'the offending species is still named');
+
+  const unclosed = await refusal('CC(C)(CO');
+  assert.ok(unclosed.includes('2 "(" against 1 ")"'), `an unclosed bracket is counted: ${unclosed}`);
+
+  // A refusal with balanced delimiters must NOT invent a delimiter fault.
+  const other = await refusal('CC(C)Q');
+  assert.doesNotMatch(other, /against/, `no delimiter fault should be claimed: ${other}`);
+  assert.match(other, /RDKit rejected the molecular graph\./, 'the general message is kept');
+});
+
+test('the two species real runs were refused for are each diagnosed down to the count', async () => {
+  // Verbatim from harness-runs/chain-ladder-2026-10-07--chain-12--deepseek-flash--{high,none},
+  // turn 1. Each is one delimiter away from a sound string, in opposite directions. Against the
+  // old message the author rewrote the whole species instead; these are the inputs that has to
+  // stop happening, so they are pinned here rather than paraphrased.
+  const worker = lib.createWorker(stubHost());
+  const diagnose = async (smiles) => {
+    const result = await worker.invoke({
+      invocationId: `real-${smiles.length}`, toolId: 'verify-route', locale: 'en',
+      input: { steps: [`${smiles}>>CC=O`] },
+    });
+    const step = result.artifacts[0].data.steps[0];
+    assert.equal(step.ok, false);
+    return step.error ?? '';
+  };
+
+  const oneTooMany = "*OC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](N)C)COC(C)(C)C)C(C)C)CC(C)C)Cc1ccccc1)[C@@H](C)OC(C)(C)C)[C@@H](C)CC)CCSC)CC(N)=O)CCC(N)=O)Cc1ccc(OC(C)(C)C)cc1";
+  assert.equal(oneTooMany.length, 242);
+  assert.ok((await diagnose(oneTooMany)).includes('33 "(" against 34 ")"'), 'one closing bracket too many');
+
+  const twoTooFew = "*OC(=O)[C@@H](Cc1ccc(O)cc1)NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)CN)[C@@H](C)O)[C@@H](C)CC)Cc1ccccc1)CC(C)C)C(C)C)COC(C)(C)C";
+  assert.equal(twoTooFew.length, 196);
+  assert.ok((await diagnose(twoTooFew)).includes('26 "(" against 24 ")"'), 'two closing brackets missing');
+});
+
 test('an unresolvable name is reported as unchecked, never as a disagreement', async () => {
   const host = stubHost();
   const worker = lib.createWorker(host);
