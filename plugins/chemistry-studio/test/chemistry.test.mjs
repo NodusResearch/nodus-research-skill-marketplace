@@ -38,7 +38,7 @@ await build({
       export { documentView, summarize } from './src/view';
       export { assignLonePairs, forceTetrahedralPerspective } from './src/engine/chemistryScene';
       export { balanceReaction } from './src/engine/chemistryReaction';
-      export { parseChemistryIntent } from './src/engine/chemistryIdentity';
+      export { parseChemistryIntent, resolveNameReferences } from './src/engine/chemistryIdentity';
       export { auditRoute } from './src/engine/chemistryRouteAudit';
       export { skeletonChange } from './src/engine/chemistrySkeleton';
       export { buildingBlockSmiles, isResinBoundName, PEPTIDE_BUILDING_BLOCKS } from './src/engine/peptideBuildingBlocks';
@@ -380,6 +380,33 @@ test('peptide building blocks: the dictionary resolves standard protected residu
 test('resin-bound names are flagged (need SMILES), plain residues are not', () => {
   for (const n of ['the growing peptide on the resin', 'Fmoc-peptidyl-resin', 'H-Ala-Gly-resin', 'Wang resin ester']) assert.equal(lib.isResinBoundName(n), true, n);
   for (const n of ['Fmoc-Lys(Boc)-OH', 'glycine', 'acetic acid']) assert.equal(lib.isResinBoundName(n), false, n);
+});
+
+test('the comparison path reads the built-in dictionary, and needs no network to do it', async () => {
+  let calls = 0;
+  const offline = {
+    fetch: async () => { calls += 1; throw new Error('the network must not be reached'); },
+    validate: async () => { throw new Error('not used on this path'); },
+  };
+  // resolveNameReferences is what feeds the route audit's name-vs-structure comparison. It used to
+  // go straight to OPSIN and PubChem, neither of which reads the standard shorthand, so these names
+  // produced no candidate at all and were counted unresolved instead of being compared.
+  for (const name of ['Fmoc-Lys(Boc)-OH', 'fmoc\u2013lys(boc)\u2013oh', ' Fmoc-Ser(tBu)-OH ', 'Fmoc-Cys(Trt)-OH']) {
+    const out = await lib.resolveNameReferences(name, offline);
+    assert.equal(out.length, 1, `one candidate for ${name}`);
+    assert.equal(out[0], lib.buildingBlockSmiles(name), `the dictionary structure for ${name}`);
+  }
+  assert.equal(calls, 0, 'answered from the dictionary without a single request');
+
+  // Exactly one candidate, deliberately: the comparison accepts a candidate silent about
+  // configuration on a skeleton and charge match, so a second answer beside the dictionary's would
+  // let an inverted centre pass as agreement.
+  assert.equal((await lib.resolveNameReferences('Fmoc-Tyr(tBu)-OH', offline)).length, 1);
+
+  // A name the dictionary does not hold still goes to the resolvers, and a failure there is still
+  // silence rather than a disagreement.
+  assert.deepEqual(await lib.resolveNameReferences('ethanol', offline), []);
+  assert.ok(calls > 0, 'a name outside the dictionary did reach the resolvers');
 });
 
 test('solid support: a solid-phase route keeps its resin as one conserved * and checks every step', async () => {

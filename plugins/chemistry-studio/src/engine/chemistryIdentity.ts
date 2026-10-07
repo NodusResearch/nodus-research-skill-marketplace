@@ -271,6 +271,15 @@ export const MAX_CHEMICAL_NAME = 4000;
 export async function resolveNameReferences(name: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<string[]> {
   const value = typeof name === 'string' ? name.trim() : '';
   if (!value || value.length > MAX_CHEMICAL_NAME || !/\p{L}/u.test(value)) return [];
+  // The built-in dictionary first, exactly as resolveSpeciesName does it. This is the comparison
+  // path for a declared name, and the network resolvers cannot read the standard shorthand at all:
+  // OPSIN and PubChem both fail on `Fmoc-Lys(Boc)-OH`, so the candidate list came back empty and
+  // the name was counted unresolved rather than checked against a structure the dictionary already
+  // holds, PubChem-sourced and RDKit-validated. Returned alone rather than alongside the network's
+  // answers: a candidate silent about configuration satisfies the comparison on skeleton and
+  // charge, so offering one beside the dictionary entry would let an inverted centre pass.
+  const builtin = buildingBlockSmiles(value);
+  if (builtin) return [builtin];
   try {
     const found = await references({ kind: 'name', value }, deps, signal);
     const smiles = found.map(entry => entry.smiles).filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
