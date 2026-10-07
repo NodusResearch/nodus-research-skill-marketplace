@@ -2,7 +2,7 @@ import { MAX_LABEL_NAME_CHARS, MAX_SPECIES_CHARS } from './engine/chemistryLimit
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bindHost, completeText, host, type CapabilityHost } from './engine/host';
-import { nameStructureBySmiles, resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution, type SpeciesStructureName } from './engine/chemistryIdentity';
+import { nameStructureBySmiles, resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution, type SpeciesStructureName, MAX_CHEMICAL_NAME} from './engine/chemistryIdentity';
 import { chemistryDependencies } from './deps';
 import type { RouteLabelInput } from './engine/chemistryRouteAudit';
 import { splitFences } from './engine/fences';
@@ -421,7 +421,10 @@ async function resolveNames(input: { names?: string[] }, cache: ReferenceCache) 
   const list = Array.isArray(input?.names) ? input.names : [];
   const cleaned = [...new Set(list
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    .map((entry) => entry.trim().slice(0, 200)))].slice(0, MAX_NAMES);
+    // A systematic name for an assembled chain runs to several hundred characters, and a cut
+    // name is syntactically incomplete, so it resolves to nothing and the caller is told the
+    // NAME is unknown when the fault was the cut.
+    .map((entry) => entry.trim().slice(0, MAX_CHEMICAL_NAME)))].slice(0, MAX_NAMES);
   if (!cleaned.length) throw new Error(`Provide between one and ${MAX_NAMES} chemical names.`);
   const base = chemistryDependencies();
   const deps = { ...base, fetch: breakerFetch(base.fetch) };

@@ -1575,11 +1575,61 @@ test('a shared counterion written once per side balances uniquely; repeated toke
   assert.equal(ok.steps[0].balanced, true, JSON.stringify(ok.steps[0].differences));
 
   // The same equation with the shared sulfate and sodium repeated (as an un-deduped derivation
-  // would write them) admits more than one balance and is refused.
+  // would write them) is refused. It used to be refused as "more than one balanced equation",
+  // which was never established: the repeated tokens leave 5 species free to vary and the
+  // bounded search covers 4, so no candidate was ever built and nothing was compared. The
+  // message now says it did not determine the coefficients, and gives the element totals at the
+  // coefficients as declared, which is the part an author can act on.
   const repeated = 'C1(CCCCC1)O.[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-].[Na+].[Na+].S(O)(O)(=O)=O>>C1(CCCCC1)=O.S(=O)(=O)([O-])[O-].S(=O)(=O)([O-])[O-].S(=O)(=O)([O-])[O-].[Cr+3].[Cr+3].S(=O)(=O)([O-])[O-].[Na+].[Na+].O';
   const refused = await lib.auditRoute({ steps: [repeated] });
   assert.equal(refused.steps[0].balanced, false);
-  assert.match(refused.steps[0].differences.join(' '), /more than one balanced equation/);
+  const why = refused.steps[0].differences.join(' ');
+  assert.match(why, /free to vary independently/);
+  assert.match(why, /NOT been shown to be unbalanced/);
+  // Four extra sulfurs declared on the product side is the actual fault, and it is now named.
+  assert.match(why, /reactants are short of .*S \(3\)/);
+  assert.doesNotMatch(why, /more than one balanced equation/);
+});
+
+test('a step that inverts a stereocentre is refused, though its equation balances', async () => {
+  // L-alanine is (S). Coupling it to dimethylamine makes one amide and loses one water; the
+  // configuration at the alpha carbon is untouched by that bond, so it must survive the step.
+  const reactants = 'N[C@@H](C)C(=O)O.CNC';
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const amine = label('reactant', 'N-methylmethanamine', 'CNC');
+  const acid = label('reactant', 'L-alanine', 'N[C@@H](C)C(=O)O');
+  const water = label('product', 'water', 'O', true);
+
+  // Configuration preserved: (S) in, (S) out.
+  const kept = await lib.auditRoute({
+    steps: [`${reactants}>>C[C@H](N)C(=O)N(C)C.O`],
+    labels: [[acid, amine, label('product', 'the amide', 'C[C@H](N)C(=O)N(C)C'), water]],
+  });
+  assert.equal(kept.steps[0].balanced, true, JSON.stringify(kept.steps[0].differences));
+
+  // The epimer. Identical formula, identical atom counts, so the equation balances exactly as
+  // well — this is the error class no balance check can reach, and it must still be refused.
+  const flipped = await lib.auditRoute({
+    steps: [`${reactants}>>C[C@@H](N)C(=O)N(C)C.O`],
+    labels: [[acid, amine, label('product', 'the amide', 'C[C@@H](N)C(=O)N(C)C'), water]],
+  });
+  assert.equal(flipped.steps[0].balanced, false);
+  const why = flipped.steps[0].differences.join(' ');
+  assert.match(why, /inverts a stereocentre/);
+  assert.match(why, /1 \(S\) and 0 \(R\)/);   // what went in
+  assert.match(why, /0 \(S\) and 1 \(R\)/);   // what came out
+});
+
+test('creating a stereocentre is not reported as an inversion', async () => {
+  // Counts differ between the sides, which is ordinary chemistry: a centre was made, not flipped.
+  // The gate only speaks when the number of specified centres is equal and the mix differs.
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const made = await lib.auditRoute({
+    steps: ['CCC(=O)C.[H][H]>>CC[C@H](O)C'],
+    labels: [[label('reactant', 'butan-2-one', 'CCC(=O)C'), label('reactant', 'dihydrogen', '[H][H]'),
+              label('product', '(2S)-butan-2-ol', 'CC[C@H](O)C')]],
+  });
+  assert.equal(made.steps[0].balanced, true, JSON.stringify({ error: made.steps[0].error, differences: made.steps[0].differences }));
 });
 
 test('a salt name prefers the reference that shows the metal as an ion', async () => {

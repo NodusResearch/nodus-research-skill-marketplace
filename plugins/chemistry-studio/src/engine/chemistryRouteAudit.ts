@@ -1,4 +1,5 @@
 import { MAX_REACTION_CHARS } from './chemistryLimits';
+import { MAX_CHEMICAL_NAME } from './chemistryIdentity';
 import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit, RouteTargetAudit } from './chemistryDocument';
 import { balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
@@ -121,6 +122,34 @@ function sumSide(species: RouteSpeciesSummary[]): { composition: Record<string, 
     charge += entry.charge;
   }
   return { composition, charge };
+}
+
+/** A stereocentre a step neither makes nor breaks must come out the way it went in.
+ *
+ *  Compare the multiset of specified CIP descriptors on each side. When both sides carry the SAME
+ *  NUMBER of specified centres but a different mix, a centre was inverted — which an amide
+ *  coupling, a deprotection or a cleavage does not do. Differing counts mean a centre was created
+ *  or destroyed, which is ordinary chemistry, so that case is left alone.
+ *
+ *  This is the one error class atom balance cannot reach. An epimer has identical atom counts, so
+ *  the equation balances; it carries over as the same declared structure, so continuity holds; and
+ *  the right bonds form, so the skeleton ledger is satisfied. A route can therefore be balanced,
+ *  continuous, skeleton-clean and end on an exact match to the requested target while passing
+ *  through a compound that cannot give it.
+ *
+ *  Descriptors, not geometry, because a CIP label is what the toolkit reports here — sound for
+ *  this comparison since the ranking at such a centre does not change when a neighbouring acid
+ *  becomes an amide, which is the change these steps make. */
+function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+  const tags = (list: RouteSpeciesSummary[]): string[] => list.flatMap(entry => entry.cipTags ?? []).sort();
+  const left = tags(reactants);
+  const right = tags(products);
+  if (left.length !== right.length || left.join(',') === right.join(',')) return '';
+  // The toolkit reports descriptors parenthesised — "(S)", "(R)" — as the "(?)" filter beside
+  // stereocentres shows, so match that form rather than a bare letter.
+  const count = (list: string[], tag: string) => list.filter(entry => entry.replace(/[()]/g, '') === tag).length;
+  const describe = (list: string[]) => `${count(list, 'S')} (S) and ${count(list, 'R')} (R)`;
+  return `This step inverts a stereocentre: its reactants carry ${describe(left)} specified centres and its products ${describe(right)}, the same number on each side. A coupling, a deprotection or a cleavage does not change configuration, so either a declared structure has the wrong descriptor at one centre — give the product the configuration its reactant carries — or, if an inversion is genuinely intended, say in this step's own prose which centre inverts and why.`;
 }
 
 /** Whether the declared species admit a balanced equation, solved exactly as the drawing
@@ -296,19 +325,24 @@ function formatFraction(numerator: number, denominator: number): string {
  *  may host several products, which is fragmentation. A product larger than every substrate is
  *  a multi-component coupling, which this does not model, so the step is left unchecked rather
  *  than refused; and the test is symmetry-blind, so any assignment of equal carbons is fine. */
-function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: false; reason: string } | 'unchecked' {
+/** Three outcomes, not two, and the distinction matters. 'n/a' means the shape is outside what
+ *  packing models — most of all a convergent coupling, where a product legitimately carries more
+ *  carbon than any single substrate. That is every coupling in a stepwise assembly, so saying
+ *  "unchecked" for it would bury the real case in noise. `unchecked` means the search GAVE UP,
+ *  which the author should hear about. */
+function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: false; reason: string } | 'n/a' | { unchecked: string } {
   const carbonOf = (entry: RouteSpeciesSummary): number => entry.composition['6:0'] ?? 0;
   const substrates = step.reactants.filter((entry) => carbonOf(entry) > 0);
   const products = step.products.filter((entry) => carbonOf(entry) > 0);
   const maxBin = substrates.reduce((max, entry) => Math.max(max, carbonOf(entry)), 0);
-  if (!maxBin || !products.length) return 'unchecked';
-  for (const product of products) if (carbonOf(product) > maxBin) return 'unchecked'; // a coupling
+  if (!maxBin || !products.length) return 'n/a';
+  for (const product of products) if (carbonOf(product) > maxBin) return 'n/a'; // a convergent coupling: not modelled
   const bins: number[] = [];
   for (const reactant of substrates) for (let i = 0; i < (reactant.coefficient ?? 1); i += 1) bins.push(carbonOf(reactant));
   const items: number[] = [];
   for (const product of products) for (let i = 0; i < (product.coefficient ?? 1); i += 1) items.push(carbonOf(product));
-  if (!bins.length || !items.length) return 'unchecked';
-  if (bins.length + items.length > PACKING_BUDGET) return 'unchecked';
+  if (!bins.length || !items.length) return 'n/a';
+  if (bins.length + items.length > PACKING_BUDGET) return { unchecked: `too many fragments to pack (${bins.length + items.length} against a budget of ${PACKING_BUDGET})` };
   items.sort((a, b) => b - a);
   let visited = 0;
   const fit = (index: number): boolean => {
@@ -326,7 +360,7 @@ function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: fal
     return false;
   };
   let packed: boolean;
-  try { packed = fit(0); } catch { return 'unchecked'; }
+  try { packed = fit(0); } catch { return { unchecked: `the packing search exceeded its budget of ${PACKING_BUDGET} candidate tests` }; }
   if (packed) return { ok: true };
 
   // Packing assigns each product to one substrate, which is only valid for a fragmentation of a
@@ -338,7 +372,7 @@ function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: fal
   // Two or more distinct carbon-bearing substrates, not the coefficient count: a single substrate
   // taken several times (8 citric acid -> 9 acetonedicarboxylic) is a redistribution of one molecule
   // and is still a real impossibility to refuse.
-  if (substrates.length >= 2) return 'unchecked';
+  if (substrates.length >= 2) return 'n/a';   // convergent: outside the single-substrate model
 
   const bottleneck = packingBottleneck(bins, items);
   const culprit = bottleneck ? products.find((entry) => carbonOf(entry) === bottleneck.size) : undefined;
@@ -408,7 +442,15 @@ async function checkSkeleton(step: RouteStepAudit, declared: { rearrangement: bo
     report = await skeletonChange(species(step.reactants), species(step.products));
     const bonds = await bondLedger(species(step.reactants), species(step.products));
     if (Object.keys(bonds).length) step.bonds = bonds;
-  } catch {
+  } catch (error) {
+    // Record that the check did not run, rather than returning as though it had passed. Without
+    // this the step carries no skeleton report at all, so it is not even counted as unchecked and
+    // the report reads exactly like a step whose bonds were examined and found sound.
+    step.skeleton = {
+      change: 'unchecked', formed: 0, cleaved: 0, ringSizes: [], migration: false,
+      reorganised: false, unactivated: 0, unactivatedHetero: 0, heteroElements: [],
+      reason: `the bond-edit check failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
     return null;
   }
   step.skeleton = report;
@@ -502,6 +544,9 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
           `${names} ${freeAnions.length > 1 ? 'are' : 'is'} a free multiply-charged anion, which is not a species a route consumes or releases: name the salt, the hydroxide or the acid that carries it. As written it also leaves the balance underdetermined, so an equation that is wrong can still be solved.`,
         ] };
       }
+      // An inverted stereocentre balances perfectly, so it has to be refused separately.
+      const inverted = balance.balanced ? invertedConfiguration(reactants, products) : '';
+      if (inverted) balance = { ...balance, balanced: false, differences: [inverted] };
       // A reactant-side species that takes no part in the only balance is a reagent or a
       // condition (a catalyst, a solvent) the author listed with the reactants: file it under
       // agents and check again, rather than refusing an otherwise balanced step. Products are
@@ -602,7 +647,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       const target = side.find(entry => entry.canonicalSmiles === declared.canonicalSmiles)
         ?? side.find(entry => entry.input === raw.smiles.trim());
       if (target) {
-        target.name = raw.name.trim().slice(0, 200);
+        target.name = raw.name.trim().slice(0, MAX_CHEMICAL_NAME);
         if (raw.byproduct === true) target.byproduct = true;
         if (typeof nameOk === 'boolean') target.nameOk = nameOk;
       }
@@ -765,7 +810,9 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
     for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${problem}.`);
     if (!step.balanced) { blocked.push(`Step ${step.index + 1} is not balanced: ${step.differences.join('; ')}.`); continue; }
     const packing = checkPerMoleculePacking(step);
-    if (packing !== 'unchecked' && !packing.ok) {
+    if (packing !== 'n/a' && 'unchecked' in packing) {
+      step.assemblyUnchecked = packing.unchecked;
+    } else if (packing !== 'n/a' && !packing.ok) {
       step.assemblyProblem = packing.reason;
       blocked.push(`Step ${step.index + 1}: ${packing.reason}.`);
       continue;

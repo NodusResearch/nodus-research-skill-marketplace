@@ -239,8 +239,14 @@ function nullSpace(matrix: bigint[][], columns: number): Frac[][] {
  *  vector is the coefficient of its free column in the result: searching multipliers 1..12 (the
  *  coefficient ceiling) searches every usable equation.
  */
+/** How many null-space directions the bounded search covers. Past this the search cannot
+ *  produce a candidate at all — every combination it builds leaves an exact zero in a direction
+ *  it never touched, and a zero means a species takes no part — so the caller must say it did
+ *  not determine the coefficients rather than that the species were ambiguous. */
+export const SEARCH_DIMENSION_LIMIT = 4;
+
 function smallestPositiveEquation(basis: Frac[][]): number[] | null {
-  const dimension = Math.min(basis.length, 4); // bounded search; deeper spaces are refused
+  const dimension = Math.min(basis.length, SEARCH_DIMENSION_LIMIT); // bounded search
   const ceiling = 12;
   const best = new Map<string, number[]>();
   let bestSum = Infinity;
@@ -325,6 +331,28 @@ const COMMON_SMALL_MOLECULES: Array<{ name: string; atoms: Record<string, number
 ];
 
 const GENERIC_ADVICE = 'Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.';
+
+/** Which side is short of what, for a difference no single common molecule explains. The sign
+ *  of each element's difference says where the gap is: a reactant side short of an element needs
+ *  a species the step consumes, a product side short of one needs a species it forms. Saying
+ *  which is arithmetic, not advice, and it is the part an author can act on — "name the intended
+ *  byproducts" points at the byproducts even when what is missing is a reactant. */
+function missingSpeciesAdvice(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[]): string {
+  const difference: Record<string, number> = {};
+  compositions.forEach((composition, index) => {
+    const sign = roles[index] === 'reactant' ? 1 : roles[index] === 'product' ? -1 : 0;
+    if (!sign) return;
+    const coefficient = Number.isInteger(supplied[index]) && supplied[index] > 0 ? supplied[index] : 1;
+    for (const [key, count] of Object.entries(composition.atoms)) difference[key] = (difference[key] ?? 0) + sign * count * coefficient;
+  });
+  const named = (keys: string[]) => keys.map(key => `${elementLabel(key)} (${Math.abs(difference[key])})`).join(', ');
+  const reactantsShort = Object.keys(difference).filter(key => difference[key] < 0).sort();
+  const productsShort = Object.keys(difference).filter(key => difference[key] > 0).sort();
+  const parts: string[] = [];
+  if (reactantsShort.length) parts.push(`the reactants are short of ${named(reactantsShort)}, so a species this step consumes is missing from Reactants`);
+  if (productsShort.length) parts.push(`the products are short of ${named(productsShort)}, so a species this step forms is missing from Products or Byproducts, or a declared structure is not the compound intended`);
+  return parts.length ? `At the coefficients as declared, ${parts.join('; and ')}.` : '';
+}
 
 /** What to do about an unbalanced step, read from the difference at one of each species. When
  *  that difference is exactly one common molecule, name it and its side. When it is a small
@@ -498,7 +526,13 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
       for (const index of removed) coefficients[index] = 1;
       return coefficients;
     }
-    throw new Error('The declared species admit more than one balanced equation; name the intended byproducts, or split this transformation into consecutive balanced steps.');
+    if (basis.length > SEARCH_DIMENSION_LIMIT) {
+      // Not ambiguity: the search never produced a candidate to compare. Say so, and give the
+      // element totals at the declared coefficients, which is the one thing always computable.
+      const detail = missingSpeciesAdvice(compositions, roles, supplied);
+      throw new Error(`This step leaves ${basis.length} species free to vary independently, more than the checker determines coefficients for, so it has NOT been shown to be unbalanced — no coefficients were found. ${detail} ${imbalanceAdvice(compositions, roles)}`.replace(/\s+/g, ' ').trim());
+    }
+    throw new Error(`The declared species admit more than one balanced equation; name the intended byproducts, or split this transformation into consecutive balanced steps. ${missingSpeciesAdvice(compositions, roles, supplied)}`.trim());
   }
   const solved = toIntegerCoefficients(basis[0]);
   if (!solved) {

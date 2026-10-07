@@ -1,3 +1,158 @@
+# Chemistry Studio 2.5.22
+
+A check that could not run no longer looks like a check that passed.
+
+## The bond-edit check was silent either way
+
+The bond-edit check reads each balanced step as a graph edit. It is budgeted, and a step whose
+graph it cannot settle is reported as unchecked rather than refused — correctly, since such a step
+has done nothing wrong. But `change: 'unchecked'` carried a `reason` field that never reached the
+report, so a route whose bonds were never examined read exactly like one whose bonds were sound.
+Worse, if the check THREW, the step was left with no report at all and was not even countable as
+unchecked.
+
+Both now record themselves, and the host states the gap beneath the verdict:
+
+    Not examined: the bond-edit check could not settle 1 of 17 step(s) (step 9) — the search ran
+    out of budget. Those checks say nothing about those steps either way — this is a gap in
+    coverage, not a finding about the chemistry.
+
+The verdict is unchanged by it. A gap in coverage is not a fault in the route.
+
+## The packing check needed a third outcome, not a second
+
+`checkPerMoleculePacking` also returned 'unchecked', for five different reasons — and three of
+them are design limits rather than failures. The important one is a convergent coupling, where a
+product legitimately carries more carbon than any single substrate: that is every coupling step in
+a stepwise assembly, so reporting it would have buried the real case in noise.
+
+It now distinguishes `'n/a'` (outside what packing models — silent) from `{ unchecked: reason }`
+(the search gave up — reported).
+
+# Chemistry Studio 2.5.21
+
+The same 200-character name limit, in the two places 2.5.20 missed.
+
+2.5.20 raised the limit where `resolve-names` validates its input. It did not raise it inside the
+resolver itself, where `resolveSpeciesName` cut the name again before the lookup, nor in
+`resolveNameReferences`, which returned NO candidates at all for a long name and so silently
+skipped the check that compares a declared structure against its IUPAC name.
+
+The effect was visible but partial: a six-unit chain went from five unresolved species to two.
+The two that remained carried names 205 characters long, and OPSIN resolves them on the first
+attempt — so the limit was never the service's, it was ours, in four places across three files,
+each masking the next.
+
+Every bound on a chemical name now refers to one exported constant, `MAX_CHEMICAL_NAME`, so the
+next person finds all of them together. Truncation of OPSIN's own warning text is left at 200:
+that is display, not identity.
+
+# Chemistry Studio 2.5.20
+
+A name cut short can never resolve.
+
+## The cut was reported as the author's mistake
+
+`resolve-names` truncated every name it was given to 200 characters before looking it up. A
+systematic name for an assembled chain is far longer than that, and a cut name is syntactically
+incomplete, so it resolved to nothing — and the step was then reported as "no structure resolved
+for product …", which reads as a naming problem when the fault was the cut.
+
+Measured on a six-unit chain: five steps unbuilt, and **every rejected name exactly 200 characters
+long**. Chains of two to five units never reached the limit, so it first appears at six — and every
+target longer than that was affected.
+
+The bound is only a guard against a runaway reply, so it is now sized from the longest real case
+rather than guessed: at roughly 40 characters per unit in the nested style a model actually writes,
+a 13-unit chain's name runs near 580 characters and a 40-unit chain's near 1,660. The limit is
+4000, which clears the longest by more than twice.
+
+# Chemistry Studio 2.5.19
+
+A step that inverts a stereocentre is now refused.
+
+## The error no other check could reach
+
+A route was found that balanced at every step, carried every intermediate over as the same
+structure, formed exactly the bonds it claimed, and ended on an **exact** canonical match to the
+requested target — stereochemistry included — while passing through compounds that cannot give it.
+Eleven of its fourteen amide-forming steps coupled an (S) building block and declared an (R)
+product.
+
+Each check had a reason for missing it:
+
+| check | why |
+|---|---|
+| atom and charge balance | compares COUNTS, and an epimer's are identical |
+| continuity | compares consecutive declared structures, which agreed with each other |
+| target comparison | the final declared product really was the target |
+| skeleton ledger | the right bonds formed; only the configuration differed |
+
+## What it does now
+
+For every step, the specified CIP descriptors on each side are compared as a multiset. When both
+sides carry the **same number** of specified centres but a different mix, a centre was inverted —
+which a coupling, a deprotection or a cleavage does not do — and the step is refused, naming what
+went in and what came out:
+
+    This step inverts a stereocentre: its reactants carry 1 (S) and 0 (R) specified centres and
+    its products 0 (S) and 1 (R), the same number on each side. A coupling, a deprotection or a
+    cleavage does not change configuration, so either a declared structure has the wrong
+    descriptor at one centre — give the product the configuration its reactant carries — or, if an
+    inversion is genuinely intended, say in this step's own prose which centre inverts and why.
+
+Differing counts mean a centre was **created or destroyed**, which is ordinary chemistry, so that
+case is left alone: a ketone reduced to a single alcohol enantiomer is not reported.
+
+## Also
+
+The route review's step number was clamped with a hard-coded 15, silently relabelling every
+finding above step 15 as step 15. On a 24-step route a correct finding about the macrolactamisation
+at step 23 was reported against an unrelated deprotection at step 15, which reads as the review
+inventing a molecule. It now clamps to the route's own length. Routes only began exceeding 15 steps
+once they were asked to decompose rather than write one wide equation.
+
+# Chemistry Studio 2.5.18
+
+A refusal that reported ambiguity it had never found.
+
+## "More than one balanced equation" was said having found none
+
+A step's coefficients are solved from the null space of its element matrix. When that space has
+more than one dimension the solver searches for the smallest positive whole-number equation and
+refuses only if two tie, because then the choice would be a guess. The search covers four
+directions.
+
+Each basis vector carries a one in its own free column and zeros in the others, so past four
+dimensions every combination the search can build leaves an exact zero in a direction it never
+touched — and a zero means a species takes no part, which is rejected. The candidate set therefore
+comes back **empty**, and an empty set is not a tie. The step was refused with:
+
+    The declared species admit more than one balanced equation; name the intended byproducts, or
+    split this transformation into consecutive balanced steps.
+
+Nothing had been compared. Worse, the advice pointed at the byproducts, and a step short of a
+*reactant* was sent to look at the wrong side — repeatedly, because the message never changed.
+
+A step with thirteen species over six elements leaves seven directions free, so no declaration of
+that shape could pass however correct it was.
+
+## What it says now
+
+The two cases are told apart. Past the search limit, the step is reported as not determined rather
+than as ambiguous — it has not been shown to be unbalanced — and the element totals at the
+coefficients as declared are given, since those are always computable:
+
+    This step leaves 7 species free to vary independently, more than the checker determines
+    coefficients for, so it has NOT been shown to be unbalanced — no coefficients were found.
+    At the coefficients as declared, the reactants are short of N (3), S (1), so a species this
+    step consumes is missing from Reactants; and the products are short of C (88), H (65), so a
+    species this step forms is missing from Products or Byproducts, or a declared structure is
+    not the compound intended.
+
+Which side is short of which element is arithmetic, not advice, and it is the part an author can
+act on. A genuine tie still reports a genuine tie, now with the same element detail.
+
 # Chemistry Studio 2.5.17
 
 A reaction class that named the wrong reaction.

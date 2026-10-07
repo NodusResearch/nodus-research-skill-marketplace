@@ -126,8 +126,8 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
     const input = item.input;
     if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['kind', 'value'].includes(key))) throw new Error(`${at}.input must be an object with exactly "kind" and "value".`);
     if (!['name', 'pubchem-cid', 'smiles'].includes(input.kind)) throw new Error(`${at}.input.kind must be "name", "pubchem-cid" or "smiles".`);
-    if (typeof input.value !== 'string' || !input.value || input.value !== input.value.trim() || input.value.length > (input.kind === 'smiles' ? 2000 : 200)) {
-      throw new Error(`${at}.input.value must be a non-empty string with no leading or trailing spaces, at most ${input.kind === 'smiles' ? 2000 : 200} characters.`);
+    if (typeof input.value !== 'string' || !input.value || input.value !== input.value.trim() || input.value.length > (input.kind === 'smiles' ? 2000 : MAX_CHEMICAL_NAME)) {
+      throw new Error(`${at}.input.value must be a non-empty string with no leading or trailing spaces, at most ${input.kind === 'smiles' ? 2000 : MAX_CHEMICAL_NAME} characters.`);
     }
     // Only explicit input from this user turn may leave the device. Retrieved
     // embeddings/model guesses cannot become either identity or network query.
@@ -255,9 +255,22 @@ async function references(input: ChemistryIntent['species'][number]['input'], de
  *  checker uses this to test an IUPAC name against the structure it was written beside. An
  *  unresolved or ambiguous name yields no candidates, which the checker reports as unchecked
  *  rather than as a disagreement. */
+/** The longest chemical name any part of this package will accept or resolve.
+ *
+ *  A systematic name for an assembled chain is long — roughly 40 characters per unit in the
+ *  nested style a model writes, so near 580 characters at 13 units and 1,660 at 40 — and cutting
+ *  one leaves it SYNTACTICALLY INCOMPLETE, so it resolves to nothing. The caller is then told the
+ *  NAME is unknown when the fault was the cut.
+ *
+ *  This was 200 in four places across three files, each masking the next: fixing two of them took
+ *  a six-unit chain from five unresolved species to two, and the remaining cut was here. OPSIN
+ *  resolves these names on the first try, so the limit was never the service's. Keep every name
+ *  bound referring to this constant rather than writing a number. */
+export const MAX_CHEMICAL_NAME = 4000;
+
 export async function resolveNameReferences(name: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<string[]> {
   const value = typeof name === 'string' ? name.trim() : '';
-  if (!value || value.length > 200 || !/\p{L}/u.test(value)) return [];
+  if (!value || value.length > MAX_CHEMICAL_NAME || !/\p{L}/u.test(value)) return [];
   try {
     const found = await references({ kind: 'name', value }, deps, signal);
     const smiles = found.map(entry => entry.smiles).filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
@@ -383,7 +396,7 @@ function showsIonicMetal(smiles: string, symbol: string): boolean {
  *  metal as an ion wins; a curated record with a bare neutral metal atom is not used for a
  *  salt name. */
 export async function resolveSpeciesName(rawName: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
-  const name = typeof rawName === 'string' ? rawName.trim().slice(0, 200) : '';
+  const name = typeof rawName === 'string' ? rawName.trim().slice(0, MAX_CHEMICAL_NAME) : '';
   if (!name || !/\p{L}/u.test(name)) return { name, status: 'unresolved', feedback: 'Not a chemical name.' };
   // Standard protected/building-block amino acids: the built-in dictionary (PubChem-sourced) first,
   // so a solid-phase route resolves offline and regardless of network. Non-natural residues are not
