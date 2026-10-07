@@ -197,6 +197,11 @@ export interface ChemistryInspectionSummary {
   heavyAtoms: number;
   /** Specified tetrahedral CIP centres plus specified E/Z bonds. */
   stereocentres: number;
+  /** The specified tetrahedral CIP descriptors, sorted — "R","S". A step that makes and breaks
+   *  bonds away from its stereocentres must carry the same multiset from one side to the other,
+   *  and comparing them is the only check that reaches an epimer: it has identical atom counts,
+   *  carries over as the same structure, and leaves every bond where it belongs. */
+  cipTags?: string[];
   /** Tetrahedral centres and stereogenic double bonds the author left unspecified. */
   unspecifiedStereocentres: number;
   composition: Record<string, number>;
@@ -248,6 +253,9 @@ export interface RouteStepAudit {
   /** Set when the equation balances only by assembling a product molecule from more than one
    *  substrate molecule — chemically impossible for a single transformation. */
   assemblyProblem?: string;
+  /** Why the per-molecule packing search gave up, when it did. Not set when the step's shape is
+   *  simply outside what packing models (a convergent coupling), which is not a gap in coverage. */
+  assemblyUnchecked?: string;
   /** The C–C bonds this balanced step forms and breaks, read as a graph edit: the facts a
    *  reviewer needs to judge a ring closure or a rearrangement, whether or not it refused. */
   skeleton?: SkeletonReport;
