@@ -2537,7 +2537,28 @@ test('an inert atmosphere written as a lone atom is named', async () => {
   assert.deepEqual(audit.steps[0].differences, []);
   assert.ok(audit.steps[0].monatomicSpecies, 'the structure is reported');
   assert.match(audit.steps[0].monatomicSpecies, /`\[N\]` should be `N#N`/);
-  assert.match(audit.steps[0].monatomicSpecies, /the free form is diatomic/);
+  assert.match(audit.steps[0].monatomicSpecies, /its free form is diatomic/);
+  // An Agent gets the Agents explanation, which is the true one for that side.
+  assert.match(audit.steps[0].monatomicSpecies, /takes no part in the balance/);
+
+  // A lone atom on the REACTANT side gets a different explanation, because the reason it goes
+  // unnoticed is different: the coefficient solver scales a one-atom species to whatever the
+  // equation needs, so the step balances around something that does not exist. Measured on a real
+  // route — "benzene (C6H6) + 2 bromine (Br)" balanced perfectly — and the first version of this
+  // message told the author it took no part in the balance, which was false there.
+  const asReactant = await lib.auditRoute({
+    steps: ['c1ccccc1.[Br]>[Br][Fe]([Br])[Br]>Brc1ccccc1.Br'],
+    labels: [[
+      label('reactant', 'benzene', 'c1ccccc1'), label('reactant', 'bromine', '[Br]'),
+      label('agent', 'iron(III) bromide', '[Br][Fe]([Br])[Br]'),
+      label('product', 'bromobenzene', 'Brc1ccccc1'), label('product', 'hydrogen bromide', 'Br', true),
+    ]],
+  });
+  assert.equal(asReactant.steps[0].balanced, true, 'the premise: it balances, which is why nothing else catches it');
+  assert.match(asReactant.steps[0].monatomicSpecies, /`\[Br\]` should be `BrBr`/);
+  assert.match(asReactant.steps[0].monatomicSpecies, /coefficient solver can scale it/);
+  assert.ok(!asReactant.steps[0].monatomicSpecies.includes('takes no part in the balance'),
+    'the Agents explanation must not be given for a reactant');
 
   // The diatomic form is accepted silently.
   const fixed = await lib.auditRoute({

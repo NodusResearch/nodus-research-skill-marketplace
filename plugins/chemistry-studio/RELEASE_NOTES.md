@@ -1,3 +1,19 @@
+# Chemistry Studio 2.5.28
+
+## The lone-atom message says why it went unnoticed on the side it was found
+
+2.5.27 reported a species written as a lone atom of a diatomic element, and explained that listed
+under Agents it takes no part in the balance so nothing compares it with its name. On a real route
+the species was a REACTANT, and there the explanation is false: a one-atom species lets the
+coefficient solver scale it to whatever the equation needs, so the step balances around something
+that does not exist. Measured — "benzene (C6H6) + 2 bromine (Br)" balanced perfectly, and the step
+passed every other check. Three correction rounds failed to fix it, which is what an explanation
+the author can see is wrong tends to produce.
+
+The sentence now follows the side the species was found on. A reactant or product is told that the
+balance was reached by scaling a species that does not exist; an Agent is told it takes no part in
+the balance. The detection, the refusal and the suggested form are unchanged.
+
 # Chemistry Studio 2.5.27
 
 ## A lone atom of a diatomic element is named

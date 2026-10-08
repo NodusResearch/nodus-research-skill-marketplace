@@ -595,11 +595,24 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       // the balance and so nothing else in the check ever looks at it. Not reported on a step
       // declared radical, where an atom genuinely is a species.
       if (!declaredRadical(index)) {
-        const lone = [...reactants, ...agents, ...products]
-          .map(loneAtomOfDiatomicElement).filter((value): value is { written: string; correct: string } => value !== null);
+        // The role matters, because WHY it goes unnoticed differs by side and the first version of
+        // this message asserted the Agents case for both. Measured on a real route: the model wrote
+        // bromine as a lone atom under REACTANTS, the coefficient solver scaled it to 2, and the
+        // equation balanced — "benzene (C6H6) + 2 bromine (Br)". The message told the author it
+        // "takes no part in the balance", which was false there, and three fix rounds failed to
+        // correct it.
+        const lone = ([['reactant', reactants], ['agent', agents], ['product', products]] as const)
+          .flatMap(([role, list]) => list.flatMap((entry) => {
+            const found = loneAtomOfDiatomicElement(entry);
+            return found ? [{ role, ...found }] : [];
+          }));
         if (lone.length) {
-          const unique = [...new Map(lone.map((entry) => [entry.written, entry])).values()];
-          step.monatomicSpecies = `${unique.map((entry) => `\`${entry.written}\` should be \`${entry.correct}\``).join('; ')}. A lone atom of that element is not a species a route uses — the free form is diatomic — and written under Agents it takes no part in the balance, so nothing else in the check compares it with the name beside it.`;
+          const unique = [...new Map(lone.map((entry) => [`${entry.role}:${entry.written}`, entry])).values()];
+          const named = unique.map((entry) => `\`${entry.written}\` should be \`${entry.correct}\``).join('; ');
+          const balanced = unique.some((entry) => entry.role !== 'agent');
+          step.monatomicSpecies = `${named}. A lone atom of that element is not a species a route uses: its free form is diatomic. ${balanced
+            ? 'Because a lone atom carries one atom, the coefficient solver can scale it to whatever the equation needs, so the step balances around a species that does not exist — which is why nothing else in the check objects.'
+            : 'Listed under Agents it takes no part in the balance, so nothing else in the check compares it with the name beside it.'}`;
         }
       }
       // An inverted stereocentre balances perfectly, so it has to be refused separately.
