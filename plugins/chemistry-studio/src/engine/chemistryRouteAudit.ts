@@ -3,7 +3,7 @@ import { MAX_CHEMICAL_NAME } from './chemistryIdentity';
 import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit, RouteTargetAudit } from './chemistryDocument';
 import { balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
-import { validateChemicalReferences } from './chemistryValidationCore';
+import { deliveredAtOpenCentres, productMatchesTarget, validateChemicalReferences } from './chemistryValidationCore';
 import { bondLedger, skeletonChange, type SkeletonReport } from './chemistrySkeleton';
 
 /** The read-only route checker. It never draws: it parses each step with RDKit and answers
@@ -803,6 +803,8 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
   // constitution only is a stereochemistry failure unless the target leaves its stereo open.
   let target: RouteTargetAudit | undefined;
   let requestedWithoutStereo = false;
+  /** How many centres the request itself left open, so a step is held only to what was asked. */
+  let openInTarget = 0;
   const requested = typeof input?.target === 'string' ? input.target.trim() : '';
   if (requested) {
     target = { input: requested, canonicalSmiles: null, formula: null, formedAt: null, reason: 'unparsed' };
@@ -812,12 +814,47 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
         audited.filter(step => step.ok && step.products.some(match)).map(step => step.index);
       const exact = formedBy(product => product.canonicalSmiles === wanted.canonicalSmiles);
       const skeleton = formedBy(product => product.skeletonSmiles === wanted.skeletonSmiles);
-      requestedWithoutStereo = wanted.stereocentres === 0;
-      const formed = exact.length ? exact : wanted.stereocentres === 0 ? skeleton : [];
+      // Whether the request left ANY centre open, which is not the same as leaving them all open.
+      // This used to be `stereocentres === 0` — no stereochemistry anywhere — so a target that
+      // specified one centre and left another open counted as fully specified, and every step was
+      // held to stereochemistry the request had not asked for.
+      openInTarget = wanted.unspecifiedStereocentres;
+      requestedWithoutStereo = openInTarget > 0;
+      // Three ways to have formed it, in falling order of confidence: the same molecule; the same
+      // molecule up to the centres the request left open; or, when the request specified nothing,
+      // the same constitution. The middle one is new and is the case the author's own targets land
+      // in — without it they could not be reported as formed by any route at all.
+      const admitted = openInTarget > 0 && wanted.stereocentres > 0
+        ? (await Promise.all(audited.map(async (step) => {
+          if (!step.ok) return null;
+          for (const product of step.products) {
+            if (await productMatchesTarget(requested, product.input)) return step.index;
+          }
+          return null;
+        }))).filter((index): index is number => index !== null)
+        : [];
+      const formed = exact.length ? exact
+        : admitted.length ? admitted
+        : wanted.stereocentres === 0 ? skeleton : [];
+      const formedAt = formed.length ? Math.max(...formed) : null;
+      // What the route actually chose where the request left the choice open. Measured from the
+      // product, not read out of the answer's prose: the request accepts either configuration, so
+      // choosing one is not an error, but which one it chose is the author's to accept and before
+      // this nothing reported it.
+      const openCentres = formedAt !== null && openInTarget > 0
+        ? await (async () => {
+          for (const product of audited[formedAt].products) {
+            const delivered = await deliveredAtOpenCentres(requested, product.input);
+            if (delivered.length) return delivered;
+          }
+          return [];
+        })()
+        : [];
       target = {
         input: requested, canonicalSmiles: wanted.canonicalSmiles, formula: wanted.formula,
-        formedAt: formed.length ? Math.max(...formed) : null,
+        formedAt,
         reason: formed.length ? 'formed' : skeleton.length ? 'stereo-mismatch' : 'not-formed',
+        ...(openCentres.length ? { openCentres } : {}),
       };
     } catch {
       // Left as `unparsed`: a target that cannot be read says nothing about the route.
@@ -833,7 +870,16 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
   // aldol adduct → the Wieland–Miescher ketone), or makes an intermediate that is itself lost
   // (isobornyl acetate → isoborneol → camphor) — need not be specified or declared racemic.
   // A target requested with stereo keeps every step held to it.
-  if (target?.reason === 'formed' && target.formedAt !== null && input.stereoChoices && requestedWithoutStereo) {
+  // Runs whenever the target was formed, which is the change. It used to require the target to
+  // have been requested WITHOUT stereochemistry, on the reasoning that a specified target should
+  // hold every step to it. That conflates two different things: a centre that REACHES the target,
+  // which must match it, and a centre DESTROYED before the target, which cannot affect it however
+  // the target was written. Measured on real routes, every open centre in 219 species was a
+  // sulfoxide sulfur — made by an oxidation, removed by the reduction after it, reaching nothing —
+  // and because those routes have fully specified targets the excusal never ran and each one
+  // blocked its step. The enumeration is no longer required either: the zero case is counted
+  // below without it.
+  if (target?.reason === 'formed' && target.formedAt !== null) {
     const organicMains = (step: RouteStepAudit) => step.products.filter(product => !product.byproduct && /C/.test(product.formula ?? ''));
     const lost = new Map<number, boolean>();
     for (let index = audited.length - 1; index >= 0; index -= 1) {
@@ -841,9 +887,16 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       if (!step.ok) continue;
       const mains = organicMains(step);
       const settled = mains.length > 0 && mains.every((product) => {
+        // Nothing unspecified is settled by construction, and the toolkit has already counted
+        // that for every species at any size. Asking the enumeration instead answered "unknown"
+        // past 60 heavy atoms, so on a route whose intermediates run to 106 atoms nothing was
+        // ever settled and no centre downstream of them could be excused.
+        if (product.unspecifiedStereocentres === 0) return true;
         const choice = stereoChoiceOf(input.stereoChoices?.[product.input]);
         if (!choice) return false;
-        return choice.open === 0 || (index === target!.formedAt && choice.mirrorOnly);
+        // The mirror clause is only sound where the request left the choice open: delivering the
+        // enantiomer of a target that specified its centres is wrong, not moot.
+        return choice.open === 0 || (index === target!.formedAt && choice.mirrorOnly && requestedWithoutStereo);
       });
       const consumers = links.filter(item => item.from === index && item.to > index && item.ok).map(item => item.to);
       lost.set(index, settled || (consumers.length > 0 && consumers.every(to => lost.get(to) === true)));

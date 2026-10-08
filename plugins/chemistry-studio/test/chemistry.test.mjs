@@ -2463,3 +2463,57 @@ test('the unverified fallback is scoped to the plan, not to the whole request', 
   // Both abstain paths pass the plan, or the scoping is only half applied.
   assert.equal((source.match(/allowFallback, source\)/g) ?? []).length, 2, 'both abstain call sites carry the plan');
 });
+
+test('a target that specifies some centres and leaves others open can be formed', async () => {
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  // One balanced step delivering ONE of the two epimers the target admits.
+  const steps = ['C[C@@H](O)[C@@H](N)C(=O)OC.O>>C[C@@H](O)[C@@H](N)C(=O)O.CO'];
+  const labels = [[
+    label('reactant', 'the methyl ester', 'C[C@@H](O)[C@@H](N)C(=O)OC'),
+    label('reactant', 'water', 'O'),
+    label('product', 'the acid', 'C[C@@H](O)[C@@H](N)C(=O)O'),
+    label('product', 'methanol', 'CO', true),
+  ]];
+  const reasonFor = async (target) => (await lib.auditRoute({ steps, labels, target })).target?.reason;
+
+  // Fully specified and matching, and fully unspecified: both already worked.
+  assert.equal(await reasonFor('C[C@@H](O)[C@@H](N)C(=O)O'), 'formed');
+  assert.equal(await reasonFor('CC(O)C(N)C(=O)O'), 'formed');
+  // The case that could not be formed by ANY route: one centre specified, one left open. It was
+  // reported as a stereochemistry failure at a centre the request never asked about.
+  assert.equal(await reasonFor('C[C@@H](O)C(N)C(=O)O'), 'formed');
+  // Still refused where the SPECIFIED centre is wrong: leaving one centre open does not loosen
+  // the other, which is the failure a looser match would introduce.
+  assert.equal(await reasonFor('C[C@H](O)C(N)C(=O)O'), 'stereo-mismatch');
+  // And a different constitution is still not the target.
+  assert.equal(await reasonFor('C[C@@H](O)C(N)C(=O)OC'), 'not-formed');
+});
+
+test('a stereocentre destroyed before the target is excused, whatever the target specifies', async () => {
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  // Two steps. Step 1 oxidises a thioether to a sulfoxide, which makes a stereocentre at sulfur
+  // that nobody controls and the model writes without a descriptor. Step 2 reduces it away, so
+  // nothing of it reaches the target. This is the only open-centre case that occurs in real
+  // routes: every one of 219 species measured had its open centre at a sulfoxide sulfur.
+  const thioether = 'CSCC[C@@H](N)C(=O)O';
+  const sulfoxide = 'CS(=O)CC[C@@H](N)C(=O)O';
+  const steps = [
+    `${thioether}.OO>>${sulfoxide}.O`,
+    `${sulfoxide}.c1ccccc1P(c1ccccc1)c1ccccc1>>${thioether}.O=P(c1ccccc1)(c1ccccc1)c1ccccc1`,
+  ];
+  const labels = [
+    [label('reactant', 'the thioether', thioether), label('reactant', 'hydrogen peroxide', 'OO'),
+     label('product', 'the sulfoxide', sulfoxide), label('product', 'water', 'O', true)],
+    [label('reactant', 'the sulfoxide', sulfoxide), label('reactant', 'triphenylphosphine', 'c1ccccc1P(c1ccccc1)c1ccccc1'),
+     label('product', 'the thioether', thioether), label('product', 'triphenylphosphine oxide', 'O=P(c1ccccc1)(c1ccccc1)c1ccccc1', true)],
+  ];
+  // The target is FULLY specified — which is the case the excusal used to refuse to consider.
+  const audit = await lib.auditRoute({ steps, labels, target: thioether });
+  assert.equal(audit.target?.reason, 'formed', JSON.stringify(audit.target));
+  assert.ok(audit.steps[0].unspecifiedStereocentres > 0, 'step 1 really does leave a centre open');
+  assert.equal(audit.steps[0].stereoNotRequired, true, 'and it is excused, because nothing of it reaches the target');
+  // The excusal must not reach the step that forms the target: that one is held to it.
+  assert.notEqual(audit.steps[1].stereoNotRequired, true);
+  assert.ok(!(audit.blocked ?? []).some((entry) => /unspecified/.test(entry)),
+    `nothing is blocked for the sulfoxide: ${JSON.stringify(audit.blocked)}`);
+});

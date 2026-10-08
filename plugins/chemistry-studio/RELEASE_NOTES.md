@@ -1,3 +1,50 @@
+# Chemistry Studio 2.5.26
+
+Stereochemistry the request did not ask about. Three faults, all found by measurement on real
+routes, and the first two were silently blocking correct work.
+
+## A target that specifies some centres and leaves others open can be formed
+
+The target match had two branches: the same molecule, or — when the request carried no
+stereochemistry at all — the same constitution. A request that specifies some centres and leaves
+others open satisfies neither, because an open centre canonicalises differently from a specified
+one and a partly specified target is not stereo-free. So it could never be reported as formed by
+any route, and the author was told the route had formed the constitution but not the
+stereochemistry of a centre the request had never asked about.
+
+There is now a third branch: the same molecule up to the centres the request left open. It is
+decided by atom correspondence rather than by enumerating the target's isomers, because
+enumeration gives up past 60 heavy atoms and these targets reach 331; a correspondence has no cap
+and measured at 3-66ms across the real range. Chirality-aware substructure matching would have
+been shorter, but the toolkit's wrapper does not honour the flag — it matched a target whose
+specified centre was inverted — so the descriptors are compared directly. A target whose specified
+centre is wrong is still refused, and a different constitution is still not the target.
+
+## A centre destroyed before the target is excused, whatever the target specifies
+
+The rule that excuses a stereocentre the route destroys before the target required the request to
+have carried no stereochemistry, on the reasoning that a specified target should hold every step to
+it. That conflates two different things: a centre that reaches the target, which must match it, and
+a centre destroyed before the target, which cannot affect it however the target was written.
+
+Measured across 219 species from real routes, every open centre was a sulfoxide sulfur — made by an
+oxidation, removed by the reduction after it, reaching nothing. Those are exactly the centres the
+rule exists for, and because the targets concerned specify every centre, it never ran and each one
+blocked its step. A second cap compounded it: the freedom count answered "unknown" past 60 heavy
+atoms, and those routes carry intermediates of 106, so nothing downstream was ever settled. The
+count for a species with nothing unspecified is zero whatever its size, and the toolkit has already
+computed it, so it is read directly instead.
+
+The step that forms the target is still held to the target's own stereochemistry.
+
+## The route says which configuration it chose at an open centre
+
+Where the request leaves a centre open it accepts either configuration, so the route is not refused
+for choosing one. Which one it chose is the author's to accept, and nothing reported it. The target
+line now names the configuration delivered at each open centre, measured from the product rather
+than taken from the answer's account of it, using the same atom correspondence the match was
+decided on.
+
 # Chemistry Studio 2.5.25
 
 Three findings from real runs: two about what a route report leaves the author guessing at, and one

@@ -305,6 +305,12 @@ export interface RouteTargetAudit {
   formedAt: number | null;
   /** `unparsed` never blocks: the target came from the request, not from the route. */
   reason: 'formed' | 'stereo-mismatch' | 'not-formed' | 'unparsed';
+  /** What the route actually delivered at each centre the REQUEST left open, measured from the
+   *  product rather than taken from the answer's own account of it. A request that leaves a centre
+   *  open accepts either configuration, so the route is not refused for choosing one — but which
+   *  one it chose is the author's to accept or reject, and before this nothing said. Empty or
+   *  absent when the request specified every centre. */
+  openCentres?: Array<{ atom: number; delivered: string }>;
 }
 export interface RouteAudit {
   steps: RouteStepAudit[];

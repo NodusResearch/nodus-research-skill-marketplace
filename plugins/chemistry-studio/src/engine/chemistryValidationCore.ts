@@ -62,6 +62,19 @@ function rejectedGraph(smiles: string): Error {
     : 'RDKit rejected the molecular graph.');
 }
 
+/** Correspondences to try before giving up. A symmetric molecule admits several; sixteen is far
+ *  past anything these routes produce and keeps a pathological query bounded. */
+const TARGET_MATCH_LIMIT = 16;
+
+/** Two methods the installed RDKit runtime has and its bundled typings do not: `get_num_atoms`
+ *  is absent from the declarations, and `get_substruct_matches` is declared without the options
+ *  argument the runtime accepts. Both were confirmed present on the loaded module before use.
+ *  Narrowed to exactly what is called here rather than widening JSMol. */
+type MatchableMol = JSMol & {
+  get_num_atoms(): number;
+  get_substruct_matches(query: JSMol, details: string): string;
+};
+
 export async function moleculeGraph(smiles: string): Promise<MoleculeGraph> {
   const kit = await rdkit();
   const molecule = kit.get_mol(smiles);
@@ -187,6 +200,82 @@ function alphaConfigurationOf(kit: RDKitModule, scene: JSMol, cipAtoms: Array<[n
 }
 
 /** Call only inside a killable process: WASM cannot be interrupted by Promise.race. */
+/** Whether `product` is one of the molecules the requested `target` admits: the same
+ *  constitution, and the same configuration at every centre the TARGET SPECIFIES. Centres the
+ *  target leaves open are not compared, because the request left them open.
+ *
+ *  Without this, a target that specifies some centres and leaves others open could never be
+ *  reported as formed by any route. The match was exact canonical SMILES, else a constitution-only
+ *  match allowed when the target carried no stereochemistry at all: an open centre canonicalises
+ *  differently from a specified one, so the first failed, and a partially specified target is not
+ *  stereo-free, so the second never applied. The route was then told it had formed the
+ *  constitution but not the stereochemistry — of a centre the request had not asked about.
+ *
+ *  Decided by atom correspondence rather than by enumerating the target's isomers. Enumeration is
+ *  bounded (it gives up past 60 heavy atoms and past 64 isomers) and these targets run to 331
+ *  atoms; a correspondence is a graph match, measured at 3-66ms across the real range, and has no
+ *  cap. Chirality-aware substructure matching would be shorter still, but the toolkit's wrapper
+ *  does not honour the flag — it matched a target whose SPECIFIED centre was inverted, which would
+ *  pass a wrong enantiomer — so the descriptors are compared here instead.
+ *
+ *  Every valid correspondence is tried: a molecule with symmetry admits several, and the first one
+ *  disagreeing says nothing about whether the product is the molecule asked for. */
+export async function deliveredAtOpenCentres(target: string, product: string): Promise<Array<{ atom: number; delivered: string }>> {
+  const kit = await rdkit();
+  const wantedMol = kit.get_mol(target) as MatchableMol | null;
+  const gotMol = kit.get_mol(product) as MatchableMol | null;
+  try {
+    if (!wantedMol || !gotMol || !wantedMol.is_valid() || !gotMol.is_valid()) return [];
+    const open = (JSON.parse(wantedMol.get_stereo_tags()) as { CIP_atoms: Array<[number, string]> })
+      .CIP_atoms.filter(([, tag]) => tag === '(?)');
+    if (!open.length) return [];
+    const got = new Map((JSON.parse(gotMol.get_stereo_tags()) as { CIP_atoms: Array<[number, string]> }).CIP_atoms);
+    const wanted = (JSON.parse(wantedMol.get_stereo_tags()) as { CIP_atoms: Array<[number, string]> })
+      .CIP_atoms.filter(([, tag]) => tag !== '(?)');
+    const matches = JSON.parse(gotMol.get_substruct_matches(wantedMol, JSON.stringify({ maxMatches: TARGET_MATCH_LIMIT })) || '[]') as Array<{ atoms?: number[] }>;
+    // The same correspondence the match was decided on, so the reported centres are the ones the
+    // match accepted rather than a different reading of the same molecule.
+    for (const hit of matches) {
+      const map = hit.atoms ?? [];
+      if (map.length !== wantedMol.get_num_atoms()) continue;
+      if (!wanted.every(([atom, tag]) => got.get(map[atom]) === tag)) continue;
+      return open.map(([atom]) => ({ atom, delivered: got.get(map[atom]) ?? '(?)' }));
+    }
+    return [];
+  } catch {
+    return [];
+  } finally {
+    wantedMol?.delete();
+    gotMol?.delete();
+  }
+}
+
+export async function productMatchesTarget(target: string, product: string): Promise<boolean> {
+  const kit = await rdkit();
+  const wantedMol = kit.get_mol(target) as MatchableMol | null;
+  const gotMol = kit.get_mol(product) as MatchableMol | null;
+  try {
+    if (!wantedMol || !gotMol || !wantedMol.is_valid() || !gotMol.is_valid()) return false;
+    // A full-molecule match only: a fragment of a larger product is not the target.
+    if (wantedMol.get_num_atoms() !== gotMol.get_num_atoms()) return false;
+    const wanted = (JSON.parse(wantedMol.get_stereo_tags()) as { CIP_atoms: Array<[number, string]> })
+      .CIP_atoms.filter(([, tag]) => tag !== '(?)');
+    const matches = JSON.parse(gotMol.get_substruct_matches(wantedMol, JSON.stringify({ maxMatches: TARGET_MATCH_LIMIT })) || '[]') as Array<{ atoms?: number[] }>;
+    // No specified centre: the constitution is the whole requirement, so any correspondence does.
+    if (!wanted.length) return matches.some((hit) => (hit.atoms ?? []).length === wantedMol.get_num_atoms());
+    const got = new Map((JSON.parse(gotMol.get_stereo_tags()) as { CIP_atoms: Array<[number, string]> }).CIP_atoms);
+    return matches.some((hit) => {
+      const map = hit.atoms ?? [];
+      return map.length === wantedMol.get_num_atoms() && wanted.every(([atom, tag]) => got.get(map[atom]) === tag);
+    });
+  } catch {
+    return false;
+  } finally {
+    wantedMol?.delete();
+    gotMol?.delete();
+  }
+}
+
 export async function validateChemicalReferences(request: ChemistryValidationRequest): Promise<ChemistryValidationResult> {
   if (!Array.isArray(request.references) || request.references.length < 1 || request.references.length > 3
     || request.references.some(s => typeof s !== 'string' || !s || s.length > MAX_SPECIES_CHARS || /\s|\|/.test(s) || !supportAllowed(s))) {
