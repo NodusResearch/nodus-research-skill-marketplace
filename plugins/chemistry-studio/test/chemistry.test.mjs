@@ -42,6 +42,7 @@ await build({
       export { auditRoute } from './src/engine/chemistryRouteAudit';
       export { skeletonChange } from './src/engine/chemistrySkeleton';
       export { buildingBlockSmiles, isResinBoundName, PEPTIDE_BUILDING_BLOCKS } from './src/engine/peptideBuildingBlocks';
+      export { SCHEMA_CEILINGS, maxQuestionChars, maxNames, maxLabelsTotal, maxLabelsPerStep, maxSteps, maxSpeciesPerStep, maxSpeciesTotal, maxReactionChars } from './src/engine/chemistryLimits';
     `,
     resolveDir: root, loader: 'ts',
   },
@@ -2570,4 +2571,110 @@ test('an inert atmosphere written as a lone atom is named', async () => {
   // A step declared radical is left alone: there, an atom really is a species.
   const radical = await lib.auditRoute({ steps, labels, radical: true });
   assert.equal(radical.steps[0].monatomicSpecies, undefined);
+});
+
+test('an over-long chat question is cut rather than failing the whole compile call', async () => {
+  // B45. The hook staples the host's question onto the promoted request, and the host's question
+  // is the last user message. In a route that message is the entire accumulated correction prompt,
+  // which runs past compile's 8000-character cap on `question`, and the host then refused the call
+  // outright and printed its raw schema complaint into the answer: 58 turns across 26 of 30
+  // targets on one cascade, every one a fix round, nothing drawn and nothing drawable.
+  const worker = lib.createWorker(ethanolHost());
+  const long = `Correction needed for the synthesis route above.\n\n${'The route checker rejected these steps. '.repeat(600)}`;
+  assert.ok(long.length > 8000, 'the fixture reproduces the condition');
+
+  const mutations = await worker.prepareChat({
+    locale: 'en', question: long,
+    nodes: [{ id: 'n0', kind: 'fence', fence: 'chemistry-plan', content: plan(), complete: true }],
+  });
+  const promoted = mutations.find(mutation => mutation.op === 'promote-request');
+  assert.ok(promoted, 'the plan is still promoted to a call');
+  assert.ok(promoted.input.question.length <= 8000, 'and its question fits what the tool accepts');
+  // The head is kept, not the tail: this field exists to be pattern-matched for intent, and the
+  // phrase that marks a correction round opens the prompt.
+  assert.match(promoted.input.question, /^Correction needed for the synthesis route above\./);
+
+  // A question inside the cap is passed through untouched, including the exact text a reaction
+  // SMILES copy check needs to find in it.
+  const short = 'Draw CCO>>CC=O please.';
+  const kept = await worker.prepareChat({
+    locale: 'en', question: short,
+    nodes: [{ id: 'n0', kind: 'fence', fence: 'chemistry-plan', content: plan(), complete: true }],
+  });
+  assert.equal(kept.find(mutation => mutation.op === 'promote-request').input.question, short);
+});
+
+test('every derived cap stays inside what the schema advertises, and the two agree exactly', () => {
+  // The host validates input against capability.json BEFORE the tool runs, so a cap derived above
+  // what the schema declares does not stretch the limit — it refuses the call. That is what B45
+  // was: an 8,000-character ceiling on `question` turned every fix-round drawing into an
+  // application error. So the ceilings live in one place and this test is the thing that keeps
+  // capability.json honest about them.
+  const schema = JSON.parse(fs.readFileSync(path.join(root, 'capabilities/chemistry/capability.json'), 'utf8'));
+  const props = (id) => schema.tools.find((entry) => entry.id === id).inputSchema.properties;
+  const C = lib.SCHEMA_CEILINGS;
+
+  assert.equal(props('compile').plan.maxLength, C.planChars, 'compile.plan');
+  assert.equal(props('compile').question.maxLength, C.questionChars, 'compile.question');
+  assert.equal(props('resolve-names').names.maxItems, C.names, 'resolve-names.names');
+  assert.equal(props('resolve-names').names.items.maxLength, C.nameChars, 'resolve-names name length');
+  assert.equal(props('resolve-structure').smiles.maxItems, C.structures, 'resolve-structure.smiles');
+  const route = props('verify-route');
+  assert.equal(route.steps.maxItems, C.steps, 'verify-route.steps');
+  assert.equal(route.steps.items.maxLength, C.stepChars, 'verify-route step length');
+  assert.equal(route.labels.items.maxItems, C.labelsPerStep, 'verify-route labels per step');
+  // The per-step arrays are read positionally against `steps`, so a shorter one silently drops the
+  // tail of a long route.
+  for (const key of ['carriers', 'rearrangement', 'radical', 'labels']) {
+    assert.equal(route[key].maxItems, C.steps, `verify-route.${key} must match steps`);
+  }
+
+  // No derived cap may exceed its ceiling, at any window, including an absurd one.
+  for (const tokens of [undefined, 32_000, 200_000, 1_000_000, 100_000_000]) {
+    const budget = tokens === undefined ? undefined : { contextWindowTokens: tokens, charsPerToken: 3.2 };
+    assert.ok(lib.maxQuestionChars(budget) <= C.questionChars, `question at ${tokens}`);
+    assert.ok(lib.maxReactionChars(budget) <= C.stepChars, `reaction at ${tokens}`);
+    assert.ok(lib.maxNames(budget) <= C.names, `names at ${tokens}`);
+    assert.ok(lib.maxLabelsTotal(budget) <= C.names, `labels total at ${tokens}`);
+    assert.ok(lib.maxLabelsPerStep(budget) <= C.labelsPerStep, `labels per step at ${tokens}`);
+    assert.ok(lib.maxSteps(budget) <= C.steps, `steps at ${tokens}`);
+    assert.ok(lib.maxSpeciesPerStep(budget) <= C.labelsPerStep, `species per step at ${tokens}`);
+  }
+});
+
+test('a cap never drops below the floor it has always had, and grows with the window', () => {
+  const floors = { maxQuestionChars: 8_000, maxReactionChars: 16_000, maxNames: 48, maxLabelsTotal: 48, maxLabelsPerStep: 24, maxSteps: 96, maxSpeciesPerStep: 48, maxSpeciesTotal: 1_024 };
+  // No window named (an older host, or a model with no documented window) must behave exactly as
+  // before. "Absent" means use the floor; it must never be read as "unlimited".
+  for (const [name, floor] of Object.entries(floors)) {
+    assert.equal(lib[name](undefined), floor, `${name} with no budget is its old value`);
+    assert.equal(lib[name]({ charsPerToken: 3.2 }), floor, `${name} with no window is its old value`);
+    assert.equal(lib[name]({ contextWindowTokens: 0 }), floor, `${name} ignores a nonsense window`);
+    assert.equal(lib[name]({ contextWindowTokens: -5 }), floor, `${name} ignores a negative window`);
+    assert.ok(lib[name]({ contextWindowTokens: 1_000_000, charsPerToken: 3.2 }) >= floor, `${name} never regresses on a big window`);
+  }
+  // And the point of the exercise: the caps that were silently truncating a long route now clear it.
+  const big = { contextWindowTokens: 1_000_000, charsPerToken: 3.2 };
+  assert.ok(lib.maxLabelsTotal(big) > 120, 'a 40-step route names well over 48 distinct species');
+  assert.ok(lib.maxSteps(big) >= 96, 'a long linear assembly runs to roughly ninety steps');
+  assert.ok(lib.maxQuestionChars(big) > 9_523, 'the real correction prompt that B45 refused now fits');
+});
+
+test('a route longer than the old 96-step ceiling is actually audited now, not refused', async () => {
+  // The cap tests above check the NUMBERS. This one checks the behaviour the numbers exist for:
+  // a long linear assembly written one transformation per unit runs to roughly ninety steps, and
+  // the next size up was refused outright. Asserting the constant moved is not the same as
+  // asserting a long route gets through, so this runs one.
+  const step = (n) => `CC(=O)O.NCC${'C'.repeat(n % 4)}>>CC(=O)NCC${'C'.repeat(n % 4)}.O`;
+  const longRoute = { steps: Array.from({ length: 120 }, (_, i) => step(i)) };
+
+  // Without a window the floor stands, and the floor is the old behaviour exactly.
+  await assert.rejects(() => lib.auditRoute(longRoute), /between one and 96 steps/,
+    'with no window named, nothing changed');
+
+  // With the window the host now passes, the same route is accepted and every step is audited.
+  const audit = await lib.auditRoute(longRoute, { contextWindowTokens: 1_000_000, charsPerToken: 3.2 });
+  assert.equal(audit.steps.length, 120, 'every step comes back, not a truncated prefix');
+  assert.ok(audit.steps.every((entry) => typeof entry.balanced === 'boolean'),
+    'and each one was really checked, not just counted');
 });
