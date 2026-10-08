@@ -1,5 +1,6 @@
 import type { ChemistryInspectionResult, ChemistryValidationRequest, ChemistryValidationResult, RouteAudit } from './engine/chemistryDocument';
 import type { RouteAuditInput } from './engine/chemistryRouteAudit';
+import type { ChemistryCapBudget } from './engine/chemistryLimits';
 import { host } from './engine/host';
 
 /** What the chemistry engine is allowed to reach, expressed as the injection point the
@@ -63,9 +64,11 @@ const inspectBatch = async (smiles: string[], signal?: AbortSignal): Promise<Che
 
 /** Read-only route checking. Same killable subworker, same RDKit: every step is parsed and
  *  every equation and intermediate link is checked before a route is drawn. */
-const verifyRoute = async (route: RouteAuditInput, signal?: AbortSignal): Promise<RouteAudit | null> => {
+const verifyRoute = async (route: RouteAuditInput, signal?: AbortSignal, budget?: ChemistryCapBudget): Promise<RouteAudit | null> => {
   signal?.throwIfAborted();
-  const result = await host().subworker.run({ entry: 'validator.js', input: { route }, timeoutMs: 180_000 });
+  // The budget rides with the route: the audit's step and species ceilings are sized from the
+  // turn's context window, and the subworker is a separate process that knows nothing else of it.
+  const result = await host().subworker.run({ entry: 'validator.js', input: { route, ...(budget ? { budget } : {}) }, timeoutMs: 180_000 });
   return (result as RouteAudit | null) ?? null;
 };
 

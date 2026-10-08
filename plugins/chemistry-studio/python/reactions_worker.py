@@ -366,7 +366,17 @@ def _reaction_classes(precursors, product):
     if up("ester") and before["acid"] and not before["acyl_halide"] and not before["anhydride"]: classes.append("Fischer esterification")
     if up("ester") and (before["acyl_halide"] or before["anhydride"]): classes.append("acylation of an alcohol or phenol")
     if up("amide") and (before["acyl_halide"] or before["anhydride"] or before["ester"] or before["acid"]): classes.append("amide formation by acylation of an amine")
-    if down("ester") and (up("acid") or up("alcohol") or up("ketone")): classes.append("ester hydrolysis")
+    # An ester that disappears is a hydrolysis only when the ACID appears: saponification gives the
+    # acid (or its salt) alongside the alcohol. A hydride reduction gives an alcohol and NO acid,
+    # and used to be labelled "ester hydrolysis" — LiAlH4 on an ester was read that way. These
+    # classes are search terms, and a wrong term retrieves the wrong textbook page, which is worse
+    # than no term. The alcohol test alone is not enough either: in `ester + X -> Y + ethanol` the
+    # leaving group IS an alcohol, so an alcohol appears in almost every ester reaction. A new
+    # carbonyl therefore rules the reduction out — an ester consumed with a ketone appearing is an
+    # organometallic addition, and this claims nothing rather than claiming the wrong thing.
+    if down("ester") and up("acid"): classes.append("ester hydrolysis")
+    elif down("ester") and up("alcohol") and not (up("ketone") or up("aldehyde")):
+        classes.append("reduction of an ester to an alcohol")
     if down("amide") and (up("arylamine") or up("amine")): classes.append("amide hydrolysis (deprotection of an acetamide)")
     if up("acid") and down("nitrile"): classes.append("nitrile hydrolysis")
     if up("acyl_halide") and before["acid"]: classes.append("acid chloride formation with thionyl chloride")
@@ -483,16 +493,40 @@ def _lookup(path, wanted):
         for index, keys in by_block.items():
             offset, length = spans[index]
             fh.seek(offset)
-            for line in decompressor.decompress(fh.read(length)).decode("utf-8").splitlines():
-                tab = line.find("\t")
-                key = line[:tab] if tab >= 0 else line
-                if key in keys:
-                    found[key] = line.split("\t")
+            # Find each wanted key's line directly (anchored at a line start) instead of splitting
+            # the whole frame: a proposal set touches hundreds of frames for a few keys each.
+            text = "\n" + decompressor.decompress(fh.read(length)).decode("utf-8")
+            for key in keys:
+                start = text.find("\n" + key + "\t")
+                if start < 0:
+                    # A key with no further fields fills its whole line.
+                    start = text.find("\n" + key + "\n")
+                    if start < 0 and text.endswith("\n" + key):
+                        start = len(text) - len(key) - 1
+                    if start < 0:
+                        continue
+                end = text.find("\n", start + 1)
+                found[key] = text[start + 1:end if end >= 0 else len(text)].split("\t")
     return found
+
+
+def _audit_flags(index_dir, keys):
+    """The bond-edit audit's flags for recorded reactions that stay cited although the audit flagged
+    them (audit-flags.tsv.zst: key, who decided, flags) — e.g. a rearrangement a record could not
+    declare. Empty for an index built without the audit."""
+    rows = _lookup(os.path.join(index_dir, "audit-flags.tsv.zst"), {k for k in keys if k})
+    return {key: row[2].split(",") for key, row in rows.items() if len(row) > 2 and row[2]}
+
+
+def _tag(items, flags):
+    for item in items:
+        if item.get("key") in flags:
+            item["auditFlags"] = flags[item["key"]]
 
 
 _retro_cache = {}
 _rdchiral_cache = {}
+_retro_screen = {}
 
 
 def _retro_templates(index_dir):
@@ -513,7 +547,46 @@ def _retro_templates(index_dir):
         if query is not None:
             rows.append((int(count), int(rdchiral), smarts, query))
     _retro_cache[index_dir] = rows
+    _retro_screen[index_dir] = _pattern_screen([row[3] for row in rows])
     return rows
+
+
+SCREEN_BITS = 2048
+
+
+def _pattern_bits(mol):
+    """A molecule's or query's RDKit pattern fingerprint as 64-bit words."""
+    import numpy as np
+    from rdkit import Chem, DataStructs
+    bits = np.zeros((SCREEN_BITS,), dtype=np.uint8)
+    DataStructs.ConvertToNumpyArray(Chem.PatternFingerprint(mol, fpSize=SCREEN_BITS), bits)
+    return np.packbits(bits).view(np.uint64)
+
+
+def _pattern_screen(queries):
+    """The templates' product-side pattern fingerprints, one row each. A query can only match a
+    molecule whose pattern fingerprint holds every one of its bits, so one bitwise pass over all
+    templates replaces a substructure search per template (a large index has tens of thousands).
+    None when numpy is unavailable: the plain per-template search then runs."""
+    try:
+        import numpy as np
+        return np.stack([_pattern_bits(q) for q in queries]) if queries else None
+    except Exception:
+        return None
+
+
+def _screened(index_dir, templates, mol):
+    """The templates that may match `mol`, in their ranked order."""
+    screen = _retro_screen.get(index_dir)
+    if screen is None:
+        return templates
+    try:
+        import numpy as np
+        target = _pattern_bits(mol)
+        keep = ~np.any(screen & ~target, axis=1)
+        return [templates[i] for i in np.flatnonzero(keep)]
+    except Exception:
+        return templates
 
 
 def _makes(reaction, target):
@@ -567,7 +640,7 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
         proposals = {}
         if mol is not None and templates:
             reactants = rdchiralReactants(target)
-            for count, rdchiral, smarts, query in templates:
+            for count, rdchiral, smarts, query in _screened(index_dir, templates, mol):
                 if not mol.HasSubstructMatch(query):
                     continue
                 try:
@@ -642,6 +715,7 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
                 "templates": [smarts for _count, smarts in proposal.get("templates", [])],
                 "recorded": int(row[1]) if row else 0,
                 "samples": (row[2].split(",")[:3] if row and len(row) > 2 and row[2] else []),
+                **({"key": row[0]} if row else {}),
                 "availability": availability,
                 "available": bool(organic) and availability >= AVAILABLE_AS_REACTANT,
                 "uses": {m: as_reactant(m) for m in organic},
@@ -1321,8 +1395,10 @@ def handle(request):
         starting = [s for s in request.get("startingMaterials", []) if isinstance(s, str) and s.strip()][:16]
         missing = [name for name in ("retro-templates.tsv.zst", "molecules.tsv.zst") if not os.path.isfile(os.path.join(index_dir, name))]
         disconnections = _disconnect(index_dir, targets, limit, starting, request.get("stockDir"))
-        _attach_conditions(index_dir, [r for entry in disconnections for r in ((entry.get("madeBy") or {}).get("reactions") or [])]
-                           + [p for entry in disconnections for p in entry.get("proposals", []) if p.get("recorded")])
+        recorded = ([r for entry in disconnections for r in ((entry.get("madeBy") or {}).get("reactions") or [])]
+                    + [p for entry in disconnections for p in entry.get("proposals", []) if p.get("recorded")])
+        _attach_conditions(index_dir, recorded)
+        _tag(recorded, _audit_flags(index_dir, [item.get("key") for item in recorded]))
         return {"disconnections": disconnections, **({"indexLacks": missing} if missing else {})}
     store = _load(index_dir)
 
@@ -1366,6 +1442,9 @@ def handle(request):
             entry["samples"] = store["samples"][entry["key"]].split(",")[:3]
         if entry["count"] and entry["key"] in drawn:
             entry["reaction"] = drawn[entry["key"]]
+    flags = _audit_flags(index_dir, matched + near)
+    _tag([entry for entry in reactions if entry["count"]], flags)
+    _tag([neighbor for item in similar for neighbor in item["neighbors"]], flags)
     exact_inputs = {entry["input"] for entry in reactions if entry["count"]}
     # The closest recorded reaction of a step with no exact match: its sample ids, so it can be
     # cited with its conditions like an exact match.

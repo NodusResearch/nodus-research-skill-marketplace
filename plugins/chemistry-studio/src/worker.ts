@@ -1,7 +1,8 @@
+import { MAX_LABEL_NAME_CHARS, MAX_SPECIES_CHARS, maxLabelsPerStep, maxLabelsTotal, maxNames, maxQuestionChars, type ChemistryCapBudget } from './engine/chemistryLimits';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bindHost, completeText, host, type CapabilityHost } from './engine/host';
-import { nameStructureBySmiles, resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution, type SpeciesStructureName } from './engine/chemistryIdentity';
+import { nameStructureBySmiles, resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution, type SpeciesStructureName, MAX_CHEMICAL_NAME} from './engine/chemistryIdentity';
 import { chemistryDependencies } from './deps';
 import type { RouteLabelInput } from './engine/chemistryRouteAudit';
 import { splitFences } from './engine/fences';
@@ -27,6 +28,23 @@ const NOTICE_CODES = [
  *  contributes the network permission, the model and the SVG sanitizer, and knows nothing
  *  about chemistry. */
 
+/** The chat question, cut to what `compile` will accept.
+ *
+ *  The hook staples the host's question onto the promoted request, and the host's question is the
+ *  last user message. In a synthesis route that message is the whole accumulated correction prompt
+ *  — the route check, every failing step and its advice — which ran past the cap `compile`
+ *  declares for `question` (8,000 characters then, derived from the window now, and the real
+ *  prompt that broke it measured 9,523). The whole call was then refused before it ran, and the host
+ *  printed its raw schema complaint into the answer the author reads: measured on a 30-target
+ *  cascade, 58 turns across 26 targets, every one of them a fix round and not one a first answer.
+ *  Nothing was drawn by that path and nothing could be, so the only product was the error.
+ *
+ *  The head is what is kept, not the tail: `question` exists here to be pattern-matched for
+ *  intent, and both the phrases that matter — "Correction needed for" and the route keywords —
+ *  open the prompt. A request short enough to carry a reaction SMILES for the copy check is
+ *  thousands of characters inside the cap and is never cut at all. */
+const clampQuestion = (question?: string, budget?: ChemistryCapBudget): string => (question ?? '').slice(0, maxQuestionChars(budget));
+
 const DATA_VERSION = 1;
 /** Structural rejections name a JSON field and are worth one more attempt; chemical ones
  *  are not, because no amount of re-prompting makes a reference say something else. */
@@ -50,7 +68,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
 
     /** Adopts a drawing intent the model expressed as plain JSON, and takes the drawing
      *  lane so the core stops second-guessing it. */
-    async prepareChat({ nodes, question, locale }: { nodes: ChatNode[]; question?: string; locale: string }) {
+    async prepareChat({ nodes, question, locale, budget }: { nodes: ChatNode[]; question?: string; locale: string; budget?: ChemistryCapBudget }) {
       const mutations: Array<Record<string, unknown>> = [];
       const plans = nodes.filter(node => node.kind === 'fence' && node.fence === 'chemistry-plan');
 
@@ -67,7 +85,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
             mutations.push({ op: 'notice', position: 'after', view: noticeView('not-drawn', locale, text('error.CHEMISTRY_INTERRUPTED', locale)) });
             continue;
           }
-          mutations.push({ op: 'promote-request', nodeId: node.id, toolId: 'compile', input: { plan: node.content, question: question ?? '' } });
+          mutations.push({ op: 'promote-request', nodeId: node.id, toolId: 'compile', input: { plan: node.content, question: clampQuestion(question, budget) } });
           promoted = true;
         }
         if (promoted) mutations.push({ op: 'claim', suppressSvgRefinement: true });
@@ -83,18 +101,21 @@ export default function createWorker(capabilityHost: CapabilityHost) {
         return [{ op: 'notice', position: 'after', view: noticeView('conflicting-intents', locale) }];
       }
       if (distinct.size === 1) {
-        mutations.push({ op: 'promote-request', nodeId: candidates[0].id, toolId: 'compile', input: { plan: candidates[0].content, question: question ?? '' } });
+        mutations.push({ op: 'promote-request', nodeId: candidates[0].id, toolId: 'compile', input: { plan: candidates[0].content, question: clampQuestion(question, budget) } });
         for (const extra of candidates.slice(1)) mutations.push({ op: 'remove', nodeId: extra.id });
         mutations.push({ op: 'claim', suppressSvgRefinement: true });
       }
       return mutations;
     },
 
-    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[]; indexDirs?: string[]; maxSteps?: number; budgetSeconds?: number }; locale: string; chat?: { question?: string; nodeId?: string } }) {
-      if (toolId === 'resolve-names') return resolveNames(input, referenceCache);
-      if (toolId === 'resolve-structure') return nameStructures(input);
+    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; rearrangement?: boolean | Array<boolean | null>; radical?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[]; indexDirs?: string[]; maxSteps?: number; budgetSeconds?: number }; locale: string; chat?: { question?: string; nodeId?: string; budget?: ChemistryCapBudget } }) {
+      // Sized against what this turn's model can hold; absent on an older host, which falls back
+      // to the floors each cap has always had.
+      const budget = chat?.budget;
+      if (toolId === 'resolve-names') return resolveNames(input, referenceCache, budget);
+      if (toolId === 'resolve-structure') return nameStructures(input, budget);
       if (toolId === 'inspect') return inspectMolecule(input);
-      if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache);
+      if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache, budget);
       if (toolId === 'known-reactions') return knownReactions(input);
       if (toolId === 'propose-disconnections') return proposeDisconnections(input);
       if (toolId === 'check-stock') return checkStock(input);
@@ -130,7 +151,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
         // `unsupported` means the intent's shape was wrong and the error names the field.
         // `needs-clarification` means the chemistry itself is underdetermined.
         if (document.status !== 'unsupported' || attempt >= REPAIR_ATTEMPTS) {
-          return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback);
+          return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback, source);
         }
         const { repairChemistryIntent } = await import('./engine/chemistryRepair');
         const repaired = await repairChemistryIntent({
@@ -138,7 +159,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
           instructions: CHEMISTRY_INSTRUCTIONS, final: attempt === REPAIR_ATTEMPTS - 1,
           signal: host().signal,
         });
-        if (!repaired) return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback);
+        if (!repaired) return abstain(document.reason ?? text('error.CHEMISTRY_NOT_DRAWN', locale), question, locale, notices, allowFallback, source);
         source = repaired;
       }
     },
@@ -203,20 +224,30 @@ function looksLikeIntent(content: string): boolean {
  *  a notice, ask once for a drawing in plain SVG — and label it, everywhere, as unverified.
  *  A direct application call passes `allowFallback: false`: it wants the refusal, not a
  *  drawing it will discard, so no model call is spent. */
-async function abstain(reason: string, question: string, locale: string, notices: Array<Record<string, unknown>>, allowFallback = true) {
+async function abstain(reason: string, question: string, locale: string, notices: Array<Record<string, unknown>>, allowFallback = true, plan = '') {
   if (!allowFallback) return { notices: [...notices, noticeView('not-drawn', locale, reason)] };
-  const rescued = await rescueWithSvg(question, reason);
+  const rescued = await rescueWithSvg(question, reason, plan);
   if (!rescued) return { notices: [...notices, noticeView('not-drawn', locale, reason)] };
   return { notices, view: unverifiedSvgView(rescued, locale, reason) };
 }
 
-async function rescueWithSvg(question: string, reason: string): Promise<string | null> {
+/** The unverified fallback, scoped to what the plan asked for.
+ *
+ *  It used to be given the whole request and told to "draw the chemistry the request actually asks
+ *  for", which is a different question from the one the plan asked. Measured in a real reply: the
+ *  plan asked for one target structure, the request was a multi-step route, and the rescue drew the
+ *  entire route as a four-panel scheme with reagents and conditions — an unverified picture of a
+ *  route nothing had checked, in an answer whose author had asked for the pictures to stop. The
+ *  request still travels, because it names the species, but the plan is what sets the subject. */
+async function rescueWithSvg(question: string, reason: string, plan = ''): Promise<string | null> {
   try {
     const answer = await completeText({
       system: `${chemistrySvgAuditSystem(CHEMISTRY_INSTRUCTIONS, chemistrySvgMode(question))}
 
-Chemistry Studio could not produce a verified drawing for this request. Draw it yourself as one complete, self-contained SVG, using classical textbook notation with labelled atoms, explicit formal charges, and curved arrows where the request involves electron movement. Accompany nothing: return only the fenced svg block. Draw the chemistry the request actually asks for; do not narrow it to a simpler example, and do not refuse because a verified rule was unavailable.`,
-      user: JSON.stringify({ request: question, verifiedLaneReported: reason.slice(0, 700) }),
+Chemistry Studio could not produce a verified drawing for this request. Draw it yourself as one complete, self-contained SVG, using classical textbook notation with labelled atoms, explicit formal charges, and curved arrows where the request involves electron movement. Accompany nothing: return only the fenced svg block.
+
+Draw EXACTLY what the plan asked for and nothing else. The plan is in \`plan\`; the request is in \`request\` only so you can tell which species the plan names. If the plan names a single structure, draw that one structure: not the route that makes it, not its starting materials, not a reaction scheme, and no reagents, conditions, step numbers or commentary. Add a panel only where the plan itself asks for one. Do not narrow the plan to a simpler example, and do not refuse because a verified rule was unavailable.`,
+      user: JSON.stringify({ plan: plan.slice(0, 4_000), request: question, verifiedLaneReported: reason.slice(0, 700) }),
       maxTokens: 12_000,
     });
     const part = splitFences(answer).find(entry => entry.kind === 'svg' && entry.complete);
@@ -289,8 +320,8 @@ function dossierArtifact(graph: ChemistryGraph, smiles: string) {
 
 async function inspectMolecule(input: { smiles?: string[] }) {
   const list = Array.isArray(input?.smiles) ? input.smiles : [];
-  const cleaned = [...new Set(list.filter(entry => typeof entry === 'string' && entry.trim() && entry.length <= 2000).map(entry => entry.trim()))].slice(0, 24);
-  if (!cleaned.length) throw new Error('Provide at least one SMILES string (max 2000 characters each).');
+  const cleaned = [...new Set(list.filter(entry => typeof entry === 'string' && entry.trim() && entry.length <= MAX_SPECIES_CHARS).map(entry => entry.trim()))].slice(0, 24);
+  if (!cleaned.length) throw new Error(`Provide at least one SMILES string (max ${MAX_SPECIES_CHARS} characters each).`);
   const results = await chemistryDependencies().inspectBatch(cleaned, host().signal);
   const artifacts = results
     .filter((entry): entry is ChemistryInspectionResult & { graph: ChemistryGraph } => Boolean(entry.ok && entry.graph && Array.isArray(entry.graph.atoms) && Array.isArray(entry.graph.bonds)))
@@ -302,7 +333,6 @@ async function inspectMolecule(input: { smiles?: string[] }) {
  *  with a status and, when it fails, a feedback sentence the model can act on. The route
  *  derivation calls this before building any equation, so the SMILES never come from the
  *  model. */
-const MAX_NAMES = 48;
 /** A few reference lookups at once: a long route resolves in a fraction of the time without
  *  hammering two public services. */
 const NAME_CONCURRENCY = 4;
@@ -375,9 +405,28 @@ function dihydrogenForHydrogen(resolutions: SpeciesNameResolution[]): void {
   }
 }
 
+/** A covalent metal oxide (chromium trioxide, osmium tetroxide, selenium dioxide…) comes back from
+ *  PubChem as bare ions — `[Cr+6].[O-2].[O-2].[O-2]`. The route checker reads each ion as its own
+ *  species, so the equation showed "2 Cr + 4 O" and the bond ledger counted loose atoms. When a
+ *  name resolves to one high-valent metal cation and exactly the oxide anions that balance it,
+ *  write the covalent oxide instead (`O=[Cr](=O)=O`). */
+function covalentForIonicOxide(resolutions: SpeciesNameResolution[]): void {
+  for (const entry of resolutions) {
+    if (entry.status !== 'resolved' || !entry.smiles) continue;
+    const parts = entry.smiles.trim().split('.');
+    const cation = parts.map((part) => /^\[([A-Z][a-z]?)\+(\d)\]$/.exec(part)).filter(Boolean);
+    const oxides = parts.filter((part) => part === '[O-2]').length;
+    if (cation.length !== 1 || cation.length + oxides !== parts.length) continue;
+    const [, metal, charge] = cation[0]!;
+    if (Number(charge) < 3 || Number(charge) !== 2 * oxides) continue;
+    entry.smiles = `O=[${metal}]${'(=O)'.repeat(Math.max(0, oxides - 2))}${oxides > 1 ? '=O' : ''}`;
+  }
+}
+
 async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cache: ReferenceCache, signal: AbortSignal): Promise<void> {
   refuseUnbalancedSalts(resolutions);
   dihydrogenForHydrogen(resolutions);
+  covalentForIonicOxide(resolutions);
   const inputs = [...new Set(resolutions
     .filter((entry) => entry.status === 'resolved' && entry.smiles)
     .map((entry) => entry.smiles!))];
@@ -397,12 +446,16 @@ async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cac
   }
 }
 
-async function resolveNames(input: { names?: string[] }, cache: ReferenceCache) {
+async function resolveNames(input: { names?: string[] }, cache: ReferenceCache, budget?: ChemistryCapBudget) {
+  const limit = maxNames(budget);
   const list = Array.isArray(input?.names) ? input.names : [];
   const cleaned = [...new Set(list
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    .map((entry) => entry.trim().slice(0, 200)))].slice(0, MAX_NAMES);
-  if (!cleaned.length) throw new Error(`Provide between one and ${MAX_NAMES} chemical names.`);
+    // A systematic name for an assembled chain runs to several hundred characters, and a cut
+    // name is syntactically incomplete, so it resolves to nothing and the caller is told the
+    // NAME is unknown when the fault was the cut.
+    .map((entry) => entry.trim().slice(0, MAX_CHEMICAL_NAME)))].slice(0, limit);
+  if (!cleaned.length) throw new Error(`Provide between one and ${limit} chemical names.`);
   const base = chemistryDependencies();
   const deps = { ...base, fetch: breakerFetch(base.fetch) };
   const signal = host().signal;
@@ -431,12 +484,13 @@ async function resolveNames(input: { names?: string[] }, cache: ReferenceCache) 
  *  formula, and PubChem supplies the IUPAC name and CID when it holds the structure. This is
  *  the reverse of `resolve-names`, used to give a name back to a species the author could only
  *  supply as a structure. */
-async function nameStructures(input: { smiles?: string[] }) {
+async function nameStructures(input: { smiles?: string[] }, budget?: ChemistryCapBudget) {
+  const limit = maxNames(budget);
   const list = Array.isArray(input?.smiles) ? input.smiles : [];
   const cleaned = [...new Set(list
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    .map((entry) => entry.trim().slice(0, 2000)))].slice(0, MAX_NAMES);
-  if (!cleaned.length) throw new Error(`Provide between one and ${MAX_NAMES} structures.`);
+    .map((entry) => entry.trim().slice(0, 2000)))].slice(0, limit);
+  if (!cleaned.length) throw new Error(`Provide between one and ${limit} structures.`);
   const base = chemistryDependencies();
   const deps = { ...base, fetch: breakerFetch(base.fetch) };
   const signal = host().signal;
@@ -477,10 +531,10 @@ async function attachCanonical(entries: SpeciesStructureName[], signal: AbortSig
   } catch { /* canonicalisation is best effort; the raw SMILES still stands */ }
 }
 
-const MAX_LABELS_PER_STEP = 24;
-/** Bound the reference lookups a single route can trigger; a name is resolved once and the
- *  answer is reused for the same name on every step. */
-const MAX_LABELS_TOTAL = 48;
+/** Bound the reference lookups a single route can trigger; a name is resolved once and the answer
+ *  is reused for the same name on every step. Both now come from the window: at 48, a route past
+ *  its 48th DISTINCT name stopped being name-checked at all, and said nothing — an unresolved name
+ *  is reported as unchecked, not as a disagreement. One measured chain had 50 distinct species. */
 
 /** Resolve the names the author wrote beside each species. Resolution needs the network, so
  *  it happens here in the worker; the subworker receives the pre-resolved SMILES and only
@@ -491,24 +545,27 @@ async function resolveRouteLabels(
   stepCount: number,
   cache: ReferenceCache,
   signal?: AbortSignal,
+  budget?: ChemistryCapBudget,
 ): Promise<RouteLabelInput[][]> {
+  const perStep = maxLabelsPerStep(budget);
+  const total = maxLabelsTotal(budget);
   const out: RouteLabelInput[][] = Array.from({ length: stepCount }, () => []);
   if (!Array.isArray(raw)) return out;
   const deps = chemistryDependencies();
   let resolved = 0;
   for (let index = 0; index < Math.min(stepCount, raw.length); index += 1) {
     const list = Array.isArray(raw[index]) ? raw[index]! : [];
-    for (const entry of list.slice(0, MAX_LABELS_PER_STEP)) {
+    for (const entry of list.slice(0, perStep)) {
       if (!entry || typeof entry !== 'object') continue;
       const role = entry.role === 'reactant' || entry.role === 'product' || entry.role === 'agent' ? entry.role : null;
-      const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, 200) : '';
+      const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, MAX_LABEL_NAME_CHARS) : '';
       const smiles = typeof entry.smiles === 'string' ? entry.smiles.trim() : '';
       if (!role || !name || !smiles) continue;
       // A name the resolve pass already looked up is reused here: the reference is the same
       // network answer, and the label check only needs to compare canonical graphs.
       let nameSmiles = cache.get(name);
       if (nameSmiles === undefined) {
-        nameSmiles = resolved < MAX_LABELS_TOTAL ? await resolveNameReferences(name, deps, signal) : [];
+        nameSmiles = resolved < total ? await resolveNameReferences(name, deps, signal) : [];
         resolved += 1;
         cache.set(name, nameSmiles);
       }
@@ -541,9 +598,9 @@ async function productStereoChoices(steps: string[]): Promise<Record<string, { o
   }
 }
 
-async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; enumerateStereo?: boolean }, cache: ReferenceCache) {
+async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; rearrangement?: boolean | Array<boolean | null>; radical?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; enumerateStereo?: boolean }, cache: ReferenceCache, budget?: ChemistryCapBudget) {
   // An empty entry is a step the application could not build. It is kept, not dropped, so the
-  // labels, carriers and racemic flags — all indexed by step — stay aligned with the steps.
+  // labels, carriers, racemic, rearrangement and radical flags — all indexed by step — stay aligned with the steps.
   // Not cut here: the route audit refuses a route over its step limit by name, where a silent
   // cut would check only the first steps and report the rest as never written.
   const steps = (Array.isArray(input?.steps) ? input.steps : [])
@@ -553,12 +610,18 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
   const racemic = typeof input?.racemic === 'boolean'
     ? input.racemic
     : Array.isArray(input?.racemic) ? input.racemic.slice(0, steps.length) : undefined;
+  const rearrangement = typeof input?.rearrangement === 'boolean'
+    ? input.rearrangement
+    : Array.isArray(input?.rearrangement) ? input.rearrangement.slice(0, steps.length) : undefined;
+  const radical = typeof input?.radical === 'boolean'
+    ? input.radical
+    : Array.isArray(input?.radical) ? input.radical.slice(0, steps.length) : undefined;
   const target = typeof input?.target === 'string' && input.target.trim() ? input.target.trim().slice(0, 2000) : undefined;
-  const labels = await resolveRouteLabels(input?.labels, steps.length, cache, host().signal);
+  const labels = await resolveRouteLabels(input?.labels, steps.length, cache, host().signal, budget);
   // The enumeration needs the shared Python runtime; the application asks for it only where that
   // runtime is already installed (the reaction index is), so a route check never installs it.
   const stereoChoices = input?.enumerateStereo === true ? await productStereoChoices(steps) : {};
-  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, target, ...(labels.some(step => step.length) ? { labels } : {}), ...(Object.keys(stereoChoices).length ? { stereoChoices } : {}) }, host().signal);
+  const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, ...(rearrangement !== undefined ? { rearrangement } : {}), ...(radical !== undefined ? { radical } : {}), target, ...(labels.some(step => step.length) ? { labels } : {}), ...(Object.keys(stereoChoices).length ? { stereoChoices } : {}) }, host().signal, budget);
   if (!audit) throw new Error('The route could not be verified.');
   const summary = audit.continuous
     ? `Route verified: ${audit.steps.length} step(s), every intermediate carried over unchanged`
