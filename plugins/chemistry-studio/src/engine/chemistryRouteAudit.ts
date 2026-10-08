@@ -319,6 +319,25 @@ function freeMultiplyChargedAnion(species: RouteSpeciesSummary): string | null {
   return ['O', 'N', 'S', 'P', 'C'].includes(match[1]) ? smiles : null;
 }
 
+/** The diatomic form of an element written as a lone atom, or null when the species is not one.
+ *
+ *  An inert atmosphere written `[N]` is atomic nitrogen: a species that does not exist in a flask,
+ *  where the prose beside it says the diatomic gas. It reached a report as "nitrogen (N)" and
+ *  passed, because it had been filed under Agents and an Agent never enters the balance — so
+ *  nothing compared it with anything. Found by two independent reviewers reading the same answer.
+ *
+ *  Only the elements whose free form is unambiguous, so the correction is a single edit rather
+ *  than a judgement. Sulfur and phosphorus are left out: their free forms are rings and cages
+ *  whose formula depends on the allotrope, and an author writing `[S]` may have meant something
+ *  the package should not guess at. */
+const DIATOMIC_FORM: Record<string, string> = { H: '[H][H]', N: 'N#N', O: 'O=O', F: 'FF', Cl: 'ClCl', Br: 'BrBr', I: 'II' };
+
+function loneAtomOfDiatomicElement(species: RouteSpeciesSummary): { written: string; correct: string } | null {
+  const match = /^\[([A-Z][a-z]?)(?:H0)?\]$/.exec(species.canonicalSmiles.trim());
+  const correct = match ? DIATOMIC_FORM[match[1]] : undefined;
+  return correct ? { written: species.canonicalSmiles.trim(), correct } : null;
+}
+
 /** A bound on the packing search and on the copies it will consider, so a pathological step
  *  degrades to "unchecked" rather than stalling the killable subworker. */
 const PACKING_BUDGET = 20000;
@@ -570,6 +589,18 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
         balance = { ...balance, balanced: false, differences: [
           `${names} ${freeAnions.length > 1 ? 'are' : 'is'} a free multiply-charged anion, which is not a species a route consumes or releases: name the salt, the hydroxide or the acid that carries it. As written it also leaves the balance underdetermined, so an equation that is wrong can still be solved.`,
         ] };
+      }
+      // A lone atom of an element that only exists as a diatomic molecule, anywhere in the step.
+      // Agents are included on purpose: that is where it hides, because an Agent takes no part in
+      // the balance and so nothing else in the check ever looks at it. Not reported on a step
+      // declared radical, where an atom genuinely is a species.
+      if (!declaredRadical(index)) {
+        const lone = [...reactants, ...agents, ...products]
+          .map(loneAtomOfDiatomicElement).filter((value): value is { written: string; correct: string } => value !== null);
+        if (lone.length) {
+          const unique = [...new Map(lone.map((entry) => [entry.written, entry])).values()];
+          step.monatomicSpecies = `${unique.map((entry) => `\`${entry.written}\` should be \`${entry.correct}\``).join('; ')}. A lone atom of that element is not a species a route uses — the free form is diatomic — and written under Agents it takes no part in the balance, so nothing else in the check compares it with the name beside it.`;
+        }
       }
       // An inverted stereocentre balances perfectly, so it has to be refused separately.
       const inverted = balance.balanced

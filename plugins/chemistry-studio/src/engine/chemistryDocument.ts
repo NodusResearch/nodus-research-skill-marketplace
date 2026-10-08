@@ -283,6 +283,10 @@ export interface RouteStepAudit {
    *  consumed and whose product the author forgot to name. Those two readings differ, and the
    *  author is the only one who knows which applies, so the step says what was assumed. */
   refiledReactant?: string;
+  /** Set when a species anywhere in the step is a lone atom of an element whose free form is
+   *  diatomic — an inert atmosphere written `[N]` rather than `N#N`. It hides under Agents,
+   *  where nothing enters the balance and so nothing compares the structure with its name. */
+  monatomicSpecies?: string;
 }
 export interface RouteLinkAudit {
   from: number;

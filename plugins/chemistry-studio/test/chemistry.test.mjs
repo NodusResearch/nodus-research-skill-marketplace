@@ -2517,3 +2517,36 @@ test('a stereocentre destroyed before the target is excused, whatever the target
   assert.ok(!(audit.blocked ?? []).some((entry) => /unspecified/.test(entry)),
     `nothing is blocked for the sulfoxide: ${JSON.stringify(audit.blocked)}`);
 });
+
+test('an inert atmosphere written as a lone atom is named', async () => {
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  // Exactly the shape two independent reviewers caught in one answer: the prose says the step is
+  // run under nitrogen, and the structure beside the name is atomic nitrogen. It sat under Agents,
+  // which take no part in the balance, so nothing in the check ever looked at it and the report
+  // printed "nitrogen (N)" and passed.
+  const steps = ['CC(=O)O.CO>[N]>CC(=O)OC.O'];
+  const labels = [[
+    label('reactant', 'ethanoic acid', 'CC(=O)O'), label('reactant', 'methanol', 'CO'),
+    label('agent', 'nitrogen', '[N]'),
+    label('product', 'methyl ethanoate', 'CC(=O)OC'), label('product', 'water', 'O', true),
+  ]];
+  const audit = await lib.auditRoute({ steps, labels });
+  // The equation is right, so it is NOT reported as a balance failure — that would name the
+  // wrong fault.
+  assert.equal(audit.steps[0].balanced, true);
+  assert.deepEqual(audit.steps[0].differences, []);
+  assert.ok(audit.steps[0].monatomicSpecies, 'the structure is reported');
+  assert.match(audit.steps[0].monatomicSpecies, /`\[N\]` should be `N#N`/);
+  assert.match(audit.steps[0].monatomicSpecies, /the free form is diatomic/);
+
+  // The diatomic form is accepted silently.
+  const fixed = await lib.auditRoute({
+    steps: ['CC(=O)O.CO>N#N>CC(=O)OC.O'],
+    labels: [labels[0].map((entry) => (entry.name === 'nitrogen' ? { ...entry, smiles: 'N#N' } : entry))],
+  });
+  assert.equal(fixed.steps[0].monatomicSpecies, undefined);
+
+  // A step declared radical is left alone: there, an atom really is a species.
+  const radical = await lib.auditRoute({ steps, labels, radical: true });
+  assert.equal(radical.steps[0].monatomicSpecies, undefined);
+});

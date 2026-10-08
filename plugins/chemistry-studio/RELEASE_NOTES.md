@@ -1,3 +1,20 @@
+# Chemistry Studio 2.5.27
+
+## A lone atom of a diatomic element is named
+
+An inert atmosphere written as a single bracketed atom is atomic nitrogen: a species that does not
+exist in a flask, where the prose beside it names the diatomic gas. It reached a report as
+"nitrogen (N)" and passed, because it had been filed under Agents — and an Agent never enters the
+balance, so nothing in the check ever compared the structure with the name next to it. Two
+independent reviewers reading the same answer both caught it.
+
+The step now names the species and the form it should take. It is reported as its own fault rather
+than as a balance failure, because the equation is right and the structure is not: calling the step
+unbalanced would name the wrong thing. A step declared radical is left alone, since there an atom
+genuinely is a species. Only the elements whose free form is unambiguous are covered — sulfur and
+phosphorus are left out, because their free forms are rings and cages whose formula depends on the
+allotrope, and an author writing those may have meant something the package should not guess at.
+
 # Chemistry Studio 2.5.26
 
 Stereochemistry the request did not ask about. Three faults, all found by measurement on real
