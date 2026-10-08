@@ -280,6 +280,10 @@ export async function resolveNameReferences(name: string, deps: ChemistryIdentit
   // charge, so offering one beside the dictionary entry would let an inverted centre pass.
   const builtin = buildingBlockSmiles(value);
   if (builtin) return [builtin];
+  // Same answer as resolveSpeciesName gives, or the label check would compare the author's name
+  // against a different structure from the one the equation was built with.
+  const diatomic = diatomicElementForName(value);
+  if (diatomic) return [diatomic];
   try {
     const found = await references({ kind: 'name', value }, deps, signal);
     const smiles = found.map(entry => entry.smiles).filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
@@ -385,6 +389,48 @@ const METAL_WORDS: ReadonlyArray<readonly [string, string]> = [
   ['manganese', 'Mn'], ['chromium', 'Cr'], ['cadmium', 'Cd'], ['mercury', 'Hg'], ['platinum', 'Pt'], ['gold', 'Au'],
 ];
 
+/** An element name whose free form is a diatomic molecule, and that molecule.
+ *
+ *  WHY THIS IS HERE AT ALL. A route writes species as NAMES — the contract tells the model to give
+ *  each one as a systematic name and never to author a structure. It wrote "bromine", which is
+ *  correct, and resolution returned `[Br]`: a bromine ATOM. The route then failed on a species the
+ *  model never wrote, and the checker asked it to supply `BrBr` — a structure the same contract
+ *  forbids it from supplying. Measured: one target needed three turns to discover that workaround
+ *  and another never found it at all. The fault was ours, in this lookup.
+ *
+ *  MATCHED ON THE WHOLE NAME, never a word inside it. The metal lookup below matches `\bword\b`,
+ *  which is right for a salt ("sodium chloride" should show sodium as an ion) and would be a
+ *  disaster here: "hydrogen chloride" is HCl, "hydrogen peroxide" is H2O2, "bromine monochloride"
+ *  is BrCl. None of them is the element's free form.
+ *
+ *  WHAT IS DELIBERATELY ABSENT, because a bare atom is the RIGHT answer for it:
+ *    - every ion. "hydrogen ion", "proton", "hydride", "chloride", "bromide", "iodide" are charged
+ *      or mono-atomic species and resolve as themselves. Only the neutral element word is here, so
+ *      none of them can match.
+ *    - the noble gases. Helium through xenon ARE monatomic in their free form.
+ *    - the metals, which the lookup below already handles and which are monatomic as the element.
+ *    - an explicitly atomic form: "atomic hydrogen", "hydrogen atom", "bromine radical".
+ *    - sulfur and phosphorus. Their free forms are rings and cages whose formula depends on the
+ *      allotrope (S8, P4), so there is no single edit to make. Same reasoning as DIATOMIC_FORM in
+ *      chemistryRouteAudit.ts, which this deliberately mirrors.
+ *    - ozone, which is O3 and not oxygen's free form. */
+const DIATOMIC_ELEMENT_FORMS: Readonly<Record<string, string>> = {
+  hydrogen: '[H][H]', dihydrogen: '[H][H]', 'hydrogen gas': '[H][H]', 'molecular hydrogen': '[H][H]',
+  nitrogen: 'N#N', dinitrogen: 'N#N', 'nitrogen gas': 'N#N', 'molecular nitrogen': 'N#N',
+  oxygen: 'O=O', dioxygen: 'O=O', 'oxygen gas': 'O=O', 'molecular oxygen': 'O=O',
+  fluorine: 'FF', difluorine: 'FF', 'fluorine gas': 'FF', 'molecular fluorine': 'FF',
+  chlorine: 'ClCl', dichlorine: 'ClCl', 'chlorine gas': 'ClCl', 'molecular chlorine': 'ClCl',
+  bromine: 'BrBr', dibromine: 'BrBr', 'bromine gas': 'BrBr', 'molecular bromine': 'BrBr',
+  iodine: 'II', diiodine: 'II', 'iodine gas': 'II', 'molecular iodine': 'II',
+};
+
+/** The free form of a named diatomic element, or null for every other name. Whole-name match on a
+ *  normalised string, so only the element itself resolves here. */
+export function diatomicElementForName(name: string): string | null {
+  const key = String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return Object.hasOwn(DIATOMIC_ELEMENT_FORMS, key) ? DIATOMIC_ELEMENT_FORMS[key] : null;
+}
+
 function metalElementForName(name: string): string | null {
   const lower = name.toLowerCase();
   for (const [word, symbol] of METAL_WORDS) {
@@ -412,6 +458,10 @@ export async function resolveSpeciesName(rawName: string, deps: ChemistryIdentit
   // here and fall through to the resolvers / the author's SMILES.
   const builtin = buildingBlockSmiles(name);
   if (builtin) return { name, status: 'resolved', smiles: builtin, source: 'builtin' };
+  // An element whose free form is diatomic, answered here rather than asked of a reference: the
+  // chemistry is not in doubt and PubChem holds the ATOM under the same word.
+  const diatomic = diatomicElementForName(name);
+  if (diatomic) return { name, status: 'resolved', smiles: diatomic, source: 'builtin' };
   // A resin-bound intermediate has no resolvable name: ask for a structure instead of retrying a name.
   if (isResinBoundName(name)) return { name, status: 'unresolved', feedback: 'A resin-bound species has no resolvable name — give it as SMILES with the solid support written as a single `*` at the attachment atom (for example `*OC(=O)CN…`).' };
   const metal = metalElementForName(name);

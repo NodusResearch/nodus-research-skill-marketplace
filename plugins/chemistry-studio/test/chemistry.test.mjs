@@ -42,6 +42,7 @@ await build({
       export { auditRoute } from './src/engine/chemistryRouteAudit';
       export { skeletonChange } from './src/engine/chemistrySkeleton';
       export { buildingBlockSmiles, isResinBoundName, PEPTIDE_BUILDING_BLOCKS } from './src/engine/peptideBuildingBlocks';
+      export { diatomicElementForName } from './src/engine/chemistryIdentity';
       export { SCHEMA_CEILINGS, maxQuestionChars, maxNames, maxLabelsTotal, maxLabelsPerStep, maxSteps, maxSpeciesPerStep, maxSpeciesTotal, maxReactionChars } from './src/engine/chemistryLimits';
     `,
     resolveDir: root, loader: 'ts',
@@ -1808,15 +1809,35 @@ test('a metal name keeps PubChem when both references show the metal as an ion',
 });
 
 test('a name without a metal is still PubChem-first', async () => {
+  // Was written with "hydrogen" as the example. It is now answered from the built-in diatomic
+  // lookup before any reference is asked, so the example moved to a name that still exercises the
+  // branch this test is about — the metal/non-metal split, not hydrogen. The references disagreed
+  // about hydrogen anyway, and instructively: PubChem returned `[HH]`, the molecule, while OPSIN
+  // returned `[H]`, the atom. Which answer a route got depended on which service replied.
   const host = resolveHost((endpointId, target) => {
-    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [783] } };
-    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 783, IsomericSMILES: '[HH]', MolecularFormula: 'H2' }] } };
-    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: '[H]' };
+    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [241] } };
+    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 241, IsomericSMILES: 'c1ccccc1', MolecularFormula: 'C6H6' }] } };
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: 'C1=CC=CC=C1' };
     return undefined;
   });
-  const entry = (await lib.createWorker(host).invoke({ invocationId: 'salt3', toolId: 'resolve-names', locale: 'en', input: { names: ['hydrogen'] } })).artifacts[0].data.results[0];
+  const entry = (await lib.createWorker(host).invoke({ invocationId: 'salt3', toolId: 'resolve-names', locale: 'en', input: { names: ['benzene'] } })).artifacts[0].data.results[0];
   assert.equal(entry.source, 'pubchem');
-  assert.equal(entry.smiles, '[HH]');
+  assert.equal(entry.smiles, 'c1ccccc1');
+});
+
+test('a diatomic element answers the same whatever the references say', async () => {
+  // The behaviour the test above used to cover by accident, now covered on purpose: the answer no
+  // longer depends on which service replies, or on either being reachable. The host below returns
+  // the ATOM from both references; the molecule is still what comes back.
+  const host = resolveHost((endpointId, target) => {
+    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [5360770] } };
+    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 5360770, IsomericSMILES: '[Br]', MolecularFormula: 'Br' }] } };
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: '[Br]' };
+    return undefined;
+  });
+  const entry = (await lib.createWorker(host).invoke({ invocationId: 'diatomic1', toolId: 'resolve-names', locale: 'en', input: { names: ['bromine'] } })).artifacts[0].data.results[0];
+  assert.equal(entry.smiles, 'BrBr', 'the molecule, not the atom the references offered');
+  assert.equal(entry.source, 'builtin');
 });
 
 test('when only one reference resolves a metal name, that one is used', async () => {
@@ -2677,4 +2698,56 @@ test('a route longer than the old 96-step ceiling is actually audited now, not r
   assert.equal(audit.steps.length, 120, 'every step comes back, not a truncated prefix');
   assert.ok(audit.steps.every((entry) => typeof entry.balanced === 'boolean'),
     'and each one was really checked, not just counted');
+});
+
+test('a named diatomic element resolves to its molecule, and nothing else does', () => {
+  // The route contract tells the model to give species as NAMES and never to author a structure.
+  // It wrote "bromine" — correct — and resolution returned `[Br]`, a bromine ATOM. The route then
+  // failed on a species the model never wrote, and the checker asked for `BrBr`, which the same
+  // contract forbids it from supplying. One target took three turns to find that workaround and
+  // another never did. The fault was in this lookup, not in the answer.
+  const f = lib.diatomicElementForName;
+
+  for (const [name, smiles] of [['hydrogen', '[H][H]'], ['nitrogen', 'N#N'], ['oxygen', 'O=O'],
+    ['fluorine', 'FF'], ['chlorine', 'ClCl'], ['bromine', 'BrBr'], ['iodine', 'II']]) {
+    assert.equal(f(name), smiles, name);
+    assert.equal(f(name.toUpperCase()), smiles, `${name} is case-insensitive`);
+    assert.equal(f(`  ${name} `), smiles, `${name} tolerates whitespace`);
+  }
+  assert.equal(f('molecular bromine'), 'BrBr');
+  assert.equal(f('dinitrogen'), 'N#N');
+
+  // CHARGE. An ion is not an element's free form, and a bare charged atom is the RIGHT answer for
+  // it: `[H+]` is a proton, `[H][H]` is hydrogen gas, and confusing them changes the chemistry.
+  // None of these names may match, so each falls through to the references unchanged.
+  for (const ion of ['hydrogen ion', 'proton', 'hydride', 'hydronium', 'chloride', 'bromide',
+    'iodide', 'fluoride', 'oxide', 'hydroxide', 'nitride', 'peroxide']) {
+    assert.equal(f(ion), null, `${ion} is an ion, not an element's free form`);
+  }
+
+  // LEGITIMATELY MONATOMIC. A noble gas IS one atom in its free form; a metal is one atom as the
+  // element. Rewriting either would be wrong.
+  for (const mono of ['helium', 'neon', 'argon', 'krypton', 'xenon', 'sodium', 'zinc', 'iron', 'tin']) {
+    assert.equal(f(mono), null, `${mono} is monatomic or a metal`);
+  }
+
+  // An explicitly ATOMIC form is a real species and must survive as written.
+  for (const atom of ['atomic hydrogen', 'hydrogen atom', 'bromine radical', 'chlorine atom']) {
+    assert.equal(f(atom), null, `${atom} names the atom on purpose`);
+  }
+
+  // A COMPOUND that merely contains the element word. This is why the match is on the whole name:
+  // the metal lookup beside it matches a word inside the name, which here would turn hydrogen
+  // chloride into hydrogen gas.
+  for (const compound of ['hydrogen chloride', 'hydrogen peroxide', 'hydrogen bromide',
+    'bromine monochloride', 'nitrogen dioxide', 'oxygen difluoride', 'chlorine dioxide',
+    'sodium chloride', 'iodine monochloride']) {
+    assert.equal(f(compound), null, `${compound} is a compound, not an element`);
+  }
+
+  // Allotropes left out on purpose: their free form depends on which one, so there is no single
+  // edit to make. Ozone is not oxygen's free form either.
+  for (const other of ['sulfur', 'phosphorus', 'ozone', 'carbon', 'graphite']) {
+    assert.equal(f(other), null, `${other} has no single unambiguous free form here`);
+  }
 });
