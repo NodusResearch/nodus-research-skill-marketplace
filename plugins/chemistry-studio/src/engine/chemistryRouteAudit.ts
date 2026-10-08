@@ -5,6 +5,7 @@ import { balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
 import { deliveredAtOpenCentres, productMatchesTarget, validateChemicalReferences } from './chemistryValidationCore';
 import { bondLedger, skeletonChange, type SkeletonReport } from './chemistrySkeleton';
+import { maxSpeciesPerStep, maxSpeciesTotal, maxSteps, type ChemistryCapBudget } from './chemistryLimits';
 
 /** The read-only route checker. It never draws: it parses each step with RDKit and answers
  *  two questions the model cannot be trusted to answer about its own plan — is every
@@ -14,13 +15,16 @@ import { bondLedger, skeletonChange, type SkeletonReport } from './chemistrySkel
 
 // Solid-phase peptide syntheses run to ~80 steps (a coupling and a deprotection per residue,
 // e.g. tirzepatide's 39 residues, then cleavage); 96 keeps them checkable. Not a chemistry rule.
-const MAX_STEPS = 96;
+// Which is why it is now a FLOOR under a cap taken from the turn's context window rather than the
+// cap itself: the figure above was sized for one target, and a longer one needs room without
+// anybody picking a new constant for it.
+const MAX_STEPS_FLOOR = 96;
 // A backstop against pathological input, not a chemistry constraint. A named salt expands to
 // its ions in the equation (`sodium dichromate` is three components), so a legitimate redox
 // step can exceed a tight per-step limit; the application caps the author's labels per step
 // and the whole route separately, and the subworker is killable and time-bounded.
-const MAX_SPECIES_PER_STEP = 48;
-const MAX_SPECIES_TOTAL = 1024;
+const MAX_SPECIES_PER_STEP_FLOOR = 48;
+const MAX_SPECIES_TOTAL_FLOOR = 1024;
 
 
 async function summarize(input: string): Promise<RouteSpeciesSummary> {
@@ -534,9 +538,12 @@ function stereoChoiceOf(value: StereoChoice | number | null | undefined): Stereo
   return null;
 }
 
-export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
+export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBudget): Promise<RouteAudit> {
+  const maxStepCount = Math.max(MAX_STEPS_FLOOR, maxSteps(budget));
+  const maxPerStep = Math.max(MAX_SPECIES_PER_STEP_FLOOR, maxSpeciesPerStep(budget));
+  const maxTotal = Math.max(MAX_SPECIES_TOTAL_FLOOR, maxSpeciesTotal(budget));
   const steps = Array.isArray(input?.steps) ? input.steps : [];
-  if (!steps.length || steps.length > MAX_STEPS) throw new Error(`A route needs between one and ${MAX_STEPS} steps.`);
+  if (!steps.length || steps.length > maxStepCount) throw new Error(`A route needs between one and ${maxStepCount} steps.`);
   const carriers = Array.isArray(input?.carriers) ? input.carriers : [];
   const racemicInput = input?.racemic;
   const declaredRacemic = (index: number): boolean => Array.isArray(racemicInput)
@@ -575,9 +582,9 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       const products = await summarizeFieldGrouped(productField, declaredFor(stepLabels, 'product'));
       if (!reactants.length || !products.length) throw new Error('A step needs at least one reactant and one product.');
       const count = reactants.length + agents.length + products.length;
-      if (count > MAX_SPECIES_PER_STEP) throw new Error(`A step may name at most ${MAX_SPECIES_PER_STEP} species.`);
+      if (count > maxPerStep) throw new Error(`A step may name at most ${maxPerStep} species.`);
       totalSpecies += count;
-      if (totalSpecies > MAX_SPECIES_TOTAL) throw new Error(`A route may name at most ${MAX_SPECIES_TOTAL} species.`);
+      if (totalSpecies > maxTotal) throw new Error(`A route may name at most ${maxTotal} species.`);
       let balance = stepBalance(reactants, agents, products);
       // A free oxide or nitride is never the species the author meant, and it hands the solver a
       // degree of freedom that can make a wrong equation balance. Refuse the balance and name it,

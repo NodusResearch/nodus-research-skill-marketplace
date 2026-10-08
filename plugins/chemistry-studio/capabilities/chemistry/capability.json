@@ -14,7 +14,7 @@
         "type": "object",
         "properties": {
           "plan": { "type": "string", "minLength": 2, "maxLength": 64000 },
-          "question": { "type": "string", "maxLength": 8000 }
+          "question": { "type": "string", "maxLength": 64000 }
         },
         "required": ["plan"],
         "additionalProperties": false
@@ -51,7 +51,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 48 }
+          "names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 512 }
         },
         "required": ["names"],
         "additionalProperties": false
@@ -70,7 +70,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 48 }
+          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 512 }
         },
         "required": ["smiles"],
         "additionalProperties": false
@@ -89,19 +89,19 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 16000 }, "minItems": 1, "maxItems": 96 },
-          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 4000 }, "maxItems": 96 },
+          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 64000 }, "minItems": 1, "maxItems": 512 },
+          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 4000 }, "maxItems": 512 },
           "racemic": { "type": "boolean" },
-          "rearrangement": { "type": "array", "items": { "type": "boolean" }, "maxItems": 96 },
-          "radical": { "type": "array", "items": { "type": "boolean" }, "maxItems": 96 },
+          "rearrangement": { "type": "array", "items": { "type": "boolean" }, "maxItems": 512 },
+          "radical": { "type": "array", "items": { "type": "boolean" }, "maxItems": 512 },
           "target": { "type": "string", "minLength": 1, "maxLength": 2000 },
           "enumerateStereo": { "type": "boolean" },
           "labels": {
             "type": "array",
-            "maxItems": 96,
+            "maxItems": 512,
             "items": {
               "type": "array",
-              "maxItems": 24,
+              "maxItems": 128,
               "items": {
                 "type": "object",
                 "properties": {
