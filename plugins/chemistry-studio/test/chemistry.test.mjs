@@ -3796,3 +3796,17 @@ print(json.dumps({"first": first, "second": second, "refused": refused, "stereo"
   assert.equal(out.stereo.stdout, out.oneShot, 'a served answer is byte-for-byte the one-shot answer');
   assert.equal(out.exit, 0, 'the loop ends when stdin closes');
 });
+
+test('each tool declares at least the concurrency the application runs it at', () => {
+  // The host now enforces `concurrency` per worker (it used to be declared and ignored), so a value
+  // below what Nodus sends side by side would serialize it: disconnections four at a time in the
+  // evidence gather (DISCONNECTION_PROCESSES), the ORD and textbook precedent lookups together, two
+  // step drawings at a time (DRAW_CONCURRENCY), and the stock check from the gather beside the
+  // route report's.
+  const declared = Object.fromEntries(manifest.tools.map(tool => [tool.id, tool.concurrency]));
+  assert.ok(declared['propose-disconnections'] >= 4);
+  assert.ok(declared['known-reactions'] >= 2);
+  assert.ok(declared.compile >= 2);
+  assert.ok(declared['check-stock'] >= 2);
+  assert.ok(declared.inspect >= 2);
+});
