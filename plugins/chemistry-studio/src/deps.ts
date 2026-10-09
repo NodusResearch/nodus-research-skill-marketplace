@@ -58,10 +58,11 @@ const validate = async (request: ChemistryValidationRequest, signal?: AbortSigna
 };
 
 /** Read-only batch inspection. One subworker load parses every SMILES, and a species that
- *  cannot be parsed comes back as an error entry instead of failing the whole batch. */
-const inspectBatch = async (smiles: string[], signal?: AbortSignal): Promise<ChemistryInspectionResult[]> => {
+ *  cannot be parsed comes back as an error entry instead of failing the whole batch. A caller that
+ *  needs only the canonical SMILES says so, and the batch skips the layouts and the drawing. */
+const inspectBatch = async (smiles: string[], signal?: AbortSignal, options: { canonicalOnly?: boolean } = {}): Promise<ChemistryInspectionResult[]> => {
   signal?.throwIfAborted();
-  const result = await host().subworker.run({ entry: 'validator.js', input: { batch: smiles }, timeoutMs: 120_000 });
+  const result = await host().subworker.run({ entry: 'validator.js', input: { batch: smiles, ...(options.canonicalOnly ? { canonicalOnly: true } : {}) }, timeoutMs: 120_000 });
   return (result as { results?: ChemistryInspectionResult[] })?.results ?? [];
 };
 

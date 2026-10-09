@@ -12,7 +12,7 @@ import type { ChemistryInspectionResult, ChemistryValidationRequest } from './en
 declare const process: NodeJS.Process & { parentPort?: { on(event: 'message', listener: (event: { data: unknown }) => void): void; postMessage(value: unknown): void } };
 
 process.parentPort?.on('message', event => {
-  const data = event.data as ChemistryValidationRequest & { batch?: string[]; route?: RouteAuditInput; budget?: ChemistryCapBudget };
+  const data = event.data as ChemistryValidationRequest & { batch?: string[]; canonicalOnly?: boolean; route?: RouteAuditInput; budget?: ChemistryCapBudget };
   // A batch is the read-only inspector: parse many SMILES in one process, and report a
   // species that cannot be parsed as its own error instead of failing the batch.
   if (Array.isArray(data?.batch)) {
@@ -20,7 +20,7 @@ process.parentPort?.on('message', event => {
       const results: ChemistryInspectionResult[] = [];
       for (const smiles of data.batch!) {
         try {
-          const checked = await validateChemicalReferences({ references: [smiles], inspect: true });
+          const checked = await validateChemicalReferences({ references: [smiles], inspect: true, ...(data.canonicalOnly ? { summaryOnly: true } : {}) });
           results.push({ smiles, ok: true, graph: checked.graph });
         } catch (error) {
           results.push({ smiles, ok: false, error: error instanceof Error ? error.message : 'Chemical validation failed.' });

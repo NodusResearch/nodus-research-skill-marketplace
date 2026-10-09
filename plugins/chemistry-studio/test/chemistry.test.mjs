@@ -100,7 +100,7 @@ function stubHost(options = {}) {
           const results = [];
           for (const smiles of request.input.batch) {
             try {
-              const checked = await lib.validateChemicalReferences({ references: [smiles], inspect: true });
+              const checked = await lib.validateChemicalReferences({ references: [smiles], inspect: true, ...(request.input.canonicalOnly ? { summaryOnly: true } : {}) });
               results.push({ smiles, ok: true, graph: checked.graph });
             } catch (error) {
               results.push({ smiles, ok: false, error: error instanceof Error ? error.message : 'Chemical validation failed.' });
@@ -3277,4 +3277,18 @@ test('a fix round in a new worker reuses the label answers the last check found'
   assert.equal(sent, 0, 'nothing was asked again');
   assert.equal(audit.steps[0].reactants.find((entry) => entry.name === 'ethanol').nameOk, true);
   lib.resetPubchemPacing();
+});
+
+test('resolve-names canonicalises without drawing, and the inspector still returns a full graph', async () => {
+  const batches = [];
+  const host = ethanolHost();
+  const run = host.subworker.run;
+  host.subworker.run = async (request) => { batches.push(request.input); return run(request); };
+  const worker = lib.createWorker(host);
+  const names = (await worker.invoke({ invocationId: 'cn1', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'] } })).artifacts[0].data.results;
+  assert.equal(names[0].smiles, 'CCO');
+  assert.equal(batches.at(-1).canonicalOnly, true, 'the canonicalisation batch asks for the canonical form only');
+  const dossier = (await worker.invoke({ invocationId: 'cn2', toolId: 'inspect', locale: 'en', input: { smiles: ['C[C@H](N)C(=O)O'] } })).artifacts[0];
+  assert.equal(batches.at(-1).canonicalOnly, undefined, 'the inspector asks for the whole graph');
+  assert.ok(dossier.data.atoms.some((atom) => atom.cip === 'S'));
 });
