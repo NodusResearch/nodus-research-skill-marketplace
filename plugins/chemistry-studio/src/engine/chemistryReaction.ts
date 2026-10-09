@@ -2,7 +2,7 @@ import { MAX_SPECIES_CHARS } from './chemistryLimits';
 import type { ChemistryReactionArtifact, ChemistryValidationRequest, ChemistryValidationResult, ReactionSpecies } from './chemistryDocument';
 import { compileChemfig } from './chemistry';
 import { colourChemfigAtoms } from './elementColours';
-import { elementSymbol, formulaOf } from './chemistryElements';
+import { elementSymbol, formulaOf, isMetalKey } from './chemistryElements';
 
 type Validate = (request: ChemistryValidationRequest) => Promise<ChemistryValidationResult>;
 
@@ -560,8 +560,44 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
     const heaviestProduct = heaviestOf('product');
     const balancedSomethingElse = heaviestReactant !== undefined && heaviestProduct !== undefined
       && idle.includes(heaviestReactant) && idle.includes(heaviestProduct);
+    // A zeroed REACTANT that carries a metal is a reagent the step consumes: sodium in a
+    // dissolving-metal reduction, a borohydride, a lithium amide base, an alkoxide. Deleting it is
+    // the one thing that must not happen, and the route rules already say a metal that enters as a
+    // reagent leaves as a salt. It comes out at zero because what it BECOMES is missing or wrong, so
+    // its spent form — any other zeroed species carrying the same metal — is zeroed with it.
+    // Measured: a reduction listing sodium borohydride and sodium borate, and an aldol listing a
+    // lithium amide base and lithium chloride, were each told to delete both. Re-filing the reagent
+    // under Agents does not rescue these, because the spent form stays on the product side.
+    const metalsOf = (position: number) => Object.keys(reduced[position].composition.atoms)
+      .filter(key => isMetalKey(key) && reduced[position].composition.atoms[key] > 0);
+    const reagents = idle.filter(position => roles[reduced[position].index] === 'reactant' && metalsOf(position).length > 0);
+    const reagentMetals = new Set(reagents.flatMap(metalsOf));
+    const spent = idle.filter(position => !reagents.includes(position) && metalsOf(position).some(key => reagentMetals.has(key)));
+    const incidental = idle.filter(position => !reagents.includes(position) && !spent.includes(position));
+    const quote = (positions: number[]) => positions.map(position => `"${formulaOf(reduced[position].composition.atoms)}"`).join(', ');
+    if (reagents.length && !balancedSomethingElse) {
+      const many = reagents.length > 1;
+      const spentNote = spent.length
+        ? ` ${quote(spent)}, which carries the same metal, comes out at zero with ${many ? 'them' : 'it'}: as named, it is not what the reagent becomes.`
+        : ' Nothing on the product side carries its metal.';
+      const incidentalNote = incidental.length
+        ? ` Separately, ${quote(incidental)} take(s) no part and can be deleted if the step neither consumes nor produces ${incidental.length > 1 ? 'them' : 'it'}.`
+        : '';
+      throw new Error(`The declared species cannot be balanced: ${quote(reagents)} ${many ? 'are reagents' : 'is a reagent'} carrying a metal, and the equation balances only with ${many ? 'them' : 'it'} at zero.${spentNote} Do not delete ${many ? 'them' : 'it'}: a metal that enters as a reagent leaves as a salt, so name the species ${many ? 'their' : 'its'} atoms actually end up in, and list as Reactants anything consumed with ${many ? 'them' : 'it'} (a proton source written under Agents is consumed if its atoms end up in a byproduct). If ${many ? 'they are catalysts' : 'it is a catalyst'} and not consumed, list ${many ? 'them' : 'it'} under Agents instead.${incidentalNote}`);
+    }
+    // The product-side counterpart: a zeroed species carrying a metal that NO reactant supplies.
+    // "Delete it" is only half the answer there — just as often the step is missing the reagent that
+    // brings the metal (a sodium bromide byproduct with no sodium base listed). Say both.
+    const reactantMetals = new Set(reduced.flatMap((_, position) => (roles[reduced[position].index] === 'reactant' ? metalsOf(position) : [])));
+    const orphans = incidental.filter(position => metalsOf(position).some(key => !reactantMetals.has(key)));
+    if (orphans.length && !balancedSomethingElse) {
+      const many = orphans.length > 1;
+      const rest = incidental.filter(position => !orphans.includes(position));
+      const restNote = rest.length ? ` Separately, ${quote(rest)} take(s) no part and can be deleted if the step neither consumes nor produces ${rest.length > 1 ? 'them' : 'it'}.` : '';
+      throw new Error(`The declared species cannot be balanced: ${quote(orphans)} ${many ? 'carry a metal' : 'carries a metal'} that nothing under Reactants supplies, so the equation balances only with ${many ? 'them' : 'it'} at zero. Either the reagent that brings the metal is missing from Reactants (a base or a salt the step consumes — name it), or ${many ? 'they are' : 'it is'} not formed and should be removed.${restNote}`);
+    }
     if (idle.length && !balancedSomethingElse) {
-      const names = idle.map(position => `"${formulaOf(reduced[position].composition.atoms)}"`).join(', ');
+      const names = quote(idle);
       throw new Error(`The declared species cannot be balanced: ${names} take(s) no part (coefficient 0), so the equation balances only if ${idle.length > 1 ? 'those molecules are' : 'that molecule is'} removed. Delete the molecule the step neither consumes nor produces — water and a solvent are the usual ones.`);
     }
     throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. ${imbalanceAdvice(compositions, roles)}`);

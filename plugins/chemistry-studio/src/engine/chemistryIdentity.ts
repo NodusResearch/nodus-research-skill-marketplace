@@ -5,6 +5,18 @@ import { buildingBlockSmiles, isResinBoundName } from './peptideBuildingBlocks';
 export interface ChemistryIdentityDependencies {
   fetch: typeof fetch;
   validate: (request: ChemistryValidationRequest, signal?: AbortSignal) => Promise<ChemistryValidationResult>;
+  /** Answers already read from a local PubChem mirror for this batch. Only definite answers are in
+   *  it — a name with exactly one CID, a structure whose InChIKey has a CID — so anything absent is
+   *  asked of the network exactly as before. */
+  pubchemMirror?: PubChemMirror;
+  /** What a local OPSIN returned for this batch's names — the web service's own fields — so a name
+   *  in it is answered without the round trip, by exactly the same rules. */
+  opsinLocal?: Map<string, { status: string; smiles?: string; warnings?: string[]; message?: string }>;
+}
+
+export interface PubChemMirror {
+  names: Map<string, { cid: number; smiles: string; formula?: string }>;
+  smiles: Map<string, { cid: number; name?: string; formula?: string }>;
 }
 
 /** No model-generated structures, status, captions, URLs or projection arrays. */
@@ -311,6 +323,12 @@ export interface SpeciesStructureName {
 export async function nameStructureBySmiles(rawSmiles: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesStructureName> {
   const smiles = typeof rawSmiles === 'string' ? rawSmiles.trim().slice(0, 2000) : '';
   if (!smiles) return { smiles, status: 'unnamed', feedback: 'Not a structure.' };
+  const local = deps.pubchemMirror?.smiles.get(smiles);
+  if (local) {
+    return local.name
+      ? { smiles, status: 'named', cid: local.cid, name: local.name.slice(0, 300), ...(local.formula ? { formula: local.formula } : {}) }
+      : { smiles, status: 'unnamed', cid: local.cid, ...(local.formula ? { formula: local.formula } : {}), feedback: 'PubChem holds this structure but reports no IUPAC name for it.' };
+  }
   let cid: number | undefined;
   try {
     const matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/cids/JSON`, deps, signal);
@@ -348,6 +366,8 @@ export interface SpeciesNameResolution {
 }
 
 async function pubchemByName(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
+  const local = deps.pubchemMirror?.names.get(value);
+  if (local) return { name: value, status: 'resolved', smiles: local.smiles, source: 'pubchem', ...(local.formula ? { formula: local.formula } : {}) };
   const matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(value)}/cids/JSON?name_type=complete`, deps, signal);
   const cids = matches?.IdentifierList?.CID;
   if (!Array.isArray(cids) || !cids.length) return { name: value, status: 'unresolved', feedback: 'PubChem has no exact match for this name.' };
@@ -369,7 +389,12 @@ async function pubchemByName(value: string, deps: ChemistryIdentityDependencies,
 }
 
 async function opsinByName(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
-  const record = await readJSON(`https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(value)}.json`, deps, signal);
+  // A local answer is turned into the record the web service would have sent (it reports a parse
+  // with warnings as SUCCESS + warnings), so everything below treats the two identically.
+  const local = deps.opsinLocal?.get(value);
+  const record = local
+    ? { status: local.status === 'FAILURE' ? 'FAILURE' : 'SUCCESS', smiles: local.smiles, warnings: local.warnings ?? [], message: local.message }
+    : await readJSON(`https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(value)}.json`, deps, signal);
   if (record?.status === 'SUCCESS' && typeof record.smiles === 'string' && record.smiles) {
     if (Array.isArray(record.warnings) && record.warnings.length) {
       return { name: value, status: 'unresolved', source: 'opsin', feedback: `OPSIN only partly interpreted the name: ${record.warnings.join(' ').slice(0, 200)}` };

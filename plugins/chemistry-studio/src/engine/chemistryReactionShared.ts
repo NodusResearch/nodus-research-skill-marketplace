@@ -18,16 +18,47 @@ export function splitReactionSmiles(source: string): { reactants: string; agents
 
 /** Split only an explicit, complete reaction SMILES. No guessing from prose,
  *  automatic balancing, omitted agents, or empty dot-components. */
+/** Net formal charge of one dot-free SMILES component, read from its bracket atoms: `[O-]`,
+ *  `[Na+]`, `[Fe+3]`, `[O--]`. Outside a bracket `-` is a bond and `+` cannot occur. */
+function componentCharge(smiles: string): number {
+  let charge = 0;
+  for (const [, inside] of smiles.matchAll(/\[([^\]]*)\]/g)) {
+    const sign = /([+-]+)(\d*)$/.exec(inside.replace(/:\d+$/, ''));
+    if (sign) charge += (sign[1][0] === '+' ? 1 : -1) * (sign[2] ? Number(sign[2]) : sign[1].length);
+  }
+  return charge;
+}
+
+/** One side's components grouped into species. A salt is written as its ions, consecutively
+ *  (`O=N[O-].[Na+]`): consecutive charged components whose charges sum to zero are one species,
+ *  which is how the route check reads them from the author's names. Split on every dot instead, the
+ *  sodium of sodium sulfate became two loose [Na+], one cancelled against another salt's and the
+ *  other "took no part", so a step that passed its check could not be drawn. Anything that does not
+ *  close to zero — a lone ion, or one a neutral species interrupts — stays as separate species. */
+function groupSalts(components: string[]): string[] {
+  const out: string[] = [];
+  let open: string[] = [], charge = 0;
+  const flush = () => { out.push(...open); open = []; charge = 0; };
+  for (const component of components) {
+    const own = componentCharge(component);
+    if (!open.length && own === 0) { out.push(component); continue; }
+    if (own === 0) { flush(); out.push(component); continue; }
+    open.push(component); charge += own;
+    if (charge === 0) { out.push(open.join('.')); open = []; }
+  }
+  flush();
+  return out;
+}
+
 export function reactionSmilesSpecies(source: string): ChemistryIntent['species'] {
   const { reactants, agents, products } = splitReactionSmiles(source);
   const fields = [reactants, agents, products];
   const roles = ['reactant', 'agent', 'product'] as const;
   const species = fields.flatMap((field, i) => {
     if (!field && i === 1) return [];
-    return field.split('.').map((value, j) => {
-      if (!value) throw new Error('Empty species in reaction SMILES.');
-      return { id: `${roles[i]}-${j}`, input: { kind: 'smiles' as const, value }, role: roles[i], coefficient: 1 };
-    });
+    const components = field.split('.');
+    if (components.some(value => !value)) throw new Error('Empty species in reaction SMILES.');
+    return groupSalts(components).map((value, j) => ({ id: `${roles[i]}-${j}`, input: { kind: 'smiles' as const, value }, role: roles[i], coefficient: 1 }));
   });
   if (species.length > 12) throw new Error('A reaction scheme supports at most twelve species.');
   return species;

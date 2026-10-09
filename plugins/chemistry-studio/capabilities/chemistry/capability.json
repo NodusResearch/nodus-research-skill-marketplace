@@ -51,7 +51,10 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 512 }
+          "names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 512 },
+          "pubchemDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "opsinDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "localOnly": { "type": "boolean" }
         },
         "required": ["names"],
         "additionalProperties": false
@@ -70,7 +73,9 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 512 }
+          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 512 },
+          "pubchemDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "localOnly": { "type": "boolean" }
         },
         "required": ["smiles"],
         "additionalProperties": false

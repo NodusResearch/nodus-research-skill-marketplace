@@ -29,6 +29,9 @@ const routedFetch = (async (input: string | URL | Request, init?: RequestInit) =
   return {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
+    // The host forwards the response headers; PubChem's X-Throttling-Control travels in them.
+    headers: new Headers(Object.entries((response as { headers?: Record<string, unknown> }).headers ?? {})
+      .filter(([, value]) => typeof value === 'string') as Array<[string, string]>),
     body: new ReadableStream<Uint8Array>({
       start(controller) {
         if (bytes.length) controller.enqueue(new Uint8Array(bytes));

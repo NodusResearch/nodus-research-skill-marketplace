@@ -2,7 +2,7 @@ import { MAX_LABEL_NAME_CHARS, MAX_SPECIES_CHARS, maxLabelsPerStep, maxLabelsTot
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bindHost, completeText, host, type CapabilityHost } from './engine/host';
-import { nameStructureBySmiles, resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution, type SpeciesStructureName, MAX_CHEMICAL_NAME} from './engine/chemistryIdentity';
+import { nameStructureBySmiles, resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution, type SpeciesStructureName, type ChemistryIdentityDependencies, MAX_CHEMICAL_NAME} from './engine/chemistryIdentity';
 import { chemistryDependencies } from './deps';
 import type { RouteLabelInput } from './engine/chemistryRouteAudit';
 import { splitFences } from './engine/fences';
@@ -52,6 +52,8 @@ const REPAIR_ATTEMPTS = 2;
 
 /** The shared Python runtime the reaction lookup runs in, and the adapter it runs. The runtime
  *  is app-managed and shared by lock digest; the adapter is this package's own. */
+/** The template pass of one disconnection call, inside its 240 s runtime limit. */
+const DISCONNECT_BUDGET_SECONDS = 180;
 const REACTIONS_RUNTIME_ID = 'chemistry';
 const REACTIONS_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'python', 'reactions_worker.py');
 
@@ -347,16 +349,93 @@ const PUBCHEM_ORIGIN = 'https://pubchem.ncbi.nlm.nih.gov';
 /** A per-run circuit breaker around the reference fetch: once PubChem fails as a service,
  *  stop asking it and fall through to the OPSIN fallback. A 404 is a missing name, not an
  *  outage, so only a thrown request or a 5xx opens the breaker. */
+/** PubChem's dynamic request throttling, obeyed for the life of this worker
+ *  (https://pubchem.ncbi.nlm.nih.gov/docs/dynamic-request-throttling).
+ *
+ *  Every reply grades the caller in X-Throttling-Control — request count, request time and service
+ *  load, each Green / Yellow / Red / Black — and requests are load-balanced, so PubChem asks callers
+ *  to pace by the WORST feedback seen. A refusal is 503 (it sent this machine 429), and a block GROWS
+ *  if requests continue. Measured 2026-10-09: four look-ups at a time with no shared pace, and a
+ *  breaker that ignored 429 and reset on every tool call, kept sending to a server that had already
+ *  blocked this machine. So: one pace for all requests, at most five a second; slower as soon as any
+ *  indicator turns; and after a refusal, NOTHING is sent until a growing back-off has passed — a
+ *  look-up then fails fast to its fallback without touching PubChem. */
+const PUBCHEM_PACE_MS: Record<string, number> = { Green: 200, Yellow: 1000, Red: 5000, Black: 60_000 };
+const PUBCHEM_HOLD_MS = 5 * 60_000;
+const pubchemPace = { delay: 200, until: 0, nextAt: 0, blockedUntil: 0, backoff: 60_000, lastSent: 0 };
+
+export function resetPubchemPacing(): void {
+  Object.assign(pubchemPace, { delay: 200, until: 0, nextAt: 0, blockedUntil: 0, backoff: 60_000, lastSent: 0 });
+}
+
+function notePubchemFeedback(control: string | null, now: number): void {
+  const colours = Object.keys(PUBCHEM_PACE_MS).filter((colour) => control?.includes(colour));
+  const worst = colours.reduce((a, b) => (PUBCHEM_PACE_MS[b] > PUBCHEM_PACE_MS[a] ? b : a), 'Green');
+  if (PUBCHEM_PACE_MS[worst] >= pubchemPace.delay || now > pubchemPace.until) {
+    pubchemPace.delay = PUBCHEM_PACE_MS[worst];
+    pubchemPace.until = now + PUBCHEM_HOLD_MS;
+  }
+}
+
+async function takePubchemTurn(): Promise<void> {
+  const now = Date.now();
+  if (now < pubchemPace.blockedUntil) throw new Error('PubChem asked this machine to back off; using the fallback reference.');
+  const delay = now < pubchemPace.until ? pubchemPace.delay : 200;
+  const at = Math.max(now, pubchemPace.nextAt);
+  pubchemPace.nextAt = at + delay;
+  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+  // A turn reserved before the latest grade arrived still keeps the CURRENT pace from the last
+  // request actually sent — a Yellow that came back meanwhile slows the queued ones too.
+  for (;;) {
+    // Blocked meanwhile: give up now and let the fallback answer, rather than wait out the pace.
+    if (Date.now() < pubchemPace.blockedUntil) throw new Error('PubChem asked this machine to back off; using the fallback reference.');
+    const pace = Date.now() < pubchemPace.until ? pubchemPace.delay : 200;
+    const wait = pubchemPace.lastSent + pace - Date.now();
+    if (wait <= 0) break;
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+  pubchemPace.lastSent = Date.now();
+}
+
+/** A Retry-After header, in milliseconds from now: seconds, or an HTTP date. */
+function retryAfterMs(value: string | null | undefined, now: number): number {
+  if (!value) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? Math.max(0, at - now) : 0;
+}
+
 function breakerFetch(base: typeof fetch): typeof fetch {
   let open = false;
   return (async (input: string | URL | Request, init?: RequestInit) => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const origin = new URL(raw).origin;
-    if (open && origin === PUBCHEM_ORIGIN) throw new Error('PubChem is unavailable; using the fallback reference.');
+    if (origin !== PUBCHEM_ORIGIN) return base(input, init);
+    if (open) throw new Error('PubChem is unavailable; using the fallback reference.');
+    await takePubchemTurn();
+    // Checked again AFTER the wait: a look-up that queued for a turn before a refusal arrived must
+    // not send once its turn comes.
+    if (open || Date.now() < pubchemPace.blockedUntil) throw new Error('PubChem asked this machine to back off; using the fallback reference.');
     let response: Response;
     try { response = await base(input, init); }
-    catch (error) { if (origin === PUBCHEM_ORIGIN) open = true; throw error; }
-    if (origin === PUBCHEM_ORIGIN && response.status >= 500) open = true;
+    catch (error) { open = true; throw error; }
+    const now = Date.now();
+    // Defensive: a response without headers must never turn a PubChem answer into a fallback.
+    notePubchemFeedback(typeof response.headers?.get === 'function' ? response.headers.get('x-throttling-control') : null, now);
+    if (response.status === 429 || response.status === 503) {
+      // Refused: stop sending entirely, and wait longer each time it happens again.
+      // PubChem's own Retry-After, when it sends one, is the authority; otherwise a growing back-off.
+      const told = retryAfterMs(typeof response.headers?.get === 'function' ? response.headers.get('retry-after') : null, now);
+      pubchemPace.blockedUntil = now + Math.max(told, pubchemPace.backoff);
+      pubchemPace.backoff = Math.min(pubchemPace.backoff * 2, 30 * 60_000);
+      notePubchemFeedback('Black', now);
+      open = true;
+    } else if (response.status >= 500) {
+      open = true;
+    } else {
+      pubchemPace.backoff = 60_000;
+    }
     return response;
   }) as typeof fetch;
 }
@@ -446,7 +525,37 @@ async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cac
   }
 }
 
-async function resolveNames(input: { names?: string[] }, cache: ReferenceCache, budget?: ChemistryCapBudget) {
+/** One Python call answering a batch from the local PubChem mirror and a local OPSIN, whichever
+ *  the host passed. Any failure — none there, no runtime, a slow call — is no local answer: the
+ *  network is asked exactly as before. */
+/** For a run that must stay on this machine — a timing trace, so the network neither adds latency
+ *  nor risks another block: every reference request is refused WITHOUT being sent, and the local
+ *  sources (the PubChem mirror, a local OPSIN) answer alone. A species they cannot answer is
+ *  unresolved or unnamed, exactly as if the network had no answer. */
+const localOnlyFetch = (async () => { throw new Error('Local references only: the network is not consulted on this run.'); }) as unknown as typeof fetch;
+
+async function localReferencesFor(input: { pubchemDir?: unknown; opsinDir?: unknown }, names: string[], smiles: string[]): Promise<Pick<ChemistryIdentityDependencies, 'pubchemMirror' | 'opsinLocal'>> {
+  const pubchemDir = typeof input?.pubchemDir === 'string' && input.pubchemDir ? input.pubchemDir : undefined;
+  const opsinDir = typeof input?.opsinDir === 'string' && input.opsinDir && names.length ? input.opsinDir : undefined;
+  if ((!pubchemDir && !opsinDir) || (!names.length && !smiles.length)) return {};
+  try {
+    const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT],
+      stdin: JSON.stringify({ ...(pubchemDir ? { pubchemDir } : {}), ...(opsinDir ? { opsinDir } : {}), pubchemNames: names, pubchemSmiles: smiles }), timeoutMs: 120_000 });
+    if (run.code !== 0) return {};
+    const data = JSON.parse(run.stdout) as {
+      pubchem?: { available?: boolean; names?: Record<string, { cid: number; smiles: string; formula?: string }>; smiles?: Record<string, { cid: number; name?: string; formula?: string }> };
+      opsin?: Record<string, { status: string; smiles?: string; warnings?: string[]; message?: string }>;
+    };
+    return {
+      ...(data.pubchem?.available ? { pubchemMirror: { names: new Map(Object.entries(data.pubchem.names ?? {})), smiles: new Map(Object.entries(data.pubchem.smiles ?? {})) } } : {}),
+      ...(data.opsin && Object.keys(data.opsin).length ? { opsinLocal: new Map(Object.entries(data.opsin)) } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+async function resolveNames(input: { names?: string[]; pubchemDir?: string; opsinDir?: string; localOnly?: boolean }, cache: ReferenceCache, budget?: ChemistryCapBudget) {
   const limit = maxNames(budget);
   const list = Array.isArray(input?.names) ? input.names : [];
   const cleaned = [...new Set(list
@@ -457,7 +566,8 @@ async function resolveNames(input: { names?: string[] }, cache: ReferenceCache, 
     .map((entry) => entry.trim().slice(0, MAX_CHEMICAL_NAME)))].slice(0, limit);
   if (!cleaned.length) throw new Error(`Provide between one and ${limit} chemical names.`);
   const base = chemistryDependencies();
-  const deps = { ...base, fetch: breakerFetch(base.fetch) };
+  const local = await localReferencesFor(input, cleaned, []);
+  const deps = { ...base, fetch: input?.localOnly === true ? localOnlyFetch : breakerFetch(base.fetch), ...local };
   const signal = host().signal;
   const results: Array<SpeciesNameResolution | undefined> = new Array(cleaned.length);
   let cursor = 0;
@@ -484,7 +594,15 @@ async function resolveNames(input: { names?: string[] }, cache: ReferenceCache, 
  *  formula, and PubChem supplies the IUPAC name and CID when it holds the structure. This is
  *  the reverse of `resolve-names`, used to give a name back to a species the author could only
  *  supply as a structure. */
-async function nameStructures(input: { smiles?: string[] }, budget?: ChemistryCapBudget) {
+/** Structures PubChem has already named, for the life of this worker. A correction round sends
+ *  back most of the same fallback structures, and each costs two PubChem round trips: 45 s on one
+ *  long route's first check and 21 s again on its correction (measured 2026-10-09). Only positive
+ *  answers are kept — "unnamed" also covers a network failure, which must not stick. Bounded,
+ *  oldest first out. */
+const namedStructures = new Map<string, SpeciesStructureName>();
+const NAMED_STRUCTURES_CAP = 4096;
+
+async function nameStructures(input: { smiles?: string[]; pubchemDir?: string; localOnly?: boolean }, budget?: ChemistryCapBudget) {
   const limit = maxNames(budget);
   const list = Array.isArray(input?.smiles) ? input.smiles : [];
   const cleaned = [...new Set(list
@@ -492,22 +610,37 @@ async function nameStructures(input: { smiles?: string[] }, budget?: ChemistryCa
     .map((entry) => entry.trim().slice(0, 2000)))].slice(0, limit);
   if (!cleaned.length) throw new Error(`Provide between one and ${limit} structures.`);
   const base = chemistryDependencies();
-  const deps = { ...base, fetch: breakerFetch(base.fetch) };
+  const uncached = cleaned.filter((smiles) => !namedStructures.has(smiles));
+  const local = await localReferencesFor({ pubchemDir: input?.pubchemDir }, [], uncached);
+  const deps = { ...base, fetch: input?.localOnly === true ? localOnlyFetch : breakerFetch(base.fetch), ...local };
   const signal = host().signal;
   const results: Array<SpeciesStructureName | undefined> = new Array(cleaned.length);
+  const todo: number[] = [];
+  cleaned.forEach((smiles, index) => {
+    const known = namedStructures.get(smiles);
+    if (known) results[index] = { ...known };
+    else todo.push(index);
+  });
   let cursor = 0;
   const run = async () => {
     for (;;) {
-      const index = cursor;
+      const next = cursor;
       cursor += 1;
-      if (index >= cleaned.length) return;
+      if (next >= todo.length) return;
       signal.throwIfAborted();
+      const index = todo[next];
       results[index] = await nameStructureBySmiles(cleaned[index], deps, signal);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, cleaned.length) }, run));
+  await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, todo.length) }, run));
+  const fresh = todo.map((index) => results[index]).filter((entry): entry is SpeciesStructureName => entry !== undefined);
+  await attachCanonical(fresh, signal);
+  for (const entry of fresh) {
+    if (entry.status !== 'named') continue;
+    namedStructures.set(entry.smiles, { ...entry });
+    if (namedStructures.size > NAMED_STRUCTURES_CAP) namedStructures.delete(namedStructures.keys().next().value!);
+  }
   const named = results.filter((entry): entry is SpeciesStructureName => entry !== undefined);
-  await attachCanonical(named, signal);
   const namedCount = named.filter((entry) => entry.status === 'named').length;
   const summary = namedCount
     ? `${namedCount} of ${named.length} structure(s) named`
@@ -677,6 +810,11 @@ async function proposeDisconnections(input: { indexDir?: string; targets?: strin
       startingMaterials: Array.isArray(input.startingMaterials) ? input.startingMaterials.slice(0, 16) : [],
       limit: typeof input.limit === 'number' ? input.limit : 8,
       ...(typeof input.stockDir === 'string' && input.stockDir ? { stockDir: input.stockDir } : {}),
+      // Templates are applied best-ranked first, so stopping at a deadline keeps the best proposals.
+      // Without one, a large target ran into the runtime limit below and returned nothing at all:
+      // 240 s lost on one call in a nine-turn trace (2026-10-09). The margin covers start-up, the
+      // lookups after the template pass, and the output.
+      budgetSeconds: DISCONNECT_BUDGET_SECONDS,
     }),
     timeoutMs: 240_000,
   });

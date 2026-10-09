@@ -15,6 +15,16 @@ const parseKey = (key: string): { z: number; isotope: number } => {
   return { z, isotope: isotope || 0 };
 };
 
+/** Hydrogen, the noble gases, the metalloids and the other non-metals: every element that is not a
+ *  metal. Defined by exclusion so a metal nobody thought to list is still a metal. */
+const NON_METALS = new Set([1, 2, 5, 6, 7, 8, 9, 10, 14, 15, 16, 17, 18, 32, 33, 34, 35, 36, 51, 52, 53, 54, 85, 86, 117, 118]);
+
+/** Whether a composition key (`11:0`) is a metal. The support pseudo-element is not. */
+export const isMetalKey = (key: string): boolean => {
+  const { z } = parseKey(key);
+  return z !== SUPPORT && Number.isInteger(z) && z > 0 && !NON_METALS.has(z);
+};
+
 /** `12C`, `C`, `15N` — an isotope is spelled before its symbol when it is not the natural one. */
 export const elementLabel = (key: string): string => {
   const { z, isotope } = parseKey(key);

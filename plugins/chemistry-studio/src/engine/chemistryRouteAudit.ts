@@ -959,23 +959,26 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
     }
   }
 
+  // A reason that is already a sentence keeps its own full stop. Every check below ends its
+  // message with one, and appending another put ".." in front of the model on most routes.
+  const sentence = (text: string) => (/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`);
   const blocked: string[] = [];
   for (const step of audited) {
     if (!step.ok) { blocked.push(`Step ${step.index + 1}: ${step.error ?? 'could not be parsed.'}`); continue; }
-    for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${problem}.`);
-    if (!step.balanced) { blocked.push(`Step ${step.index + 1} is not balanced: ${step.differences.join('; ')}.`); continue; }
+    for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${sentence(problem)}`);
+    if (!step.balanced) { blocked.push(`Step ${step.index + 1} is not balanced: ${sentence(step.differences.join('; '))}`); continue; }
     const packing = checkPerMoleculePacking(step);
     if (packing !== 'n/a' && 'unchecked' in packing) {
       step.assemblyUnchecked = packing.unchecked;
     } else if (packing !== 'n/a' && !packing.ok) {
       step.assemblyProblem = packing.reason;
-      blocked.push(`Step ${step.index + 1}: ${packing.reason}.`);
+      blocked.push(`Step ${step.index + 1}: ${sentence(packing.reason)}`);
       continue;
     }
     const skeletonProblem = await checkSkeleton(step, { rearrangement: declaredRearrangement(step.index), radical: declaredRadical(step.index) });
     if (skeletonProblem) {
       step.skeletonProblem = skeletonProblem;
-      blocked.push(`Step ${step.index + 1}: ${skeletonProblem}.`);
+      blocked.push(`Step ${step.index + 1}: ${sentence(skeletonProblem)}`);
       continue;
     }
     if (step.unspecifiedStereocentres > 0 && !step.racemic && !step.stereoNotRequired) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);

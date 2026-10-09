@@ -19,6 +19,16 @@ export function sceneFromMolfile(molfile: string): ChemicalScene {
   };
 }
 
+/** The skeletal convention: a neutral carbon with at least one bond is a bare vertex, its
+ *  hydrogens implied by valence. Everything a reader could not infer keeps its label: a heteroatom
+ *  and its hydrogens (OH, NH₂), a charged or isotopically labelled carbon, and a carbon with no
+ *  bond at all (methane would otherwise draw as nothing). Only the label changes; the element,
+ *  charge and coordinates the round-trip checks are untouched. */
+export function skeletalLabels(scene: ChemicalScene): ChemicalScene {
+  const bonded = new Set(scene.bonds.flatMap(bond => [bond.a, bond.b]));
+  return { ...scene, atoms: scene.atoms.map((atom, index) => (atom.element === 'C' && !atom.charge && !atom.isotope && bonded.has(index) ? { ...atom, label: '' } : atom)) };
+}
+
 /** Independent molfile writer: no OCL parity cache may override edited geometry. */
 export function sceneMolfile(scene: ChemicalScene): string {
   const field = (n: number) => String(n).padStart(3);
@@ -183,11 +193,16 @@ export function verifySceneChemfig(source: string, expected: ChemicalScene, cano
   let p = 0;
   const read = (pattern: RegExp): RegExpExecArray => { const match = pattern.exec(body.slice(p)); if (!match) throw new Error(`Invalid ChemFig export at ${p}.`); p += match[0].length; return match; };
   const parse = (x: number, y: number): number => {
-    const atom = read(/^@\{(a\d+)\}((?:\^\{\d+\})?[A-Z][a-z]?(?:H(?:_[2-9])?)?(?:\^\{\d*[+-]\})?)/);
-    const definition = /^(?:\^\{(\d+)\})?([A-Z][a-z]?)(?:H(?:_[2-9])?)?(?:\^\{(\d*)([+-])\})?$/.exec(atom[2])!;
+    const atom = read(/^@\{(a\d+)\}((?:(?:\^\{\d+\})?[A-Z][a-z]?(?:H(?:_[2-9])?)?(?:\^\{\d*[+-]\})?)?)/);
+    // An unlabelled atom is a bare skeletal vertex, which is carbon by the convention the exporter
+    // follows: `skeletalLabels` blanks only a neutral, unlabelled, bonded carbon. Its hydrogens are
+    // implied, and the RDKit round-trip below recomputes them from valence.
+    const definition: Array<string | undefined> = atom[2]
+      ? /^(?:\^\{(\d+)\})?([A-Z][a-z]?)(?:H(?:_[2-9])?)?(?:\^\{(\d*)([+-])\})?$/.exec(atom[2])!
+      : ['', undefined, 'C', undefined, undefined];
     const index = atoms.length;
     if (atoms.some(a => a.id === atom[1])) throw new Error('Duplicate exported atom ID.');
-    atoms.push({ id: atom[1], label: atom[2], element: definition[2], isotope: Number(definition[1] ?? 0), charge: definition[4] ? Number(definition[3] || 1) * (definition[4] === '+' ? 1 : -1) : 0, x, y });
+    atoms.push({ id: atom[1], label: atom[2], element: definition[2]!, isotope: Number(definition[1] ?? 0), charge: definition[4] ? Number(definition[3] || 1) * (definition[4] === '+' ? 1 : -1) : 0, x, y });
     while (p < body.length && body[p] !== ')') {
       if (body.startsWith('?[', p)) { const ring = read(/^\?\[(r\d+),([123])\]/), previous = rings.get(ring[1]);
         if (previous) { if (previous[1] !== Number(ring[2])) throw new Error('Inconsistent ring order.'); bonds.push({ id: '', a: previous[0], b: index, order: previous[1], stereo: 0 }); rings.delete(ring[1]); }

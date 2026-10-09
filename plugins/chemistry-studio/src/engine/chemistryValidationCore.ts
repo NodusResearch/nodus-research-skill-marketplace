@@ -5,7 +5,7 @@ import { requireVendored } from './vendor';
 import type { ChemistryGraph, ChemistryInspectionSummary, ChemistryPartialReason, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
 import { formulaOf } from './chemistryElements';
 import { rdkitAtomPalette } from './elementColours';
-import { sceneFromMolfile, sceneMolfile, renderScene, exportSceneChemfig, verifySceneChemfig, forceTetrahedralPerspective, assignLonePairs } from './chemistryScene';
+import { sceneFromMolfile, sceneMolfile, renderScene, exportSceneChemfig, verifySceneChemfig, forceTetrahedralPerspective, assignLonePairs, skeletalLabels } from './chemistryScene';
 import { deriveProjection } from './chemistryProjections';
 import { deriveMechanism } from './chemistryMechanisms';
 import { deriveNewman, exportNewman, verifyNewman, renderNewman, newmanEvidence } from './chemistryNewman';
@@ -51,6 +51,21 @@ function delimiterFault(smiles: string): string | null {
       }
     }
   }
+  // A ring bond is opened and closed by the same label, so outside a bracket atom every label
+  // appears an even number of times. Measured: a route wrote one species with ring 2 opened and
+  // never closed, was told only that RDKit rejected it, and resubmitted the identical string in
+  // two steps of the next round.
+  const labels = new Map<string, number>();
+  for (let at = 0; at < smiles.length; at += 1) {
+    const character = smiles[at];
+    if (character === '[') { at = smiles.indexOf(']', at); if (at < 0) break; continue; }
+    const label = character === '%' ? smiles.slice(at, at + 3) : /[0-9]/.test(character) ? character : null;
+    if (!label) continue;
+    if (character === '%') at += 2;
+    labels.set(label, (labels.get(label) ?? 0) + 1);
+  }
+  const open = [...labels].filter(([, count]) => count % 2 === 1).map(([label]) => label.replace('%', ''));
+  if (open.length) return `ring bond ${open.join(', ')} opened and never closed`;
   return null;
 }
 
@@ -58,7 +73,7 @@ function delimiterFault(smiles: string): string | null {
 function rejectedGraph(smiles: string): Error {
   const fault = delimiterFault(smiles);
   return new Error(fault
-    ? `RDKit rejected the molecular graph: the SMILES has ${fault}. The rest of the string may be sound, so repair the delimiter rather than rewriting the species.`
+    ? `RDKit rejected the molecular graph: the SMILES has ${fault}. The rest of the string may be sound, so repair that one defect rather than rewriting the species.`
     : 'RDKit rejected the molecular graph.');
 }
 
@@ -535,9 +550,14 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
     if (newman) result.projection = newmanEvidence(newman);
     if (request.exportChemfig) {
       try {
-        const source = newman ? exportNewman(newman) : exportSceneChemfig(drawing);
+        // Skeletal unless the request asked to see hydrogens, or for a projection whose convention
+        // labels its carbons. A reaction scheme asks for no depiction and is drawn skeletal, like
+        // the target structure. The same labelled scene is exported and verified.
+        const skeletal = (!request.depiction || request.depiction === 'skeletal') && !drawing.convention;
+        const exported = skeletal ? skeletalLabels(drawing) : drawing;
+        const source = newman ? exportNewman(newman) : exportSceneChemfig(exported);
         if (newman) verifyNewman(source, newman, canonicalSmiles, kit);
-        else verifySceneChemfig(source, drawing, canonicalSmiles, kit);
+        else verifySceneChemfig(source, exported, canonicalSmiles, kit);
         const { compileChemfig } = await import('./chemistry');
         await compileChemfig(source);
         result.chemfig = { status: 'validated', source, checks: ['Parsed emitted topology, labels, bond orders and coordinates', 'RDKit stereochemical round-trip under the stated projection convention', 'Actual ChemFig compilation in a killable worker'] };

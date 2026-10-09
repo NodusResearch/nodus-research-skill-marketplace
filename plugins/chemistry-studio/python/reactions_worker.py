@@ -33,6 +33,7 @@ before trusting it. Canonicalisation and the DRFP fingerprint match the offline 
 import hashlib
 import json
 import os
+import subprocess
 import sys
 
 INDEX_FILES = (
@@ -60,50 +61,115 @@ def _versions():
     }
 
 
-def _load(index_dir):
-    """Load the index once per process. Each worker invocation is a fresh process, so this
-    runs per call; the caller batches its lookups into one request to amortise it."""
-    if index_dir in _stores:
-        return _stores[index_dir]
-    import zstandard as zstd
+class _ExactView:
+    """`exact` counts or `samples` of the index, looked up by key on first use. The table ships a
+    `.blocks` sidecar, so one key costs one small zstd frame rather than the whole table."""
 
+    def __init__(self, store, field):
+        self._store, self._field = store, field
+
+    def _row(self, key):
+        rows = self._store._exact_rows
+        if key not in rows:
+            rows[key] = None
+            rows.update(_lookup(os.path.join(self._store.dir, "exact.tsv.zst"), [key]))
+        return rows[key]
+
+    def get(self, key, default=None):
+        row = self._row(key)
+        if row is None:
+            return default
+        if self._field == "count":
+            return int(row[1])
+        return row[2] if len(row) > 2 and row[2] else default
+
+    def __contains__(self, key):
+        return self.get(key) is not None
+
+    def __getitem__(self, key):
+        value = self.get(key)
+        if value is None:
+            raise KeyError(key)
+        return value
+
+
+class _ProductsView:
+    """`products` entries by key. The table has no `.blocks` sidecar, so the wanted keys are
+    collected in one streamed pass (`prefetch`) instead of a dict of the whole table."""
+
+    def __init__(self, store):
+        self._store, self._entries = store, {}
+
+    def prefetch(self, keys):
+        wanted = {key for key in keys if key and key not in self._entries}
+        if not wanted:
+            return
+        found = _lookup(os.path.join(self._store.dir, "products.tsv.zst"), wanted)
+        for key in wanted:
+            row = found.get(key)
+            self._entries[key] = {"count": int(row[1]), "keys": row[2].split(",") if len(row) > 2 and row[2] else []} if row else None
+
+    def get(self, key, default=None):
+        self.prefetch([key])
+        entry = self._entries.get(key)
+        return default if entry is None else entry
+
+
+class _LazyStore:
+    """The index, read only as far as a request needs it.
+
+    `_load` used to decompress the whole index and build dicts of every row before answering:
+    1.94 M exact keys and 1.38 M product entries, 3.9 s and a 3 GB peak, in a fresh process per
+    call, for a request that asks about a few dozen keys (measured 2026-10-09; 18 such calls in a
+    nine-turn trace). The fingerprint index and the key list are loaded only for `similar`."""
+
+    def __init__(self, index_dir):
+        self.dir = index_dir
+        self._exact_rows = {}
+        self._index = None
+        self._keys = None
+        self.views = {"exact": _ExactView(self, "count"), "samples": _ExactView(self, "samples"), "products": _ProductsView(self)}
+
+    def __getitem__(self, name):
+        if name in self.views:
+            return self.views[name]
+        if name == "smiles_path":
+            return os.path.join(self.dir, "reaction-smiles.tsv.zst")
+        if name == "index":
+            if self._index is None:
+                import faiss
+
+                plain = os.path.join(self.dir, "reactions.faiss")
+                if os.path.isfile(plain):
+                    # Written uncompressed by newer builds: mapped, not unpacked (77 MB -> 248 MB a call).
+                    try:
+                        self._index = faiss.read_index_binary(plain, faiss.IO_FLAG_MMAP)
+                    except Exception:
+                        self._index = faiss.read_index_binary(plain)
+                else:
+                    import numpy as np
+                    import zstandard as zstd
+
+                    with open(os.path.join(self.dir, "reactions.faiss.zst"), "rb") as fh:
+                        blob = zstd.ZstdDecompressor().stream_reader(fh).read()
+                    self._index = faiss.deserialize_index_binary(np.frombuffer(blob, dtype=np.uint8))
+            return self._index
+        if name == "keys":
+            if self._keys is None:
+                self._keys = list(_zst_lines(os.path.join(self.dir, "reaction-keys.txt.zst")))
+            return self._keys
+        raise KeyError(name)
+
+
+def _open_store(index_dir):
+    """The lazy store, after the same completeness check `_load` makes."""
     missing = [name for name in INDEX_FILES if not os.path.isfile(os.path.join(index_dir, name))]
     if missing:
         raise SystemExit(f"the reaction index is missing {', '.join(missing)}")
-
-    def read_text(name):
-        with open(os.path.join(index_dir, name), "rb") as fh:
-            return zstd.ZstdDecompressor().stream_reader(fh).read().decode()
-
     from rdkit import RDLogger
 
     RDLogger.DisableLog("rdApp.*")
-
-    exact, samples = {}, {}
-    for line in read_text("exact.tsv.zst").splitlines():
-        key, count, *rest = line.split("\t")
-        exact[key] = int(count)
-        if rest and rest[0]:
-            samples[key] = rest[0]
-
-    products = {}
-    for line in read_text("products.tsv.zst").splitlines():
-        key, count, ids = line.split("\t")
-        products[key] = {"count": int(count), "keys": ids.split(",") if ids else []}
-
-    keys = read_text("reaction-keys.txt.zst").splitlines()
-
-    import faiss
-    import numpy as np
-
-    with open(os.path.join(index_dir, "reactions.faiss.zst"), "rb") as fh:
-        blob = zstd.ZstdDecompressor().stream_reader(fh).read()
-    index = faiss.deserialize_index_binary(np.frombuffer(blob, dtype=np.uint8))
-
-    store = {"exact": exact, "samples": samples, "products": products, "keys": keys, "index": index,
-             "smiles_path": os.path.join(index_dir, "reaction-smiles.tsv.zst")}
-    _stores[index_dir] = store
-    return store
+    return _LazyStore(index_dir)
 
 
 def _canon(smiles):
@@ -529,8 +595,27 @@ _rdchiral_cache = {}
 _retro_screen = {}
 
 
+def _screen_cache_path(path):
+    """Where the pattern screen of a templates file is cached: beside it, named for the file's
+    bytes and everything else the screen depends on, so a changed file or RDKit is a miss."""
+    import hashlib
+    from rdkit import rdBase
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    digest.update(f"screen-v1|{SCREEN_BITS}|{rdBase.rdkitVersion}".encode())
+    return f"{path}.screen-{digest.hexdigest()[:16]}.npz"
+
+
 def _retro_templates(index_dir):
-    """The shipped retro templates with their product-side screen query, parsed once per process."""
+    """The shipped retro templates, parsed once per process. Each row is
+    [count, rdchiral, smarts, query]; `query` is parsed on first use when the screen is cached.
+
+    The screen — one pattern fingerprint per template — took 4.8 s of the 5.7 s this cost per call
+    over 82,940 templates, in a fresh process every call (25 calls in a nine-turn trace, 2026-10-09).
+    It depends only on the file, so it is cached beside it, with the rows it covers."""
     if index_dir in _retro_cache:
         return _retro_cache[index_dir]
     from rdkit import Chem
@@ -541,13 +626,50 @@ def _retro_templates(index_dir):
         # A format-3 index has no retro templates: proposals then come only from recorded reactions.
         _retro_cache[index_dir] = rows
         return rows
-    for line in _zst_lines(path):
+    lines = list(_zst_lines(path))
+    cache = None
+    try:
+        import numpy as np
+
+        cache = _screen_cache_path(path)
+        if os.path.isfile(cache):
+            with np.load(cache, allow_pickle=False) as data:
+                screen, valid = data["screen"], data["valid"]
+            if len(screen) == len(valid) and (not len(valid) or int(valid.max()) < len(lines)):
+                for i in valid.tolist():
+                    count, rdchiral, smarts = lines[i].split("\t", 2)
+                    rows.append([int(count), int(rdchiral), smarts, None])
+                _retro_cache[index_dir] = rows
+                _retro_screen[index_dir] = screen
+                return rows
+    except Exception:
+        rows = []
+    valid = []
+    for i, line in enumerate(lines):
         count, rdchiral, smarts = line.split("\t", 2)
         query = Chem.MolFromSmarts(smarts.split(">>")[0])
         if query is not None:
-            rows.append((int(count), int(rdchiral), smarts, query))
+            rows.append([int(count), int(rdchiral), smarts, query])
+            valid.append(i)
     _retro_cache[index_dir] = rows
-    _retro_screen[index_dir] = _pattern_screen([row[3] for row in rows])
+    screen = _pattern_screen([row[3] for row in rows])
+    _retro_screen[index_dir] = screen
+    if cache and screen is not None:
+        # Best effort: an unwritable index directory just means the next call computes it again.
+        try:
+            import numpy as np
+
+            tmp = f"{cache}.{os.getpid()}.tmp.npz"
+            np.savez(tmp, screen=screen, valid=np.asarray(valid, dtype=np.int64))
+            os.replace(tmp, cache)
+            # One screen per templates file: an older one (different bytes or RDKit) is dead weight,
+            # and an index rebuilt by cloning the previous one would carry it forward for ever.
+            stem = os.path.basename(path) + ".screen-"
+            for name in os.listdir(os.path.dirname(cache)):
+                if name.startswith(stem) and name.endswith(".npz") and os.path.join(os.path.dirname(cache), name) != cache:
+                    os.remove(os.path.join(os.path.dirname(cache), name))
+        except Exception:
+            pass
     return rows
 
 
@@ -600,7 +722,7 @@ def _makes(reaction, target):
     return target in organic and len(organic) <= 2
 
 
-def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
+def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_seconds=None):
     """For each target: the recorded reactions that make it, and template disconnections ranked by
     (1) the disconnection itself being a recorded reaction, (2) every organic precursor being a
     common ORD reactant, (3) template popularity. A precursor set containing the target is dropped.
@@ -629,6 +751,10 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
     except ImportError:
         rdchiralReaction = None
     templates = _retro_templates(index_dir) if rdchiralReaction else []
+    # The template pass stops at the deadline and keeps what it found; templates run best-ranked
+    # first, so what is cut is the tail. A target cut short, or never reached, is marked partial.
+    import time
+    deadline = time.monotonic() + budget_seconds if budget_seconds else None
     results = []
     for raw in targets:
         target = _canon(raw)
@@ -640,7 +766,13 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
         proposals = {}
         if mol is not None and templates:
             reactants = rdchiralReactants(target)
-            for count, rdchiral, smarts, query in _screened(index_dir, templates, mol):
+            for row in _screened(index_dir, templates, mol):
+                if deadline is not None and time.monotonic() > deadline:
+                    entry["partial"] = True
+                    break
+                count, rdchiral, smarts, query = row
+                if query is None:
+                    query = row[3] = Chem.MolFromSmarts(smarts.split(">>")[0])
                 if not mol.HasSubstructMatch(query):
                     continue
                 try:
@@ -1348,6 +1480,79 @@ def _compatibility(steps, textbook_dir=None):
     return results
 
 
+def _pubchem_mirror(mirror_dir, names, smiles):
+    """Answer name and structure lookups from a local PubChem mirror (built by the application's
+    tools from NCBI's bulk files), so a route's species need no network round trip.
+
+    Only what the mirror can answer DEFINITELY is answered: a name with exactly one CID, a structure
+    whose standard InChIKey has a CID. Everything else is left out and the caller asks the network
+    as before — the bulk synonym list is filtered, so the live service can know a synonym (and so a
+    second match) the mirror does not. Nothing here ever reports "unresolved"."""
+    import sqlite3
+
+    path = os.path.join(mirror_dir, "pubchem.sqlite")
+    if not os.path.isfile(path):
+        return {"names": {}, "smiles": {}, "available": False}
+    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    out = {"names": {}, "smiles": {}, "available": True}
+    try:
+        for name in names[:256]:
+            cids = [row[0] for row in db.execute("SELECT DISTINCT cid FROM synonym WHERE name = ? COLLATE NOCASE LIMIT 2", (name,))]
+            if len(cids) != 1:
+                continue
+            cid = cids[0]
+            row = db.execute("SELECT smiles FROM smiles WHERE cid = ?", (cid,)).fetchone()
+            if not row:
+                continue
+            formula = db.execute("SELECT formula FROM formula WHERE cid = ?", (cid,)).fetchone()
+            out["names"][name] = {"cid": cid, "smiles": row[0], **({"formula": formula[0]} if formula else {})}
+        if smiles:
+            from rdkit import Chem, RDLogger
+
+            RDLogger.DisableLog("rdApp.*")
+            for value in smiles[:256]:
+                mol = Chem.MolFromSmiles(value)
+                key = Chem.MolToInchiKey(mol) if mol is not None else ""
+                if not key:
+                    continue
+                row = db.execute("SELECT cid FROM inchikey WHERE key = ?", (key,)).fetchone()
+                if not row:
+                    continue
+                cid = row[0]
+                name = db.execute("SELECT name FROM iupac WHERE cid = ?", (cid,)).fetchone()
+                formula = db.execute("SELECT formula FROM formula WHERE cid = ?", (cid,)).fetchone()
+                out["smiles"][value] = {"cid": cid, "inchikey": key, **({"name": name[0]} if name else {}), **({"formula": formula[0]} if formula else {})}
+    finally:
+        db.close()
+    return out
+
+
+def _opsin_local(opsin_dir, names):
+    """Names parsed by a local OPSIN (the same parser EBI's web service runs), when the application
+    has one: <opsin_dir> holds a `java` link, OPSIN's jar and the OpsinBatch wrapper, which prints
+    per name what the web service returns — status, SMILES, warnings, message. Any failure to run
+    is no answer at all, and the caller uses the web service exactly as before."""
+    java = os.path.join(opsin_dir, "java")
+    jars = [n for n in os.listdir(opsin_dir) if n.startswith("opsin-") and n.endswith(".jar")] if os.path.isdir(opsin_dir) else []
+    if not names or not jars or not os.path.exists(java) or not os.path.isfile(os.path.join(opsin_dir, "OpsinBatch.class")):
+        return {}
+    clean = [n.replace("\n", " ").replace("\r", " ") for n in names[:256]]
+    try:
+        run = subprocess.run([java, "-cp", os.pathsep.join([os.path.join(opsin_dir, jars[0]), opsin_dir]), "OpsinBatch"],
+                             input="\n".join(clean) + "\n", capture_output=True, text=True, timeout=120)
+    except Exception:
+        return {}
+    lines = run.stdout.split("\n")
+    if run.returncode != 0 or len(lines) < len(clean):
+        return {}
+    out = {}
+    for name, line in zip(names[:256], lines):
+        status, smiles, warnings, message = (line.split("\t") + ["", "", "", ""])[:4]
+        out[name] = {"status": status, **({"smiles": smiles} if smiles else {}),
+                     **({"warnings": warnings.split("|")} if warnings else {}), **({"message": message} if message else {})}
+    return out
+
+
 def handle(request):
     if "stock" in request:
         stock_dir = request.get("stockDir")
@@ -1375,6 +1580,15 @@ def handle(request):
             except Exception:
                 out[smiles] = None
         return {"stereoChoices": out}
+    if isinstance(request.get("pubchemDir"), str) or isinstance(request.get("opsinDir"), str):
+        names = [n for n in request.get("pubchemNames", []) if isinstance(n, str) and n.strip()]
+        smiles = [m for m in request.get("pubchemSmiles", []) if isinstance(m, str) and m.strip()]
+        out = {}
+        if isinstance(request.get("pubchemDir"), str):
+            out["pubchem"] = _pubchem_mirror(request["pubchemDir"], names, smiles)
+        if isinstance(request.get("opsinDir"), str):
+            out["opsin"] = _opsin_local(request["opsinDir"], names)
+        return out
     index_dir = request.get("indexDir")
     index_dirs = [d for d in request.get("indexDirs", []) if isinstance(d, str) and d][:4] if isinstance(request.get("indexDirs"), list) else []
     if not index_dirs and isinstance(index_dir, str) and index_dir:
@@ -1394,13 +1608,17 @@ def handle(request):
         limit = max(1, min(int(request.get("limit", 8) or 8), 32))
         starting = [s for s in request.get("startingMaterials", []) if isinstance(s, str) and s.strip()][:16]
         missing = [name for name in ("retro-templates.tsv.zst", "molecules.tsv.zst") if not os.path.isfile(os.path.join(index_dir, name))]
-        disconnections = _disconnect(index_dir, targets, limit, starting, request.get("stockDir"))
+        budget = request.get("budgetSeconds")
+        budget = max(5.0, min(float(budget), 230.0)) if isinstance(budget, (int, float)) and budget > 0 else None
+        disconnections = _disconnect(index_dir, targets, limit, starting, request.get("stockDir"), budget_seconds=budget)
         recorded = ([r for entry in disconnections for r in ((entry.get("madeBy") or {}).get("reactions") or [])]
                     + [p for entry in disconnections for p in entry.get("proposals", []) if p.get("recorded")])
         _attach_conditions(index_dir, recorded)
         _tag(recorded, _audit_flags(index_dir, [item.get("key") for item in recorded]))
         return {"disconnections": disconnections, **({"indexLacks": missing} if missing else {})}
-    store = _load(index_dir)
+    store = _open_store(index_dir)
+    if isinstance(store, _LazyStore):
+        store["products"].prefetch({_side(p) for p in request.get("products", [])[:32] if _side(p)})
 
     reactions = []
     for reaction in request.get("reactions", [])[:32]:
