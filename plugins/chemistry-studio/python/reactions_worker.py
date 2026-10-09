@@ -1527,6 +1527,14 @@ def _pubchem_mirror(mirror_dir, names, smiles):
     # (SQLite then created an empty database there, read-write) and a "%" was decoded.
     db = sqlite3.connect(f"{pathlib.Path(path).resolve().as_uri()}?mode=ro", uri=True)
     out = {"names": {}, "smiles": {}, "available": True}
+
+    def optional(sql, cid):
+        # The formula and IUPAC tables only add to an answer: a mirror built without one still answers.
+        try:
+            return db.execute(sql, (cid,)).fetchone()
+        except sqlite3.OperationalError:
+            return None
+
     try:
         for name in names[:LOCAL_REFERENCE_LIMIT]:
             cids = [row[0] for row in db.execute("SELECT DISTINCT cid FROM synonym WHERE name = ? COLLATE NOCASE LIMIT 2", (name,))]
@@ -1536,7 +1544,7 @@ def _pubchem_mirror(mirror_dir, names, smiles):
             row = db.execute("SELECT smiles FROM smiles WHERE cid = ?", (cid,)).fetchone()
             if not row:
                 continue
-            formula = db.execute("SELECT formula FROM formula WHERE cid = ?", (cid,)).fetchone()
+            formula = optional("SELECT formula FROM formula WHERE cid = ?", cid)
             out["names"][name] = {"cid": cid, "smiles": row[0], **({"formula": formula[0]} if formula else {})}
         if smiles:
             from rdkit import Chem, RDLogger
@@ -1551,9 +1559,14 @@ def _pubchem_mirror(mirror_dir, names, smiles):
                 if not row:
                     continue
                 cid = row[0]
-                name = db.execute("SELECT name FROM iupac WHERE cid = ?", (cid,)).fetchone()
-                formula = db.execute("SELECT formula FROM formula WHERE cid = ?", (cid,)).fetchone()
+                name = optional("SELECT name FROM iupac WHERE cid = ?", cid)
+                formula = optional("SELECT formula FROM formula WHERE cid = ?", cid)
                 out["smiles"][value] = {"cid": cid, "inchikey": key, **({"name": name[0]} if name else {}), **({"formula": formula[0]} if formula else {})}
+    except sqlite3.DatabaseError as error:
+        # Not a database, or one without the tables every answer needs: no mirror at all, so the
+        # caller asks the network exactly as before, and the local OPSIN's answers still go back.
+        # The reason goes back too, so a half-built mirror is logged rather than silently skipped.
+        return {"names": {}, "smiles": {}, "available": False, "error": f"{type(error).__name__}: {error}"}
     finally:
         db.close()
     return out

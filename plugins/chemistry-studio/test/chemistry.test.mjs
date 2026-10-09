@@ -3673,3 +3673,31 @@ test('a stereocentre is compared through its branches, not by its CIP letter', a
   // An epimer at a centre whose two ring branches are alike is still caught, by its letter.
   assert.match(await refused('CN1[C@H]2CC[C@@H]1C[C@H](O)C2.O>>CN1[C@H]2CC[C@@H]1C[C@@H](O)C2.O'), /inverts a stereocentre/);
 });
+
+test('a mirror without an optional table, or one that is not a database, does not sink the call (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // The formula and IUPAC tables only add to an answer. A mirror built without one, or a file that
+  // is not a database, used to raise out of the worker: the call failed, and with it the local
+  // OPSIN's answers in the same reply.
+  const { execFileSync } = await import('node:child_process');
+  const worker = path.join(root, 'python', 'reactions_worker.py');
+  const script = `
+import os, sqlite3, sys, tempfile
+from rdkit import Chem
+lean = tempfile.mkdtemp(); db = sqlite3.connect(os.path.join(lean, 'pubchem.sqlite'))
+db.executescript('''CREATE TABLE inchikey (key TEXT PRIMARY KEY, cid INTEGER) WITHOUT ROWID;
+  CREATE TABLE smiles (cid INTEGER PRIMARY KEY, smiles TEXT); CREATE TABLE synonym (name TEXT, cid INTEGER, rank INTEGER);''')
+db.execute('INSERT INTO inchikey VALUES (?, 702)', (Chem.MolToInchiKey(Chem.MolFromSmiles('CCO')),))
+db.execute("INSERT INTO smiles VALUES (702, 'CCO')"); db.execute("INSERT INTO synonym VALUES ('ethanol', 702, 0)")
+db.commit(); db.close()
+broken = tempfile.mkdtemp(); open(os.path.join(broken, 'pubchem.sqlite'), 'wb').write(b'not a database' * 64)
+print(lean); print(broken)
+`;
+  const [lean, broken] = execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }).trim().split('\n');
+  const ask = (pubchemDir) => JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-I', worker], { input: JSON.stringify({ pubchemDir, pubchemNames: ['ethanol'], pubchemSmiles: ['OCC'] }), encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] })).pubchem;
+  const out = ask(lean);
+  assert.deepEqual(out.names, { ethanol: { cid: 702, smiles: 'CCO' } }, 'answered, without a formula');
+  assert.deepEqual(out.smiles.OCC, { cid: 702, inchikey: 'LFQSCWFLJHTTHZ-UHFFFAOYSA-N' }, 'answered, without a name or formula');
+  const unreadable = ask(broken);
+  assert.deepEqual({ ...unreadable, error: undefined }, { names: {}, smiles: {}, available: false, error: undefined }, 'an unreadable mirror is no mirror: the caller asks the network');
+  assert.match(unreadable.error, /DatabaseError/, 'and says why, so the host can log it');
+});
