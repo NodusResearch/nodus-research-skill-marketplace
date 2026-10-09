@@ -1,7 +1,7 @@
 import { Molecule } from 'openchemlib';
 import type { RDKitModule } from '@rdkit/rdkit';
 
-export interface SceneAtom { id: string; element: string; charge: number; isotope: number; label: string; x: number; y: number; depth?: number; lonePairs?: number }
+export interface SceneAtom { id: string; element: string; charge: number; isotope: number; label: string; x: number; y: number; depth?: number; lonePairs?: number; radical?: number }
 export interface SceneBond { id: string; a: number; b: number; order: number; stereo: number; plain?: boolean }
 export interface ChemicalScene { atoms: SceneAtom[]; bonds: SceneBond[]; convention?: 'fischer' | 'haworth'; description?: string; spatial?: Array<{ x: number; y: number; z: number }> }
 
@@ -12,7 +12,10 @@ export function sceneFromMolfile(molfile: string): ChemicalScene {
     atoms: Array.from({ length: m.getAllAtoms() }, (_, a) => {
       const element = m.getAtomLabel(a), h = m.getImplicitHydrogens(a), charge = m.getAtomCharge(a), isotope = m.getAtomMass(a);
       const label = `${isotope ? `^{${isotope}}` : ''}${element}${h ? `H${h > 1 ? `_${h}` : ''}` : ''}${charge ? `^{${Math.abs(charge) > 1 ? Math.abs(charge) : ''}${charge > 0 ? '+' : '-'}}` : ''}`;
-      return { id: `a${a}`, element, charge, isotope, label, x: m.getAtomX(a), y: -m.getAtomY(a) };
+      // The molfile RAD value (1 singlet, 2 doublet, 3 triplet), which OpenChemLib keeps in the
+      // high nibble. Without it RDKit re-reads a radical centre with one hydrogen more.
+      const radical = m.getAtomRadical(a) >> 4;
+      return { id: `a${a}`, element, charge, isotope, label, x: m.getAtomX(a), y: -m.getAtomY(a), ...(radical ? { radical } : {}) };
     }),
     bonds: Array.from({ length: m.getAllBonds() }, (_, b) => ({ id: `b${b}`, a: m.getBondAtom(0, b), b: m.getBondAtom(1, b), order: m.getBondOrder(b),
       stereo: m.getBondType(b) === Molecule.cBondTypeUp ? 1 : m.getBondType(b) === Molecule.cBondTypeDown ? 6 : 0 })),
@@ -41,9 +44,12 @@ export function sceneMolfile(scene: ChemicalScene): string {
     return `${xyz(scene.spatial?.[i].x ?? a.x)}${xyz(y)}${xyz(z)} ${a.element.padEnd(3)} 0  0  0  0  0  0  0  0  0  0  0  0`;
   });
   const bonds = scene.bonds.map(b => `${field(b.a + 1)}${field(b.b + 1)}${field(b.order)}${field(is3D ? 0 : b.stereo)}  0  0  0`);
+  // V2000 property entries are " aaa vvv": a blank before each three-wide field. RDKit happens to
+  // read a CHG line without them, but drops an ISO line written that way without an error.
   const props = scene.atoms.flatMap((a, i) => [
-    ...(a.charge ? [`M  CHG  1${field(i + 1)}${field(a.charge)}`] : []),
-    ...(a.isotope ? [`M  ISO  1${field(i + 1)}${field(a.isotope)}`] : []),
+    ...(a.charge ? [`M  CHG  1 ${field(i + 1)} ${field(a.charge)}`] : []),
+    ...(a.isotope ? [`M  ISO  1 ${field(i + 1)} ${field(a.isotope)}`] : []),
+    ...(a.radical ? [`M  RAD  1 ${field(i + 1)} ${field(a.radical)}`] : []),
   ]);
   return `\n     Nodus          ${is3D ? '3D' : '2D'}\n\n${field(atoms.length)}${field(bonds.length)}  0  0  0  0  0  0  0  0999 V2000\n${[...atoms, ...bonds, ...props, 'M  END', ''].join('\n')}`;
 }

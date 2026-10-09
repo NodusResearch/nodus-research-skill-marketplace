@@ -3330,3 +3330,34 @@ test('the bounded coefficient search keeps its answers, and refuses a free step 
   // Six free directions: past the search, and said so rather than called ambiguous.
   assert.match(await solve(['CCO', 'O=O', 'CO'], ['CC=O', 'CC(=O)O', 'O', 'OO', 'C=O', 'O=C=O']), /leaves 6 species free to vary independently/);
 });
+
+// ---------------------------------------------------------------- scene molfile
+
+/** The resonance arrows of a carboxylate: the anionic oxygen's pair into C–O, C=O onto the other oxygen. */
+const carboxylateResonance = [
+  { from: { species: 's1', atom: { element: 'O', index: 2 } }, to: { species: 's1', bond: { between: ['C', 'O'], order: 1 } } },
+  { from: { species: 's1', bond: { between: ['C', 'O'], order: 2 } }, to: { species: 's1', atom: { element: 'O', index: 1 } } },
+];
+
+test('an isotope label survives the scene molfile that every round-trip re-reads', async () => {
+  // The ChemFig round-trip and the mechanism ledger both hand the scene's own molfile to RDKit.
+  // An ISO line it cannot read loses the label without an error: the export was refused, and a
+  // mechanism reported its labelled product as the unlabelled one.
+  const labelled = await lib.validateChemicalReferences({ references: ['[13CH3]O'], exportChemfig: true });
+  assert.equal(labelled.chemfig.status, 'validated', labelled.chemfig.reason);
+
+  const smiles = 'CC(=O)[18O-]';
+  const checked = await lib.validateChemicalReferences({ references: [smiles], mechanism: { rule: 'electron-flow', inputs: [smiles], order: ['s1'], electronFlow: carboxylateResonance, resonance: true } });
+  assert.deepEqual(checked.mechanism.molecules.map(molecule => molecule.canonicalSmiles), ['CC(=O)[18O-]', 'CC([O-])=[18O]']);
+  assert.deepEqual(checked.mechanism.canonicalProducts, ['CC([O-])=[18O]']);
+});
+
+test('a radical is not re-read as a closed-shell species', async () => {
+  // Without its RAD line the radical carbon came back with one hydrogen more, and the
+  // contributors of a radical anion were reported, as validated, to be acetate.
+  const smiles = '[CH2]C(=O)[O-]';
+  await assert.rejects(
+    lib.validateChemicalReferences({ references: [smiles], mechanism: { rule: 'electron-flow', inputs: [smiles], order: ['s1'], electronFlow: carboxylateResonance, resonance: true } }),
+    /Radical mechanism stages are unsupported/,
+  );
+});
