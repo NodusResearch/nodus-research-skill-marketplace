@@ -3610,3 +3610,25 @@ test('the stereo enumeration answers a fully assigned structure without building
   assert.equal(out['OC(=O)C1C2CCC(N2C)C(C(=O)O)C1=O'].open, 2);
   for (const assigned of ['C[C@@H](O)CC', 'C/C=C/C', 'CCO']) assert.deepEqual(out[assigned], { open: 0, mirrorOnly: false }, assigned);
 });
+
+test('the stereo enumeration answers within its budget, and nulls only what it could not reach (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // The host gives the whole call 60 s, and one cage written without descriptors could take most of
+  // it (strychnine 54 s, morphine 14 s): past 60 s every species' answer was lost, not just that one.
+  // The budget is lowered to 1 s here so morphine runs into it.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, sys, time
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+w.STEREO_BUDGET_SECONDS = 1.0
+started = time.monotonic()
+out = w.handle({'stereoChoices': ['CC(O)CC', 'CN1CCC23c4c5ccc(O)c4OC2C(O)C=CC3C1C5', 'CCO', 'C[C@@H](O)CC']})['stereoChoices']
+print(json.dumps({'out': out, 'seconds': time.monotonic() - started}))
+`;
+  const { out, seconds } = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.ok(seconds < 3, `the call keeps its budget (${seconds.toFixed(1)} s)`);
+  assert.deepEqual(out['CC(O)CC'], { open: 1, mirrorOnly: true }, 'answered before the budget ran out');
+  assert.equal(out['CN1CCC23c4c5ccc(O)c4OC2C(O)C=CC3C1C5'], null, 'cut off by the budget: no answer, and the labeller\'s own count stands');
+  assert.deepEqual(out.CCO, { open: 0, mirrorOnly: false }, 'nothing to build: still answered after the budget');
+  assert.deepEqual(out['C[C@@H](O)CC'], { open: 0, mirrorOnly: false });
+});

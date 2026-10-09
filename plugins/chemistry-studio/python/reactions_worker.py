@@ -1064,7 +1064,12 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
             "timedOut": timed_out, "seconds": round(time.monotonic() - started, 1)}
 
 
-def _stereo_choices(smiles, max_isomers=64):
+# The stereoChoices call's own budget: the host gives it 60 s in all (productStereoChoices in
+# src/worker.ts), and a reply after that is lost for every species, not only the slow one.
+STEREO_BUDGET_SECONDS = 40.0
+
+
+def _stereo_choices(smiles, max_isomers=64, deadline=None):
     """The stereo choices a structure written without them really leaves open.
 
     Returns {"open": k, "mirrorOnly": bool}, or None when the structure is too large to
@@ -1074,8 +1079,10 @@ def _stereo_choices(smiles, max_isomers=64):
     its bridgeheads can only be cis, and cis is meso; 2 for tropinone-2,4-dicarboxylic acid,
     whose bridgeheads are fixed but whose two carboxyl carbons are not). `mirrorOnly` is true
     when the only choice is between two mirror images (camphor written without descriptors),
-    which "racemic" covers."""
+    which "racemic" covers. Past `deadline` (time.monotonic()) no further 3D build is started and
+    TimeoutError is raised: a structure that needs none is still answered."""
     import math
+    import time
     from rdkit import Chem
     from rdkit.Chem import AllChem
     from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, GetStereoisomerCount, StereoEnumerationOptions
@@ -1089,6 +1096,8 @@ def _stereo_choices(smiles, max_isomers=64):
         # for seconds. Both seeds failing marks the isomer as one that cannot exist.
         with_h = Chem.AddHs(isomer)
         for seed in (7, 11):
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError
             params = AllChem.ETKDGv3()
             params.randomSeed = seed
             params.maxIterations = 20
@@ -1591,10 +1600,14 @@ def handle(request):
         textbook = request.get("textbookDir")
         return {"compatibility": _compatibility(steps, textbook if isinstance(textbook, str) and textbook else None)}
     if "stereoChoices" in request:
+        import time
+
+        # A species the budget cuts off is None (no answer), exactly as one that failed.
+        deadline = time.monotonic() + STEREO_BUDGET_SECONDS
         out = {}
         for smiles in [s for s in request.get("stereoChoices", []) if isinstance(s, str) and s.strip()][:48]:
             try:
-                out[smiles] = _stereo_choices(smiles)
+                out[smiles] = _stereo_choices(smiles, deadline=deadline)
             except Exception:
                 out[smiles] = None
         return {"stereoChoices": out}
