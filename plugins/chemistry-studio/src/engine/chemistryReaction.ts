@@ -246,7 +246,54 @@ function nullSpace(matrix: bigint[][], columns: number): Frac[][] {
 export const SEARCH_DIMENSION_LIMIT = 4;
 
 function smallestPositiveEquation(basis: Frac[][]): number[] | null {
-  const dimension = Math.min(basis.length, SEARCH_DIMENSION_LIMIT); // bounded search
+  // Past the limit no candidate can be built (see above), so all 12^4 combinations would be
+  // refused: 30–90 ms of nothing per call, paid again for every species the route checker tries
+  // moving on a step that will not balance.
+  if (basis.length > SEARCH_DIMENSION_LIMIT) return null;
+  const ceiling = 12;
+  // One common denominator makes the basis whole numbers, and scaling every candidate by the same
+  // factor leaves its smallest whole-number form unchanged, so the search can add integers instead
+  // of reducing a fraction on every term. Only where the sums cannot leave the exact range.
+  let denominator = 1n;
+  for (const vector of basis) for (const [, d] of vector) denominator = (denominator / gcd(denominator, d)) * d;
+  const whole = basis.map(vector => vector.map(([n, d]) => n * (denominator / d)));
+  const largest = whole.reduce((sum, vector) => sum + vector.reduce((max, value) => (value < 0n ? -value : value) > max ? (value < 0n ? -value : value) : max, 0n), 0n);
+  if (largest * BigInt(ceiling) > BigInt(Number.MAX_SAFE_INTEGER)) return smallestPositiveEquationExact(basis);
+  const rows = whole.map(vector => vector.map(Number));
+  const size = rows[0].length;
+  const best = new Map<string, number[]>();
+  let bestSum = Infinity;
+  const total = ceiling ** basis.length;
+  const vector = new Array<number>(size);
+  const gcdOf = (a: number, b: number): number => { while (b) { const t = a % b; a = b; b = t; } return a; };
+  candidates: for (let code = 0; code < total; code++) {
+    vector.fill(0);
+    let n = code;
+    for (let b = 0; b < rows.length; b++) {
+      const multiplier = (n % ceiling) + 1;
+      n = Math.floor(n / ceiling);
+      for (let j = 0; j < size; j++) vector[j] += multiplier * rows[b][j];
+    }
+    // The same refusals as toIntegerCoefficients: a zero, a sign change, a coefficient too large.
+    const positive = vector[0] > 0;
+    let divisor = 0;
+    for (const value of vector) {
+      if (value === 0 || (value > 0) !== positive) continue candidates;
+      divisor = gcdOf(divisor, Math.abs(value));
+    }
+    const coefficients = vector.map(value => Math.abs(value) / divisor);
+    if (coefficients.some(value => value > MAX_COEFFICIENT)) continue;
+    const sum = coefficients.reduce((acc, value) => acc + value, 0);
+    if (sum > bestSum) continue;
+    if (sum < bestSum) { bestSum = sum; best.clear(); }
+    best.set(coefficients.join(','), coefficients);
+  }
+  return best.size === 1 ? [...best.values()][0] : null;
+}
+
+/** The same search in exact fractions, for a basis whose whole-number form would not stay exact. */
+function smallestPositiveEquationExact(basis: Frac[][]): number[] | null {
+  const dimension = basis.length;
   const ceiling = 12;
   const best = new Map<string, number[]>();
   let bestSum = Infinity;

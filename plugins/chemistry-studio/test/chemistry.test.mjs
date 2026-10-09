@@ -3315,3 +3315,18 @@ test('a stereocentre the route check names is numbered in the string the author 
   assert.match(message, /\((?:S|R)\) at atom 1\b|\batom 1 of /, message);
   assert.doesNotMatch(message, /at atom 4\b/, message);
 });
+
+test('the bounded coefficient search keeps its answers, and refuses a free step without searching', async () => {
+  const summary = async (smiles) => (await lib.validateChemicalReferences({ references: [smiles], inspect: true })).inspection;
+  const solve = async (reactants, products) => {
+    const species = await Promise.all([...reactants, ...products].map(summary));
+    try {
+      return lib.balanceReaction(species.map(entry => ({ atoms: entry.composition, charge: entry.charge })),
+        [...reactants.map(() => 'reactant'), ...products.map(() => 'product')], species.map(() => 1)).join(',');
+    } catch (error) { return error.message; }
+  };
+  // Four free directions: the smallest equation is unique and is found.
+  assert.equal(await solve(['C', 'CC', 'CCC'], ['CCCC', 'CCCCC', '[H][H]']), '1,1,2,1,1,2');
+  // Six free directions: past the search, and said so rather than called ambiguous.
+  assert.match(await solve(['CCO', 'O=O', 'CO'], ['CC=O', 'CC(=O)O', 'O', 'OO', 'C=O', 'O=C=O']), /leaves 6 species free to vary independently/);
+});
