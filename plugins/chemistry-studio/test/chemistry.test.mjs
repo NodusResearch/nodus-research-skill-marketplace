@@ -3701,3 +3701,30 @@ print(lean); print(broken)
   assert.deepEqual({ ...unreadable, error: undefined }, { names: {}, smiles: {}, available: false, error: undefined }, 'an unreadable mirror is no mirror: the caller asks the network');
   assert.match(unreadable.error, /DatabaseError/, 'and says why, so the host can log it');
 });
+
+test('a local OPSIN reply one line short is no reply, and a message keeps its tabs (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON || process.platform === 'win32' }, async () => {
+  // The reply ends in a newline, so one line short used to pass the count, and the last name got an
+  // empty status: the host read it as OPSIN's own "not a recognised name" and never asked EBI.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, stat, sys, tempfile
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+def opsin(body):
+    d = tempfile.mkdtemp()
+    for n in ('opsin-cli-2.8.0-jar-with-dependencies.jar', 'OpsinBatch.class'):
+        open(os.path.join(d, n), 'w').close()
+    java = os.path.join(d, 'java')
+    open(java, 'w').write('#!/bin/sh\\n' + body)
+    os.chmod(java, os.stat(java).st_mode | stat.S_IEXEC)
+    return d
+answer = 'while IFS= read -r line; do case "$line" in *unparsable*) printf "FAILURE\\\\t\\\\t\\\\t%s is unparsable\\\\n" "$line";; *) printf "SUCCESS\\\\tC\\\\t\\\\t\\\\n";; esac; done\\n'
+short = w._opsin_local(opsin('head -n 2 | (' + answer + ')'), ['methane', 'ethane', 'propane'])
+whole = w._opsin_local(opsin(answer), ['methane', 'a\\tb unparsable'])
+print(json.dumps([short, whole]))
+`;
+  const [short, whole] = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(short, {}, 'a reply that does not cover every name is not used: the web service answers instead');
+  assert.deepEqual(whole.methane, { status: 'SUCCESS', smiles: 'C' });
+  assert.equal(whole['a\tb unparsable'].message, 'a\tb unparsable is unparsable', 'the message is not cut at a tab');
+});

@@ -1587,12 +1587,18 @@ def _opsin_local(opsin_dir, names):
                              input="\n".join(clean) + "\n", capture_output=True, text=True, timeout=120)
     except Exception:
         return {}
+    # One line per name, each ending in a newline. Any other count cannot be matched to the names
+    # (a line short used to give the last name an empty status, read as "not a name"), so it is no
+    # answer and the web service is asked.
     lines = run.stdout.split("\n")
-    if run.returncode != 0 or len(lines) < len(clean):
+    if lines and lines[-1] == "":
+        lines.pop()
+    if run.returncode != 0 or len(lines) != len(clean):
         return {}
     out = {}
     for name, line in zip(names[:LOCAL_REFERENCE_LIMIT], lines):
-        status, smiles, warnings, message = (line.split("\t") + ["", "", "", ""])[:4]
+        # The message comes last and may quote the name, tabs and all.
+        status, smiles, warnings, message = (line.split("\t", 3) + ["", "", "", ""])[:4]
         out[name] = {"status": status, **({"smiles": smiles} if smiles else {}),
                      **({"warnings": warnings.split("|")} if warnings else {}), **({"message": message} if message else {})}
     return out
