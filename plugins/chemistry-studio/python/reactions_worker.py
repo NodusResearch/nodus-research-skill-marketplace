@@ -1480,6 +1480,11 @@ def _compatibility(steps, textbook_dir=None):
     return results
 
 
+# The most names, or structures, the application sends in one call: SCHEMA_CEILINGS.names and
+# .structures in src/engine/chemistryLimits.ts. A lower cap here sent the rest to the network.
+LOCAL_REFERENCE_LIMIT = 512
+
+
 def _pubchem_mirror(mirror_dir, names, smiles):
     """Answer name and structure lookups from a local PubChem mirror (built by the application's
     tools from NCBI's bulk files), so a route's species need no network round trip.
@@ -1499,7 +1504,7 @@ def _pubchem_mirror(mirror_dir, names, smiles):
     db = sqlite3.connect(f"{pathlib.Path(path).resolve().as_uri()}?mode=ro", uri=True)
     out = {"names": {}, "smiles": {}, "available": True}
     try:
-        for name in names[:256]:
+        for name in names[:LOCAL_REFERENCE_LIMIT]:
             cids = [row[0] for row in db.execute("SELECT DISTINCT cid FROM synonym WHERE name = ? COLLATE NOCASE LIMIT 2", (name,))]
             if len(cids) != 1:
                 continue
@@ -1513,7 +1518,7 @@ def _pubchem_mirror(mirror_dir, names, smiles):
             from rdkit import Chem, RDLogger
 
             RDLogger.DisableLog("rdApp.*")
-            for value in smiles[:256]:
+            for value in smiles[:LOCAL_REFERENCE_LIMIT]:
                 mol = Chem.MolFromSmiles(value)
                 key = Chem.MolToInchiKey(mol) if mol is not None else ""
                 if not key:
@@ -1539,7 +1544,7 @@ def _opsin_local(opsin_dir, names):
     jars = [n for n in os.listdir(opsin_dir) if n.startswith("opsin-") and n.endswith(".jar")] if os.path.isdir(opsin_dir) else []
     if not names or not jars or not os.path.exists(java) or not os.path.isfile(os.path.join(opsin_dir, "OpsinBatch.class")):
         return {}
-    clean = [n.replace("\n", " ").replace("\r", " ") for n in names[:256]]
+    clean = [n.replace("\n", " ").replace("\r", " ") for n in names[:LOCAL_REFERENCE_LIMIT]]
     try:
         run = subprocess.run([java, "-cp", os.pathsep.join([os.path.join(opsin_dir, jars[0]), opsin_dir]), "OpsinBatch"],
                              input="\n".join(clean) + "\n", capture_output=True, text=True, timeout=120)
@@ -1549,7 +1554,7 @@ def _opsin_local(opsin_dir, names):
     if run.returncode != 0 or len(lines) < len(clean):
         return {}
     out = {}
-    for name, line in zip(names[:256], lines):
+    for name, line in zip(names[:LOCAL_REFERENCE_LIMIT], lines):
         status, smiles, warnings, message = (line.split("\t") + ["", "", "", ""])[:4]
         out[name] = {"status": status, **({"smiles": smiles} if smiles else {}),
                      **({"warnings": warnings.split("|")} if warnings else {}), **({"message": message} if message else {})}

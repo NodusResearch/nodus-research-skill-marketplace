@@ -3409,3 +3409,40 @@ test('an abort ends a reference request the host is still answering', { timeout:
   await assert.rejects(worker.invoke({ invocationId: 'abort-fetch', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'] } }), /cancelled by the user/);
   assert.ok(Date.now() - started < 2000, 'the abort did not wait for the reply');
 });
+
+test('the local references answer every name and structure the application may send (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON || process.platform === 'win32' }, async () => {
+  // resolve-names and resolve-structure send up to 512 (SCHEMA_CEILINGS.names / structures); the
+  // worker used to look up only the first 256, so the rest went to the network, or came back
+  // unresolved on a local-only run, although the mirror and the local OPSIN had them.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, sqlite3, stat, tempfile
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+from rdkit import Chem
+d = tempfile.mkdtemp(); db = sqlite3.connect(os.path.join(d, 'pubchem.sqlite'))
+db.executescript('''CREATE TABLE inchikey (key TEXT PRIMARY KEY, cid INTEGER) WITHOUT ROWID;
+  CREATE TABLE smiles (cid INTEGER PRIMARY KEY, smiles TEXT); CREATE TABLE iupac (cid INTEGER PRIMARY KEY, name TEXT);
+  CREATE TABLE formula (cid INTEGER PRIMARY KEY, formula TEXT); CREATE TABLE synonym (name TEXT, cid INTEGER, rank INTEGER);''')
+structures = ['C' * n + 'O' for n in range(1, 513)]
+for cid, smi in enumerate(structures, 1):
+    db.execute('INSERT INTO inchikey VALUES (?, ?)', (Chem.MolToInchiKey(Chem.MolFromSmiles(smi)), cid))
+    db.execute('INSERT INTO smiles VALUES (?, ?)', (cid, smi)); db.execute('INSERT INTO iupac VALUES (?, ?)', (cid, f'compound {cid}'))
+    db.execute('INSERT INTO synonym VALUES (?, ?, 0)', (f'compound {cid}', cid))
+db.commit(); db.close()
+o = tempfile.mkdtemp()
+for n in ('opsin-cli-2.8.0-jar-with-dependencies.jar', 'OpsinBatch.class'):
+    open(os.path.join(o, n), 'w').close()
+java = os.path.join(o, 'java')
+open(java, 'w').write('#!/bin/sh\\nwhile IFS= read -r line; do printf "SUCCESS\\\\tC\\\\t\\\\t\\\\n"; done\\n')
+os.chmod(java, os.stat(java).st_mode | stat.S_IEXEC)
+names = [f'compound {cid}' for cid in range(1, 513)]
+out = w.handle({'pubchemDir': d, 'opsinDir': o, 'pubchemNames': names, 'pubchemSmiles': structures})
+print(json.dumps([len(out['pubchem']['names']), len(out['pubchem']['smiles']), len(out['opsin']), out['pubchem']['names'].get('compound 512', {}).get('cid')]))
+`;
+  const [names, structures, opsin, last] = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.equal(names, 512, 'every name the mirror holds is answered');
+  assert.equal(structures, 512, 'every structure the mirror holds is answered');
+  assert.equal(opsin, 512, 'every name goes to the local OPSIN');
+  assert.equal(last, 512, 'the last name is answered with its own record');
+});
