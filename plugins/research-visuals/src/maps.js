@@ -31,6 +31,9 @@ export function historicalRequest(input) {
   for (const layer of request.layers ?? []) {
     if (layer.datasetId) throw new Error('An opaque dataset handle cannot be attributed, so it cannot support a historical map. Query an approved provider or supply the GeoJSON.');
     if (layer.data && !covers(layer.data.source)) throw new Error('A source period that does not cover the requested interval cannot date this map.');
+    // A provider query carries its own period, and the provider reports that period back as the
+    // source's. One that does not cover the map's period would be drawn and labelled as dated.
+    if (layer.query?.period && !covers({ period: layer.query.period })) throw new Error('A source period that does not cover the requested interval cannot date this map.');
   }
   if ((request.markers?.length || request.routes?.length) && !covers(request.overlaySource)) throw new Error('A source period that does not cover the requested interval cannot date this map.');
   return { request: validateMapRenderRequest(request) };
@@ -46,7 +49,9 @@ export function historicalLabels(sources, period) {
   return {
     // Nothing of the period was supplied: what remains is a frame for it, and says so.
     referenceOnly: references.length > 0 && !datedSources.length && !supplied.length,
-    approximate: supplied.some(source => !dated(source)) || (references.length > 0 && !datedSources.length && !supplied.length),
+    // A provider source dated for some other period is not dated for this one.
+    approximate: supplied.some(source => !dated(source)) || (references.length > 0 && !datedSources.length && !supplied.length)
+      || sources.some(source => source.origin === 'provider' && source.period && !dated(source)),
     references,
   };
 }
