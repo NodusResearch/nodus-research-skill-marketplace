@@ -1909,6 +1909,45 @@ test("PubChem's throttling is obeyed: a refusal stops all requests, and a Yellow
   lib.resetPubchemPacing();
 });
 
+test('a PubChem turn more than about 8 s away falls back at once, and an abort ends the wait', async () => {
+  // A Black grade paces requests a minute apart, as the pacer also does for five minutes after a
+  // refusal. A look-up queued behind it slept out that minute — past the reference's own 10 s
+  // timeout and past the turn's abort — and then sent the request anyway.
+  lib.resetPubchemPacing();
+  let sent = 0;
+  const black = resolveHost((endpointId) => {
+    if (endpointId !== 'pubchem') return undefined;
+    sent += 1;
+    return { __response: { status: 200, headers: { 'x-throttling-control': 'Request Count status: Black (100%), Request Time status: Green (10%), Service status: Green (20%)' }, body: { IdentifierList: { CID: [] } } } };
+  });
+  const started = Date.now();
+  const far = await lib.createWorker(black).invoke({ invocationId: 'far1', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['CCCCCCCCCO', 'CCCCCCCCCN'] } });
+  assert.ok(Date.now() - started < 5000, `a turn a minute away is not waited for (${Date.now() - started} ms)`);
+  assert.equal(sent, 1, 'the second look-up fell back without sending');
+  assert.equal(far.artifacts[0].data.results.length, 2, 'both structures still get an answer');
+
+  // A Red grade (5 s) is close enough to wait for, but the wait must end when the turn is cancelled.
+  lib.resetPubchemPacing();
+  let red = 0;
+  const controller = new AbortController();
+  const host = stubHost({ signal: controller.signal, fetch: (endpointId) => {
+    if (endpointId !== 'pubchem') return undefined;
+    red += 1;
+    return { __response: { status: 200, headers: { 'x-throttling-control': 'Request Count status: Red (90%), Request Time status: Green (10%), Service status: Green (20%)' }, body: { IdentifierList: { CID: [] } } } };
+  } });
+  const pending = lib.createWorker(host).invoke({ invocationId: 'far2', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['CCCCCCCCCCO', 'CCCCCCCCCCN'] } });
+  const settled = pending.then(() => 'resolved', () => 'rejected');
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  const abortedAt = Date.now();
+  controller.abort(new Error('turn cancelled'));
+  await settled;
+  assert.ok(Date.now() - abortedAt < 1500, `the call ends soon after the abort (${Date.now() - abortedAt} ms)`);
+  // Give an unpatched pacer the rest of its 5 s, to show it would have sent once the wait was over.
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+  assert.equal(red, 1, 'the queued request is never sent after the abort');
+  lib.resetPubchemPacing();
+});
+
 test('local references only: no request leaves the machine, and the local sources still answer', async () => {
   // A timing trace runs this way, so it measures no network latency and cannot get the machine blocked.
   let sent = 0;

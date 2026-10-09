@@ -377,13 +377,33 @@ function notePubchemFeedback(control: string | null, now: number): void {
   }
 }
 
-async function takePubchemTurn(): Promise<void> {
+/** The longest a look-up waits for its PubChem turn. Past it, the fallback answers now: after a
+ *  refusal the pace is a minute a request for five minutes, so a queued look-up used to sleep out
+ *  most of the route check's own timeout and then send to a server that had just refused us. */
+const PUBCHEM_MAX_WAIT_MS = 8_000;
+
+const PUBCHEM_TOO_SLOW = 'PubChem is pacing requests too slowly to wait for; using the fallback reference.';
+
+/** A pause that ends early, with the signal's reason, when the turn is cancelled. */
+function pubchemPause(ms: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason); return; }
+    const stop = () => { clearTimeout(timer); reject(signal!.reason); };
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve(); }, ms);
+    signal?.addEventListener('abort', stop, { once: true });
+  });
+}
+
+async function takePubchemTurn(signal?: AbortSignal | null): Promise<void> {
+  signal?.throwIfAborted();
   const now = Date.now();
   if (now < pubchemPace.blockedUntil) throw new Error('PubChem asked this machine to back off; using the fallback reference.');
   const delay = now < pubchemPace.until ? pubchemPace.delay : 200;
   const at = Math.max(now, pubchemPace.nextAt);
+  // Too far off: fall back without reserving, so the turns behind this one do not move back.
+  if (at - now > PUBCHEM_MAX_WAIT_MS) throw new Error(PUBCHEM_TOO_SLOW);
   pubchemPace.nextAt = at + delay;
-  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+  if (at > now) await pubchemPause(at - now, signal);
   // A turn reserved before the latest grade arrived still keeps the CURRENT pace from the last
   // request actually sent — a Yellow that came back meanwhile slows the queued ones too.
   for (;;) {
@@ -392,7 +412,8 @@ async function takePubchemTurn(): Promise<void> {
     const pace = Date.now() < pubchemPace.until ? pubchemPace.delay : 200;
     const wait = pubchemPace.lastSent + pace - Date.now();
     if (wait <= 0) break;
-    await new Promise((resolve) => setTimeout(resolve, wait));
+    if (wait > PUBCHEM_MAX_WAIT_MS) throw new Error(PUBCHEM_TOO_SLOW);
+    await pubchemPause(wait, signal);
   }
   pubchemPace.lastSent = Date.now();
 }
@@ -413,7 +434,9 @@ function breakerFetch(base: typeof fetch): typeof fetch {
     const origin = new URL(raw).origin;
     if (origin !== PUBCHEM_ORIGIN) return base(input, init);
     if (open) throw new Error('PubChem is unavailable; using the fallback reference.');
-    await takePubchemTurn();
+    // The caller's signal carries both the turn's abort and the reference's own timeout. A wait it
+    // cuts short throws here, before the request, and is not counted as an outage.
+    await takePubchemTurn(init?.signal);
     // Checked again AFTER the wait: a look-up that queued for a turn before a refusal arrived must
     // not send once its turn comes.
     if (open || Date.now() < pubchemPace.blockedUntil) throw new Error('PubChem asked this machine to back off; using the fallback reference.');
