@@ -3647,3 +3647,16 @@ test('the stereo enumeration does not build a sample it cannot count from (needs
   assert.deepEqual(out['CC(O)CC'], { open: 1, mirrorOnly: true }, 'a small one is still enumerated');
   assert.ok(seconds < 5, `answered without building the samples (${seconds.toFixed(1)} s)`);
 });
+
+test('a route message names the species the author meant, whatever order the labels came in', async () => {
+  const label = (role, name, smiles) => ({ role, name, smiles, nameSmiles: [smiles] });
+  // The catalyst's label first: by position, the acid was the species called "a condition".
+  const audit = await lib.auditRoute({ steps: ['CCO.CC(=O)O.OS(=O)(=O)O>>CCOC(C)=O.O'], labels: [[
+    label('reactant', 'sulfuric acid', 'OS(=O)(=O)O'), label('reactant', 'ethanol', 'CCO'), label('reactant', 'acetic acid', 'CC(=O)O')]] });
+  assert.match(audit.steps[0].refiledReactant, /^"sulfuric acid" was listed under Reactants/);
+  // An unlabelled reactant shifts every position after it.
+  const inverted = await lib.auditRoute({ steps: ['CC(=O)O.Cl[C@H](C)C(=O)OC>>Cl[C@@H](C)C(=O)O.CC(=O)OC'], labels: [[
+    label('reactant', 'methyl (S)-2-chloropropanoate', 'Cl[C@H](C)C(=O)OC'), label('reactant', 'acetic acid', 'CC(=O)O')]] });
+  assert.match(inverted.blocked.join(' '), /In: methyl \(S\)-2-chloropropanoate: /);
+  assert.doesNotMatch(inverted.blocked.join(' '), /In: acetic acid/);
+});

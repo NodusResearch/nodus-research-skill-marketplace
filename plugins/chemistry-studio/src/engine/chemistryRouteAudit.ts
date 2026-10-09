@@ -125,14 +125,23 @@ async function summarizeFieldGrouped(field: string, declared: string[], cache?: 
   return out;
 }
 
-/** The SMILES of every species the author declared for one role on one step, in order. */
-/** The names the author gave each species of one role, in the same order `declaredFor` hands the
- *  structures over, so a summary can be matched back to the name the author wrote. */
-function namesFor(labels: Array<RouteLabelInput | null | undefined>, role: 'reactant' | 'agent' | 'product'): string[] {
-  return labels
-    .filter((label): label is RouteLabelInput => Boolean(label) && label!.role === role && typeof label!.smiles === 'string' && label!.smiles.trim().length > 0)
-    .map((label) => label.name);
+/** The name the author gave a species on this step, found by the structure it was written beside.
+ *  Matched by position it named the wrong species whenever the labels were not in the order of the
+ *  reaction string, or one species had no label: a step told the author that the acid it esterified
+ *  was "a condition" because the catalyst's label came first. A grouped salt's summary carries the
+ *  declared SMILES as its input, so it matches its label too. */
+type SpeciesNamer = (entry: RouteSpeciesSummary) => string | undefined;
+
+function namerFor(labels: Array<RouteLabelInput | null | undefined>): SpeciesNamer {
+  const byStructure = new Map<string, string>();
+  for (const label of labels) {
+    if (!label || typeof label.smiles !== 'string' || typeof label.name !== 'string' || !label.name.trim()) continue;
+    if (!byStructure.has(label.smiles.trim())) byStructure.set(label.smiles.trim(), label.name.trim());
+  }
+  return (entry) => entry.name ?? byStructure.get(entry.input.trim());
 }
+
+/** The SMILES of every species the author declared for one role on one step, in order. */
 
 function declaredFor(labels: Array<RouteLabelInput | null | undefined>, role: 'reactant' | 'agent' | 'product'): string[] {
   return labels
@@ -168,7 +177,7 @@ function sumSide(species: RouteSpeciesSummary[]): { composition: Record<string, 
  *  Descriptors, not geometry, because a CIP label is what the toolkit reports here — sound for
  *  this comparison since the ranking at such a centre does not change when a neighbouring acid
  *  becomes an amide, which is the change these steps make. */
-function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[], names: { reactants: string[]; products: string[] } = { reactants: [], products: [] }): string {
+function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = (entry) => entry.name): string {
   const tags = (list: RouteSpeciesSummary[]): string[] => list.flatMap(entry => entry.cipTags ?? []).sort();
   const left = tags(reactants);
   const right = tags(products);
@@ -182,8 +191,8 @@ function invertedConfiguration(reactants: RouteSpeciesSummary[], products: Route
   // the sentence says which one moved. So each side is also listed species by species, in the
   // molecule's own atom order, with the atom index of every specified centre — the index locates
   // it in the very string the author wrote, which is the only handle they have on it.
-  const perSpecies = (list: RouteSpeciesSummary[], labelled: string[]) => list
-    .map((entry, position) => ({ entry, name: entry.name ?? labelled[position] ?? entry.formula }))
+  const perSpecies = (list: RouteSpeciesSummary[]) => list
+    .map((entry) => ({ entry, name: nameOf(entry) ?? entry.formula }))
     .filter(({ entry }) => (entry.cipCentres ?? entry.cipTags ?? []).length)
     .map(({ entry, name }) => {
       const centres = entry.cipCentres?.length
@@ -192,7 +201,7 @@ function invertedConfiguration(reactants: RouteSpeciesSummary[], products: Route
       return `${name}: ${centres}`;
     })
     .join(' · ');
-  const sides = [perSpecies(reactants, names.reactants), perSpecies(products, names.products)];
+  const sides = [perSpecies(reactants), perSpecies(products)];
   const where = sides.every(Boolean)
     ? ` In: ${sides[0]}. Out: ${sides[1]}. Atom indices count from zero in the structure as the application parsed it.`
     : '';
@@ -224,7 +233,7 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
 
 /** The sentence naming a single species listed on the wrong side, when moving it across
  *  balances the step; empty otherwise. A species on both sides is left alone. */
-function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = () => undefined): string {
   const same = (a: RouteSpeciesSummary, b: RouteSpeciesSummary) => a.canonicalSmiles === b.canonicalSmiles;
   const tryMove = (from: RouteSpeciesSummary[], to: RouteSpeciesSummary[], position: number, toProducts: boolean): string => {
     const species = from[position];
@@ -235,7 +244,7 @@ function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpe
     if (!result.balanced || !result.coefficients) return '';
     const ordered = toProducts ? [...nextFrom, ...agents, ...nextTo] : [...nextTo, ...agents, ...nextFrom];
     const count = result.coefficients[ordered.indexOf(species)];
-    const label = speciesLabel(species);
+    const label = authorLabel(species, nameOf);
     return toProducts
       ? `"${label}" is listed as a reactant, but the step forms it: list it under Byproducts (${count} ${label}).`
       : `"${label}" is listed on the product side, but the step consumes it: list it under Reactants (${count} ${label}).`;
@@ -249,11 +258,11 @@ function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpe
  *  that side too balances the step: a solvent the reaction makes (ethanol from sodium ethoxide in
  *  ethanol, water in an aqueous oxidation) or a "catalyst" that is really used up. The agent keeps
  *  its place as the solvent; the step only lacks it as a byproduct or reactant. Empty otherwise. */
-function agentRoleThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+function agentRoleThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = () => undefined): string {
   for (let i = 0; i < agents.length; i++) {
     const species = agents[i];
     const others = agents.filter((_, position) => position !== i);
-    const label = speciesLabel(species);
+    const label = authorLabel(species, nameOf);
     const formed = stepBalance(reactants, others, [...products, species]);
     if (formed.balanced && formed.coefficients) {
       const count = formed.coefficients[reactants.length + others.length + products.length];
@@ -365,6 +374,13 @@ function loneAtomOfDiatomicElement(species: RouteSpeciesSummary): { written: str
 const PACKING_BUDGET = 20000;
 
 const speciesLabel = (entry: RouteSpeciesSummary): string => entry.formula || entry.canonicalSmiles;
+
+/** A species as the author wrote it — their name, with the formula beside it — or the formula alone
+ *  when the step carried no name for it. */
+const authorLabel = (entry: RouteSpeciesSummary, nameOf: SpeciesNamer): string => {
+  const name = nameOf(entry);
+  return name ? `${name} (${speciesLabel(entry)})` : speciesLabel(entry);
+};
 
 /** The per-molecule capacity a simple necessary condition exposes: for the largest product
  *  size that is short, how many such molecules are needed and how many substrate molecules can
@@ -596,6 +612,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // Group each side's fragments back into the species the author declared, so a salt counts
       // once and takes one coefficient. Without labels this is exactly the old behaviour.
       const stepLabels = Array.isArray(labelInput[index]) ? labelInput[index]!.filter(Boolean) : [];
+      const nameOf = namerFor(stepLabels);
       const reactants = await summarizeFieldGrouped(reactantField, declaredFor(stepLabels, 'reactant'), cache);
       const agents = await summarizeFieldGrouped(agentField, declaredFor(stepLabels, 'agent'), cache);
       const products = await summarizeFieldGrouped(productField, declaredFor(stepLabels, 'product'), cache);
@@ -643,7 +660,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       }
       // An inverted stereocentre balances perfectly, so it has to be refused separately.
       const inverted = balance.balanced
-        ? invertedConfiguration(reactants, products, { reactants: namesFor(stepLabels, 'reactant'), products: namesFor(stepLabels, 'product') })
+        ? invertedConfiguration(reactants, products, nameOf)
         : '';
       if (inverted) balance = { ...balance, balanced: false, differences: [inverted] };
       // A reactant-side species that takes no part in the only balance is a reagent or a
@@ -664,8 +681,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
             // becomes"). Measured: a coupling reagent listed under Reactants with its co-product
             // omitted came back balanced, no differences, and refiled under Agents under a bare
             // formula. The verdict is not flipped on a guess; the reading is named instead.
-            const names = namesFor(stepLabels, 'reactant');
-            const refiled = moved.map(position => reactants[position].name ?? names[position] ?? reactants[position].formula ?? reactants[position].canonicalSmiles);
+            const refiled = moved.map(position => nameOf(reactants[position]) ?? reactants[position].formula ?? reactants[position].canonicalSmiles);
             const list = refiled.map(name => `"${name}"`).join(' and ');
             // One explicit edit, named: either reading closes the equation, and only the author knows which.
             const many = refiled.length > 1;
@@ -680,7 +696,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // written as a reactant in an oxidation that forms it), say so — the totals alone did not
       // tell the author which species or which way.
       if (!balance.balanced && !balance.unchecked) {
-        const flip = agentRoleThatBalances(reactants, agents, products) || sideFlipThatBalances(reactants, agents, products);
+        const flip = agentRoleThatBalances(reactants, agents, products, nameOf) || sideFlipThatBalances(reactants, agents, products, nameOf);
         if (flip) balance.differences = balance.differences.map(entry => `${entry} ${flip}`);
       }
       // The solved coefficients travel with the species so the report can show the equation
