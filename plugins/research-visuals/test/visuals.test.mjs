@@ -98,3 +98,18 @@ test('a map request answered by hand is retired, with what to do next',async()=>
   assert.deepEqual(await prepareChat({question:'Was there a map in that article?',nodes:[prose],locale:'en'}),[]);
 });
 test('manifest settings and paid review contract validate',async()=>{const manifest=validateCapabilityManifestV2(JSON.parse(fs.readFileSync(fileURLToPath(new URL('../capabilities/images/capability.json',import.meta.url)))));assert.equal(manifest.tools[0].billing,'per-call');assert.equal(manifest.permissions.model,undefined);assert.equal(manifest.permissions.vision.maxRounds,3);const w=images(setup().host);validateSettingsState(await w.getSettings(),manifest.settings);assert.throws(()=>validateSettingsSubmission({fields:{met:'yes'}},manifest.settings));});
+
+// OpenHistoricalMap reports the period it was queried for as its source's period. A query for
+// one century on a map of another used to be drawn and labelled "Historical source period:
+// <the map's period>", with no warning, over boundaries of the other century.
+test('a provider query dated for another period cannot date this map', async () => {
+  const mapPeriod = { from: '1850-01-01', to: '1850-12-31' };
+  const queryPeriod = { from: '1700-01-01', to: '1700-12-31' };
+  const input = { title: 'Regiones', alt: 'Dated boundaries.', period: mapPeriod, bounds: [-10, 35, 4.5, 44], layers: [{ query: { provider: 'openhistoricalmap', level: 4, period: queryPeriod } }] };
+  assert.throws(() => historicalRequest(input), /does not cover/);
+  assert.doesNotThrow(() => historicalRequest({ ...input, layers: [{ query: { provider: 'openhistoricalmap', level: 4, period: mapPeriod } }] }));
+
+  // And should a source of another period reach the labels, it is not counted as dated.
+  const labels = historicalLabels([{ origin: 'provider', provider: 'openhistoricalmap', label: 'OpenHistoricalMap · admin level 4', attribution: 'OpenHistoricalMap contributors, CC0', license: 'CC0 1.0', url: 'https://www.openhistoricalmap.org/', period: queryPeriod }], mapPeriod);
+  assert.equal(labels.approximate, true);
+});

@@ -73,11 +73,13 @@ export async function buildPlugin({ root, entries, extraFiles = {}, extraDirs = 
   const files = new Map();
   files.set('plugin.json', Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`));
 
+  const workers = [];
   for (const relative of manifest.capabilities) {
     const capability = validateCapabilityManifestV2(read(path.join(root, relative)));
     assertMayProvide(manifest, capability.provides);
     if (capability.version !== manifest.version) throw new Error(`${capability.id} version does not match the package version.`);
     files.set(relative, Buffer.from(`${JSON.stringify(capability, null, 2)}\n`));
+    workers.push(path.posix.join(path.posix.dirname(relative), capability.runtime.entry));
   }
 
   for (const relative of manifest.skills) {
@@ -145,6 +147,12 @@ export async function buildPlugin({ root, entries, extraFiles = {}, extraDirs = 
     const file = path.join(root, licence);
     if (fs.existsSync(file)) files.set(licence, fs.readFileSync(file));
   }
+
+  // Every capability's worker has to be in the archive. A build.mjs whose entries miss one, or
+  // name it under another path, otherwise produces a package that signs, installs, and then
+  // fails to load the capability on the user's machine.
+  const missingWorkers = workers.filter(worker => !files.has(worker));
+  if (missingWorkers.length) throw new Error(`${manifest.id} declares ${missingWorkers.join(', ')} but the build does not produce ${missingWorkers.length === 1 ? 'it' : 'them'}.`);
 
   // Nothing published from here carries unsigned native code. `isNativePrebuild` drops the
   // trees this has come up in; this refuses the archive outright for any other one, rather
