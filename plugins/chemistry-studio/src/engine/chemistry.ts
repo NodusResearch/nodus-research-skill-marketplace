@@ -245,6 +245,9 @@ async function compileChemfigSerial(source: string): Promise<string> {
   // can be larger after adding measurement hooks; whitespace between molecules
   // is semantically inert and keeps every input line bounded.
   const input = `\\begin{document}\n${layout.source.replace(/\\chemfig\b/g, '\n\\chemfig')}\n\\end{document}`;
+  // One molecule is one line, and a large one outgrows the buffer anyway. Past it the engine
+  // throws from a timer, which no caller can catch and which ends the whole process.
+  if (input.split('\n').some(line => line.length > 4_900)) throw new Error('A ChemFig line exceeds the TeX input buffer.');
   let timer: ReturnType<typeof setTimeout> | undefined;
   const raw = await Promise.race([
     getChemfigEngine()(input, { texPackages: { amsmath: '', chemfig: '' }, showConsole: process.env.NODUS_CHEMFIG_DEBUG === '1' }),

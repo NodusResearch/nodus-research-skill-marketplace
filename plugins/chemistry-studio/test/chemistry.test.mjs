@@ -3376,3 +3376,22 @@ test('a chain too deep for ChemFig branches is refused quickly, and later export
   const after = await lib.validateChemicalReferences({ references: ['CCO'], exportChemfig: true });
   assert.equal(after.chemfig.status, 'validated', after.chemfig.reason);
 });
+
+// ---------------------------------------------------------------- TeX input buffer
+
+test('a ChemFig line longer than the TeX input buffer is refused, not fatal', async () => {
+  // A shallow 163-atom alkane exports one ~5.5k-character line. node-tikzjax reads lines into a
+  // 5000-character buffer and, past it, throws from a timer that no caller can catch. The run
+  // is in a child process because, unguarded, it ends whichever process it runs in.
+  const { spawnSync } = await import('node:child_process');
+  const script = `
+    const lib = require(${JSON.stringify(bundle)});
+    const tree = depth => depth === 0 ? 'C' : 'C(' + tree(depth - 1) + ')(' + tree(depth - 1) + ')' + tree(depth - 1);
+    lib.validateChemicalReferences({ references: ['C(' + tree(4) + ')' + tree(3) + 'C'], exportChemfig: true, openStereo: true })
+      .then(result => { process.stdout.write(JSON.stringify(result.chemfig)); process.exit(0); });`;
+  const run = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 120_000 });
+  assert.equal(run.status, 0, `the validator process survived: ${run.stderr.slice(0, 300)}`);
+  const chemfig = JSON.parse(run.stdout);
+  assert.equal(chemfig.status, 'unsupported');
+  assert.match(chemfig.reason, /input buffer/);
+});
