@@ -1078,7 +1078,7 @@ def _stereo_choices(smiles, max_isomers=64):
     import math
     from rdkit import Chem
     from rdkit.Chem import AllChem
-    from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnumerationOptions
+    from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, GetStereoisomerCount, StereoEnumerationOptions
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None or mol.GetNumHeavyAtoms() > 60:
@@ -1098,6 +1098,11 @@ def _stereo_choices(smiles, max_isomers=64):
         return False
 
     options = StereoEnumerationOptions(onlyUnassigned=True, unique=True, maxIsomers=max_isomers)
+    # Nothing left unassigned: the one isomer is the structure itself, and the answer is 0 whether
+    # or not it embeds, so no 3D build is needed to say so. Most of a route's species are like this,
+    # and the embedding was most of their time (about 0.15 s each at 50 heavy atoms).
+    if GetStereoisomerCount(mol, options=options) <= 1:
+        return {"open": 0, "mirrorOnly": False}
     isomers = sorted({Chem.MolToSmiles(m) for m in EnumerateStereoisomers(mol, options=options) if buildable(m)})
     if len(isomers) >= max_isomers:
         return None

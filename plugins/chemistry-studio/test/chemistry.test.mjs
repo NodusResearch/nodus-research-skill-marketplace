@@ -3578,3 +3578,35 @@ test('a balance past the coefficient ceiling is named, not blamed on a missing r
   assert.throws(() => lib.balanceReaction([C16H34, O2, CO2, H2O], ['reactant', 'reactant', 'product', 'product'], [1, 1, 1, 1]),
     error => /2 : 49 : 32 : 34/.test(error.message) && !/missing reagent/i.test(error.message));
 });
+
+test('the stereo enumeration runs while the route labels are looked up', async () => {
+  const events = [];
+  const host = resolveHost((endpointId, target) => {
+    events.push(`fetch ${endpointId}`);
+    if (endpointId === 'pubchem' && target.includes('/name/')) return { IdentifierList: { CID: [702] } };
+    if (endpointId === 'pubchem' && target.includes('/cid/702/')) return { PropertyTable: { Properties: [{ CID: 702, SMILES: 'CCO' }] } };
+    return undefined;
+  });
+  const fetch = host.network.fetch;
+  host.network.fetch = async (...args) => { await new Promise(resolve => setTimeout(resolve, 50)); return fetch(...args); };
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async (request) => {
+    events.push('stereo');
+    return { code: 0, stderr: '', stdout: JSON.stringify({ stereoChoices: Object.fromEntries(JSON.parse(request.stdin).stereoChoices.map(s => [s, { open: 0, mirrorOnly: false }])) }) };
+  } };
+  await lib.createWorker(host).invoke({ invocationId: 'st1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO.CC(=O)O>>CCOC(C)=O.O'], labels: [[{ role: 'reactant', name: 'ethanol', smiles: 'CCO' }]], enumerateStereo: true } });
+  const stereo = events.indexOf('stereo');
+  assert.ok(stereo >= 0 && stereo < events.length - 1, `the enumeration started before the last look-up (${events.join(', ')})`);
+  lib.resetPubchemPacing();
+});
+
+test('the stereo enumeration answers a fully assigned structure without building it (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  const { execFileSync } = await import('node:child_process');
+  const worker = path.join(root, 'python', 'reactions_worker.py');
+  const ask = (smiles) => JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-I', worker], { input: JSON.stringify({ stereoChoices: smiles }), encoding: 'utf8' })).stereoChoices;
+  const out = ask(['CN1C2CCC1CC(=O)C2', 'CC1(C)C2CCC1(C)C(=O)C2', 'OC(=O)C1C2CCC(N2C)C(C(=O)O)C1=O', 'C[C@@H](O)CC', 'C/C=C/C', 'CCO']);
+  assert.deepEqual(out['CN1C2CCC1CC(=O)C2'], { open: 0, mirrorOnly: false }, 'tropinone is meso');
+  assert.deepEqual(out['CC1(C)C2CCC1(C)C(=O)C2'], { open: 1, mirrorOnly: true }, 'camphor: a mirror-image choice');
+  assert.equal(out['OC(=O)C1C2CCC(N2C)C(C(=O)O)C1=O'].open, 2);
+  for (const assigned of ['C[C@@H](O)CC', 'C/C=C/C', 'CCO']) assert.deepEqual(out[assigned], { open: 0, mirrorOnly: false }, assigned);
+});

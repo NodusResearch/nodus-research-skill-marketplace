@@ -874,10 +874,12 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
     ? input.radical
     : Array.isArray(input?.radical) ? input.radical.slice(0, steps.length) : undefined;
   const target = typeof input?.target === 'string' && input.target.trim() ? input.target.trim().slice(0, 2000) : undefined;
-  const labels = await resolveRouteLabels(input?.labels, steps.length, cache, input, host().signal, budget);
   // The enumeration needs the shared Python runtime; the application asks for it only where that
-  // runtime is already installed (the reaction index is), so a route check never installs it.
-  const stereoChoices = input?.enumerateStereo === true ? await productStereoChoices(steps) : {};
+  // runtime is already installed (the reaction index is), so a route check never installs it. It
+  // reads only the steps, so it runs while the labels are looked up rather than after them.
+  const stereoPending = input?.enumerateStereo === true ? productStereoChoices(steps) : Promise.resolve({});
+  const labels = await resolveRouteLabels(input?.labels, steps.length, cache, input, host().signal, budget);
+  const stereoChoices = await stereoPending;
   const audit = await chemistryDependencies().verifyRoute({ steps, carriers, racemic, ...(rearrangement !== undefined ? { rearrangement } : {}), ...(radical !== undefined ? { radical } : {}), target, ...(labels.some(step => step.length) ? { labels } : {}), ...(Object.keys(stereoChoices).length ? { stereoChoices } : {}) }, host().signal, budget);
   if (!audit) throw new Error('The route could not be verified.');
   const summary = audit.continuous
