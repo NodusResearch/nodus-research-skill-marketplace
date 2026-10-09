@@ -1,7 +1,7 @@
 import AdmZip from 'adm-zip';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { COUNTRIES, normalize, safePath } from './countries.js';
+import { ARTICLE_SUFFIX, COUNTRIES, normalize, safePath } from './countries.js';
 import { attribution } from './attribution.js';
 
 /** Retrieval against a pinned legalize-dev snapshot.
@@ -53,7 +53,7 @@ export function parseDocument(raw, file, country) {
 
 export function selectArticle(text, article) {
   const escaped = article.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`^(#{1,6})[ \\t]+(?:Art[ií]culo|Article|Art\\.?|Section|§)[ \\t]+${escaped}(?=[ \\t.:—–-]|$)[^\\n]*`, 'gimu');
+  const pattern = new RegExp(`^(#{1,6})[ \\t]+(?:Art[ií]culo|Article|Art\\.?|Section|§)[ \\t]+${escaped}(?=[ \\t.:—–-]|$)(?![ \\t]+${ARTICLE_SUFFIX}(?![\\p{L}\\p{N}]))[^\\n]*`, 'gimu');
   const matches = [...text.matchAll(pattern)];
   if (matches.length !== 1) throw new Error('LEGALIZE_ARTICLE_NOT_UNIQUE');
   const match = matches[0], start = match.index, tail = text.slice(start + match[0].length);
