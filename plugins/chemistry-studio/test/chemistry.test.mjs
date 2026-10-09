@@ -3632,3 +3632,18 @@ print(json.dumps({'out': out, 'seconds': time.monotonic() - started}))
   assert.deepEqual(out.CCO, { open: 0, mirrorOnly: false }, 'nothing to build: still answered after the budget');
   assert.deepEqual(out['C[C@@H](O)CC'], { open: 0, mirrorOnly: false });
 });
+
+test('the stereo enumeration does not build a sample it cannot count from (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // Past 64 possible isomers RDKit enumerates only a random 64 of them. Building each of those in 3D
+  // could not give a count (9 s for cholesterol without descriptors, 48 s for docetaxel, only to
+  // answer null; artemisinin's sample gave a number for a set it had not seen), so it is not done.
+  const { execFileSync } = await import('node:child_process');
+  const worker = path.join(root, 'python', 'reactions_worker.py');
+  const started = Date.now();
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-I', worker], { input: JSON.stringify({ stereoChoices: ['CC(C)CCCC(C)C1CCC2C3CC=C4CC(O)CCC4(C)C3CCC12C', 'CC1CCC2C(C)C(=O)OC3OC4(C)CCC1C32OO4', 'CC(O)CC'] }), encoding: 'utf8' })).stereoChoices;
+  const seconds = (Date.now() - started) / 1000;
+  assert.equal(out['CC(C)CCCC(C)C1CCC2C3CC=C4CC(O)CCC4(C)C3CCC12C'], null, 'cholesterol without descriptors: too many to enumerate');
+  assert.equal(out['CC1CCC2C(C)C(=O)OC3OC4(C)CCC1C32OO4'], null, 'artemisinin without descriptors: 128 possible, 64 of them buildable');
+  assert.deepEqual(out['CC(O)CC'], { open: 1, mirrorOnly: true }, 'a small one is still enumerated');
+  assert.ok(seconds < 5, `answered without building the samples (${seconds.toFixed(1)} s)`);
+});

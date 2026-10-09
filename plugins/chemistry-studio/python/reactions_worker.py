@@ -1110,8 +1110,13 @@ def _stereo_choices(smiles, max_isomers=64, deadline=None):
     # Nothing left unassigned: the one isomer is the structure itself, and the answer is 0 whether
     # or not it embeds, so no 3D build is needed to say so. Most of a route's species are like this,
     # and the embedding was most of their time (about 0.15 s each at 50 heavy atoms).
-    if GetStereoisomerCount(mol, options=options) <= 1:
+    count = GetStereoisomerCount(mol, options=options)
+    if count <= 1:
         return {"open": 0, "mirrorOnly": False}
+    # Past max_isomers RDKit enumerates a random sample, and buildable isomers counted in a sample
+    # say nothing about the whole set: too large to enumerate, without building the sample first.
+    if count > max_isomers:
+        return None
     isomers = sorted({Chem.MolToSmiles(m) for m in EnumerateStereoisomers(mol, options=options) if buildable(m)})
     if len(isomers) >= max_isomers:
         return None
