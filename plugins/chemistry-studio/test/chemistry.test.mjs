@@ -3562,3 +3562,19 @@ test('the route label check applies the fix-ups resolve-names applies to the sam
   } });
   for (const step of result.artifacts[0].data.steps) assert.deepEqual(step.nameProblems ?? [], [], `step ${step.index}`);
 });
+
+test('a two-way family is searched to the coefficient ceiling, in any species order', () => {
+  // Dodecane to CO and CO2: the one smallest equation is C12H26 + 13 O2 -> CO2 + 11 CO + 13 H2O.
+  // A search that stopped at 12 never built it, and called the step ambiguous in one order only.
+  const C12H26 = comp({ '6:0': 12, '1:0': 26 }), CO = comp({ '6:0': 1, '8:0': 1 });
+  const roles = ['reactant', 'reactant', 'product', 'product', 'product'];
+  assert.deepEqual(lib.balanceReaction([C12H26, O2, CO2, CO, H2O], roles, [1, 1, 1, 1, 1]), [1, 13, 1, 11, 13]);
+  assert.deepEqual(lib.balanceReaction([C12H26, O2, H2O, CO2, CO], roles, [1, 1, 1, 1, 1]), [1, 13, 13, 1, 11]);
+});
+
+test('a balance past the coefficient ceiling is named, not blamed on a missing reagent', () => {
+  // Hexadecane burns at 2 : 49 : 32 : 34. The species are complete; only the numbers are large.
+  const C16H34 = comp({ '6:0': 16, '1:0': 34 });
+  assert.throws(() => lib.balanceReaction([C16H34, O2, CO2, H2O], ['reactant', 'reactant', 'product', 'product'], [1, 1, 1, 1]),
+    error => /2 : 49 : 32 : 34/.test(error.message) && !/missing reagent/i.test(error.message));
+});

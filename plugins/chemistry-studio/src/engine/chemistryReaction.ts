@@ -245,12 +245,22 @@ function nullSpace(matrix: bigint[][], columns: number): Frac[][] {
  *  not determine the coefficients rather than that the species were ambiguous. */
 export const SEARCH_DIMENSION_LIMIT = 4;
 
-function smallestPositiveEquation(basis: Frac[][]): number[] | null {
+/** The largest multiplier the search tries on each basis vector. A multiplier is that free
+ *  column's own coefficient in the equation it builds, so a ceiling below MAX_COEFFICIENT skips
+ *  every equation needing more there: dodecane burning to CO and CO2 needs 13 water, and was
+ *  called ambiguous in one species order and solved in another. Two directions cost 30^2
+ *  combinations; more keep the old ceiling, whose cost is already 12^4. */
+const searchCeiling = (dimension: number): number => (dimension <= 2 ? MAX_COEFFICIENT : 12);
+
+/** The smallest equation when it is unique, 'tie' when two different ones share the smallest
+ *  total, and null when the search built no usable equation at all — which is not ambiguity, and
+ *  must not be reported as it. */
+function smallestPositiveEquation(basis: Frac[][]): number[] | 'tie' | null {
   // Past the limit no candidate can be built (see above), so all 12^4 combinations would be
   // refused: 30–90 ms of nothing per call, paid again for every species the route checker tries
   // moving on a step that will not balance.
   if (basis.length > SEARCH_DIMENSION_LIMIT) return null;
-  const ceiling = 12;
+  const ceiling = searchCeiling(basis.length);
   // One common denominator makes the basis whole numbers, and scaling every candidate by the same
   // factor leaves its smallest whole-number form unchanged, so the search can add integers instead
   // of reducing a fraction on every term. Only where the sums cannot leave the exact range.
@@ -288,13 +298,13 @@ function smallestPositiveEquation(basis: Frac[][]): number[] | null {
     if (sum < bestSum) { bestSum = sum; best.clear(); }
     best.set(coefficients.join(','), coefficients);
   }
-  return best.size === 1 ? [...best.values()][0] : null;
+  return best.size === 1 ? [...best.values()][0] : best.size > 1 ? 'tie' : null;
 }
 
 /** The same search in exact fractions, for a basis whose whole-number form would not stay exact. */
-function smallestPositiveEquationExact(basis: Frac[][]): number[] | null {
+function smallestPositiveEquationExact(basis: Frac[][]): number[] | 'tie' | null {
   const dimension = basis.length;
-  const ceiling = 12;
+  const ceiling = searchCeiling(dimension);
   const best = new Map<string, number[]>();
   let bestSum = Infinity;
   const total = ceiling ** dimension;
@@ -313,7 +323,7 @@ function smallestPositiveEquationExact(basis: Frac[][]): number[] | null {
     if (sum < bestSum) { bestSum = sum; best.clear(); }
     best.set(whole.join(','), whole);
   }
-  return best.size === 1 ? [...best.values()][0] : null;
+  return best.size === 1 ? [...best.values()][0] : best.size > 1 ? 'tie' : null;
 }
 
 /** The smallest whole-number form of a null vector, or null when it is not a usable
@@ -528,6 +538,14 @@ function netColumnBalance(compositions: Composition[], roles: ReactionSpecies['r
  *  as its own kind, for the route check to report apart from a real imbalance. */
 export class BalanceUnchecked extends Error {}
 
+/** Coefficients in the caller's species order from a solution over the reduced species. */
+function coefficientsFor(reduced: Array<{ composition: Composition; index: number }>, solution: number[], removed: Set<number>, supplied: number[]): number[] {
+  const coefficients = supplied.slice();
+  reduced.forEach(({ index }, position) => { coefficients[index] = solution[position]; });
+  for (const index of removed) coefficients[index] = 1;
+  return coefficients;
+}
+
 export function balanceReaction(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[]): number[] {
   const active = compositions.map((composition, index) => ({ composition, index })).filter(({ index }) => roles[index] !== 'agent');
   if (!active.some(({ index }) => roles[index] === 'reactant') || !active.some(({ index }) => roles[index] === 'product')) {
@@ -572,7 +590,7 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
     // only refuse when two different equations tie for smallest (then the choice would be a
     // guess, so the author splits the step instead).
     const minimal = smallestPositiveEquation(basis);
-    if (minimal) {
+    if (Array.isArray(minimal)) {
       const coefficients = supplied.slice();
       reduced.forEach(({ index }, position) => { coefficients[index] = minimal[position]; });
       for (const index of removed) coefficients[index] = 1;
@@ -584,9 +602,27 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
       // the imbalance advice says, only adds another free one.
       throw new BalanceUnchecked(`This step leaves ${basis.length} species free to vary independently, more than the ${SEARCH_DIMENSION_LIMIT} the checker determines coefficients for, so its balance was not checked: it has been shown neither balanced nor unbalanced. Split it into consecutive steps, each naming fewer species.`);
     }
+    if (minimal === null) {
+      // No candidate inside the ceiling: the species do balance (the null space is not empty), only
+      // not with every coefficient small enough to be searched. That is not two equations tying.
+      throw new Error(`The declared species admit balanced equations, but none with every species taking part at a coefficient of at most ${searchCeiling(basis.length)}, so no coefficients were chosen. ${missingSpeciesAdvice(compositions, roles, supplied)}`.trim());
+    }
     throw new Error(`The declared species admit more than one balanced equation; name the intended byproducts, or split this transformation into consecutive balanced steps. ${missingSpeciesAdvice(compositions, roles, supplied)}`.trim());
   }
   const solved = toIntegerCoefficients(basis[0]);
+  const vector = basis[0];
+  if (!solved && !vector.some(fZero) && vector.every(value => (value[0] > 0n) === (vector[0][0] > 0n))) {
+    // Every species takes part, all on its declared side: the only refusal left is a coefficient
+    // past MAX_COEFFICIENT. The species DO balance, so say so with the equation, rather than
+    // print element totals at one of each and advise adding a reagent that is not missing.
+    let scale = 1n;
+    for (const [, d] of vector) scale = (scale / gcd(scale, d)) * d;
+    const scaled = vector.map(([n, d]) => n * (scale / d));
+    const divisor = scaled.reduce((g, value) => gcd(g, value), 0n);
+    const coefficients = coefficientsFor(reduced, scaled.map(value => Number((value < 0n ? -value : value) / divisor)), removed, supplied);
+    const equation = coefficients.filter((_, index) => roles[index] !== 'agent').join(' : ');
+    throw new Error(`The declared species balance only as ${equation}, past the ${MAX_COEFFICIENT} coefficient ceiling; a balance that large is more likely a wrong species set, so split the step or check that each declared structure is the compound intended.`);
+  }
   if (!solved) {
     // A zero in the only basis vector means that species takes no part: the equation balances
     // only with it removed. Water or a solvent written into a step that neither consumes nor
