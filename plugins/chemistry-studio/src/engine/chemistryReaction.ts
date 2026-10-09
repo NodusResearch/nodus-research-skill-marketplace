@@ -588,7 +588,10 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
     // The product-side counterpart: a zeroed species carrying a metal that NO reactant supplies.
     // "Delete it" is only half the answer there — just as often the step is missing the reagent that
     // brings the metal (a sodium bromide byproduct with no sodium base listed). Say both.
-    const reactantMetals = new Set(reduced.flatMap((_, position) => (roles[reduced[position].index] === 'reactant' ? metalsOf(position) : [])));
+    // Every declared reactant counts, a spectator cancelled before solving included: a sodium ion
+    // carried through still means something under Reactants supplies sodium.
+    const reactantMetals = new Set(active.flatMap(({ composition, index }) => (roles[index] === 'reactant'
+      ? Object.keys(composition.atoms).filter(key => isMetalKey(key) && composition.atoms[key] > 0) : [])));
     const orphans = incidental.filter(position => metalsOf(position).some(key => !reactantMetals.has(key)));
     if (orphans.length && !balancedSomethingElse) {
       const many = orphans.length > 1;

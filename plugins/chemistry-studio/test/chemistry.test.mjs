@@ -1321,6 +1321,20 @@ test('a metal reagent that comes out at zero is never advised deleted', () => {
   assert.match(water, /Delete the molecule the step neither consumes nor produces/, 'spurious water keeps its advice');
 });
 
+test('a metal reactant cancelled as a spectator still counts as supplying its metal', () => {
+  // Sodium ion on both sides is cancelled before solving. The orphan-metal check then looked only at
+  // what was left, and told the author that nothing under Reactants supplies the sodium of a spare
+  // sodium bromide — while a sodium ion was declared right there under Reactants.
+  const r = (n) => Array(n).fill('reactant'), p = (n) => Array(n).fill('product');
+  const thrown = (fn) => { try { fn(); } catch (error) { return error.message; } return null; };
+  const bromoethane = comp({ '6:0': 2, '1:0': 5, '35:0': 1 }), hydroxide = comp({ '1:0': 1, '8:0': 1 }, -1), sodiumIon = comp({ '11:0': 1 }, 1);
+  const ethanol = comp({ '6:0': 2, '1:0': 6, '8:0': 1 }), bromide = comp({ '35:0': 1 }, -1), sodiumBromide = comp({ '11:0': 1, '35:0': 1 });
+  const message = thrown(() => lib.balanceReaction([bromoethane, hydroxide, sodiumIon, ethanol, bromide, sodiumIon, sodiumBromide], [...r(3), ...p(4)], [1, 1, 1, 1, 1, 1, 1]));
+  assert.ok(message, 'the spare sodium bromide does not balance');
+  assert.doesNotMatch(message, /nothing under Reactants supplies/, 'a sodium ion is declared under Reactants');
+  assert.match(message, /"NaBr" take\(s\) no part/);
+});
+
 test('a species on both sides that takes part is balanced by its net amount', () => {
   // Both came from a real route that looped through four corrections. A species on both sides
   // was cancelled as a spectator, and without it the step could not balance:
