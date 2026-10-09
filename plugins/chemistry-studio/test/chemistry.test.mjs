@@ -3743,3 +3743,56 @@ test('lone pairs are counted for every main-group element, and a radical keeps i
   assert.equal(await dots('[CH3]'), 1, 'one unpaired electron on the methyl radical');
   assert.equal(await dots('O'), 4, 'water is unchanged');
 });
+
+test('every Python call asks the host for a persistent interpreter', async () => {
+  const requests = [];
+  const host = stubHost();
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async request => { requests.push(request); return { code: 0, stdout: JSON.stringify({ stereoChoices: {}, compatibility: [], stock: {}, orderable: {}, lists: [], orderLists: [] }), stderr: '' }; } };
+  const worker = lib.createWorker(host);
+  await worker.invoke({ invocationId: 'p1', toolId: 'verify-route', locale: 'en', input: { steps: ['CC(=O)C>>CC(O)C'], enumerateStereo: true } });
+  await worker.invoke({ invocationId: 'p2', toolId: 'check-stock', locale: 'en', input: { stockDir: '/stock', molecules: ['CCO'] } });
+  await worker.invoke({ invocationId: 'p3', toolId: 'check-compatibility', locale: 'en', input: { steps: [{ reactants: ['CCO'], products: ['CC=O'], reagents: 'PCC' }] } });
+  assert.equal(requests.length, 3);
+  assert.ok(requests.every(request => request.persistent === true), 'each call opted in');
+});
+
+test('the Python worker serves requests in a loop, and forgets a stock list that changed (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  const { execFileSync } = await import('node:child_process');
+  const worker = new URL('../python/reactions_worker.py', import.meta.url).pathname;
+  const script = `
+import json, os, subprocess, sys, tempfile
+import numpy as np
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+stock = tempfile.mkdtemp()
+def add(vendor, smiles):
+    np.array(sorted(w._stock_hash(w._inchikey(s)) for s in smiles), dtype="<u8").tofile(os.path.join(stock, vendor + ".u64"))
+add("acme", ["CCO"])
+served = subprocess.Popen([sys.executable, "-I", ${JSON.stringify(worker)}], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+                          env={"PATH": os.environ.get("PATH", ""), "NODUS_PYTHON_SERVE": "1"})
+def ask(n, request):
+    served.stdin.write(json.dumps({"id": n, "stdin": json.dumps(request)}) + "\\n")
+    served.stdin.flush()
+    return json.loads(served.stdout.readline())
+first = ask(1, {"stock": ["CCO"], "stockDir": stock})
+add("bravo", ["CCO"])
+second = ask(2, {"stock": ["CCO"], "stockDir": stock})
+refused = ask(3, {"reactions": []})
+stereo = ask(4, {"stereoChoices": ["CC(O)CC"]})
+served.stdin.close()
+served.wait(timeout=30)
+one_shot = subprocess.run([sys.executable, "-I", ${JSON.stringify(worker)}], input=json.dumps({"stereoChoices": ["CC(O)CC"]}), capture_output=True, text=True,
+                          env={"PATH": os.environ.get("PATH", "")})
+print(json.dumps({"first": first, "second": second, "refused": refused, "stereo": stereo, "oneShot": one_shot.stdout, "exit": served.returncode}))
+`;
+  // Bounded: a script that does not serve waits for an end of input that never comes.
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8', timeout: 60_000, killSignal: 'SIGKILL' }));
+  assert.equal(out.first.id, 1);
+  assert.deepEqual(JSON.parse(out.first.stdout).stock, { CCO: ['acme'] });
+  assert.deepEqual(JSON.parse(out.second.stdout).stock, { CCO: ['acme', 'bravo'] }, 'a list imported meanwhile is seen by the next request');
+  assert.equal(out.refused.code, 1, 'a refused request is a failure with the one-shot exit code');
+  assert.match(out.refused.stderr, /indexDir or indexDirs is required/);
+  assert.equal(out.stereo.code, 0);
+  assert.equal(out.stereo.stdout, out.oneShot, 'a served answer is byte-for-byte the one-shot answer');
+  assert.equal(out.exit, 0, 'the loop ends when stdin closes');
+});

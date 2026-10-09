@@ -169,7 +169,11 @@ def _open_store(index_dir):
     from rdkit import RDLogger
 
     RDLogger.DisableLog("rdApp.*")
-    return _LazyStore(index_dir)
+    # Kept for the life of the process: a served worker then maps the fingerprint index and reads
+    # the key list once, not once per request. `_drop_stale` forgets it when the index changes.
+    if index_dir not in _stores:
+        _stores[index_dir] = _LazyStore(index_dir)
+    return _stores[index_dir]
 
 
 def _canon(smiles):
@@ -1755,7 +1759,93 @@ def handle(request):
     return {"reactions": reactions, "products": products, "similar": similar}
 
 
+_dir_signatures = {}
+RDCHIRAL_CACHE_CAP = 5000
+
+
+def _dir_signature(path):
+    """Names, sizes and modification times of a directory's files: what changes when an index is
+    downloaded again or a stock list is imported again into the same directory."""
+    try:
+        return tuple(sorted((entry.name, entry.stat().st_size, entry.stat().st_mtime_ns) for entry in os.scandir(path) if entry.is_file()))
+    except OSError:
+        return None
+
+
+def _cached_dirs():
+    return set(_stores) | set(_retro_cache) | set(_retro_screen) | set(_STOCK_CACHE) | set(_SKELETON_CACHE) | {os.path.dirname(path) for path in _block_cache}
+
+
+def _drop_stale():
+    """Forget every per-directory cache whose directory changed since the request that filled it.
+
+    A one-shot process could never see a stale table; a served one lives across requests, so an
+    index rebuilt or a stock list re-imported under the same path must not be answered from the
+    tables of the previous one."""
+    for path in _cached_dirs():
+        if path in _dir_signatures and _dir_signatures[path] == _dir_signature(path):
+            continue
+        for cache in (_stores, _retro_cache, _retro_screen, _STOCK_CACHE, _SKELETON_CACHE):
+            cache.pop(path, None)
+        for key in [key for key in _block_cache if os.path.dirname(key) == path]:
+            del _block_cache[key]
+        _dir_signatures.pop(path, None)
+    # Parsed templates are keyed by their own text, so they never go stale, but a process that serves
+    # many targets would otherwise keep every template it ever applied.
+    if len(_rdchiral_cache) > RDCHIRAL_CACHE_CAP:
+        _rdchiral_cache.clear()
+
+
+def _note_cached():
+    """What each directory a request has just cached looked like, for `_drop_stale` to compare."""
+    for path in _cached_dirs():
+        if path not in _dir_signatures:
+            _dir_signatures[path] = _dir_signature(path)
+
+
+def serve():
+    """Answer requests until stdin closes, so the interpreter, RDKit and the index's parsed tables
+    are paid for once rather than once per request.
+
+    One request per line in, {"id", "stdin"}, where "stdin" is exactly what a one-shot run reads;
+    one reply per line out, {"id", "code", "stdout", "stderr"}, with what a one-shot run would have
+    exited with and printed. The reply channel is a private copy of stdout: everything else written
+    to stdout, from Python or from a C library, goes to stderr instead and never into a reply."""
+    import traceback
+
+    channel = os.fdopen(os.dup(1), "w", encoding="utf-8", newline="\n")
+    os.dup2(2, 1)
+    sys.stdout = sys.stderr
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            message = json.loads(line)
+            request_id = message.get("id")
+        except Exception:
+            continue
+        code, stdout, stderr = 0, "", ""
+        try:
+            _drop_stale()
+            try:
+                stdout = json.dumps(handle(json.loads(message.get("stdin") or "{}"))) + "\n"
+            finally:
+                _note_cached()
+        except SystemExit as stop:
+            code = stop.code if isinstance(stop.code, int) else 1
+            stderr = "" if isinstance(stop.code, int) or stop.code is None else str(stop.code)
+        except Exception:
+            code, stderr = 1, traceback.format_exc()[-8000:]
+        channel.write(json.dumps({"id": request_id, "code": code, "stdout": stdout, "stderr": stderr}) + "\n")
+        channel.flush()
+
+
 def main():
+    # The host asks for the loop by environment, so a host that does not know it runs the same
+    # arguments once per call, as before.
+    if "--serve" in sys.argv[1:] or os.environ.get("NODUS_PYTHON_SERVE") == "1":
+        serve()
+        return
     if "--check" in sys.argv[1:]:
         print(json.dumps(_versions()))
         return

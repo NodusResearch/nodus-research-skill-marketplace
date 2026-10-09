@@ -56,6 +56,9 @@ const REPAIR_ATTEMPTS = 2;
 const DISCONNECT_BUDGET_SECONDS = 180;
 const REACTIONS_RUNTIME_ID = 'chemistry';
 const REACTIONS_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'python', 'reactions_worker.py');
+// Every call asks for a persistent interpreter: the script answers requests in a loop when the host
+// sets NODUS_PYTHON_SERVE=1, so RDKit and the index tables load once per process instead of once
+// per call. A host that does not know the flag ignores it and runs the script once per call.
 
 interface ChatNode { id: string; kind: 'prose' | 'fence'; fence?: string; content: string; complete: boolean }
 
@@ -577,7 +580,7 @@ async function localReferencesFor(input: { pubchemDir?: unknown; opsinDir?: unkn
   const opsinDir = typeof input?.opsinDir === 'string' && input.opsinDir && names.length ? input.opsinDir : undefined;
   if ((!pubchemDir && !opsinDir) || (!names.length && !smiles.length)) return {};
   try {
-    const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT],
+    const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT], persistent: true,
       stdin: JSON.stringify({ ...(pubchemDir ? { pubchemDir } : {}), ...(opsinDir ? { opsinDir } : {}), pubchemNames: names, pubchemSmiles: smiles }), timeoutMs: 120_000 });
     // Logged, not only dropped: every name then goes to the network, and nothing else says why.
     if (run.code !== 0) {
@@ -847,7 +850,7 @@ async function productStereoChoices(steps: string[]): Promise<Record<string, { o
   try {
     const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
     if (!ready.ready) return {};
-    const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT], stdin: JSON.stringify({ stereoChoices: products }), timeoutMs: 60_000 });
+    const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT], persistent: true, stdin: JSON.stringify({ stereoChoices: products }), timeoutMs: 60_000 });
     if (run.code !== 0) return {};
     return (JSON.parse(run.stdout) as { stereoChoices?: Record<string, { open: number; mirrorOnly: boolean } | number | null> }).stereoChoices ?? {};
   } catch {
@@ -899,7 +902,7 @@ async function knownReactions(input: { indexDir?: string; reactions?: string[]; 
   if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
   const run = await host().python.run({
     runtimeId: REACTIONS_RUNTIME_ID,
-    args: ['-I', REACTIONS_SCRIPT],
+    args: ['-I', REACTIONS_SCRIPT], persistent: true,
     stdin: JSON.stringify({
       indexDir,
       reactions: Array.isArray(input.reactions) ? input.reactions.slice(0, 32) : [],
@@ -929,7 +932,7 @@ async function proposeDisconnections(input: { indexDir?: string; targets?: strin
   if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
   const run = await host().python.run({
     runtimeId: REACTIONS_RUNTIME_ID,
-    args: ['-I', REACTIONS_SCRIPT],
+    args: ['-I', REACTIONS_SCRIPT], persistent: true,
     stdin: JSON.stringify({
       indexDir,
       disconnect: targets,
@@ -964,7 +967,7 @@ async function checkStock(input: { stockDir?: string; molecules?: string[] }) {
   if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
   const run = await host().python.run({
     runtimeId: REACTIONS_RUNTIME_ID,
-    args: ['-I', REACTIONS_SCRIPT],
+    args: ['-I', REACTIONS_SCRIPT], persistent: true,
     stdin: JSON.stringify({ stock: molecules, stockDir }),
     timeoutMs: 60_000,
   });
@@ -993,7 +996,7 @@ async function searchRoutes(input: { indexDirs?: string[]; target?: string; star
   if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
   const run = await host().python.run({
     runtimeId: REACTIONS_RUNTIME_ID,
-    args: ['-I', REACTIONS_SCRIPT],
+    args: ['-I', REACTIONS_SCRIPT], persistent: true,
     stdin: JSON.stringify({
       indexDirs,
       route: target,
@@ -1030,7 +1033,7 @@ async function checkCompatibility(input: { steps?: CompatibilityStepInput[]; tex
   if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
   const run = await host().python.run({
     runtimeId: REACTIONS_RUNTIME_ID,
-    args: ['-I', REACTIONS_SCRIPT],
+    args: ['-I', REACTIONS_SCRIPT], persistent: true,
     stdin: JSON.stringify({ compatibility: steps, ...(typeof input.textbookDir === 'string' && input.textbookDir ? { textbookDir: input.textbookDir } : {}) }),
     timeoutMs: 90_000,
   });
