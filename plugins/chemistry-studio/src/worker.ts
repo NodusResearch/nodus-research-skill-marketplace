@@ -60,6 +60,14 @@ const REACTIONS_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)),
 // sets NODUS_PYTHON_SERVE=1, so RDKit and the index tables load once per process instead of once
 // per call. A host that does not know the flag ignores it and runs the script once per call.
 
+/** What a failed Python call says about itself: its exit code and the interpreter's last line of
+ *  stderr (the exception). A failure used to reach the author as "The reaction lookup failed." with
+ *  the traceback thrown away, and the two calls that fall back silently said nothing at all. */
+function pythonFailure(what: string, run: { code: number; stderr: string }): string {
+  const last = run.stderr.trim().split('\n').filter(Boolean).at(-1)?.slice(0, 300);
+  return `${what} (exit ${run.code}${last ? `: ${last}` : ''}).`;
+}
+
 interface ChatNode { id: string; kind: 'prose' | 'fence'; fence?: string; content: string; complete: boolean }
 
 export default function createWorker(capabilityHost: CapabilityHost) {
@@ -602,7 +610,7 @@ async function localReferencesFor(input: { pubchemDir?: unknown; opsinDir?: unkn
       stdin: JSON.stringify({ ...(pubchemDir ? { pubchemDir } : {}), ...(opsinDir ? { opsinDir } : {}), pubchemNames: names, pubchemSmiles: smiles }), timeoutMs: 120_000 });
     // Logged, not only dropped: every name then goes to the network, and nothing else says why.
     if (run.code !== 0) {
-      host().log('warn', 'The local reference lookup failed; the network answers instead.', { code: run.code, stderr: run.stderr.slice(-2000) });
+      host().log('warn', `${pythonFailure('The local references were not consulted', run)} The network answers instead.`, { code: run.code, stderr: run.stderr.slice(-2000) });
       return {};
     }
     const data = JSON.parse(run.stdout) as {
@@ -614,7 +622,8 @@ async function localReferencesFor(input: { pubchemDir?: unknown; opsinDir?: unkn
       ...(data.pubchem?.available ? { pubchemMirror: { names: new Map(Object.entries(data.pubchem.names ?? {})), smiles: new Map(Object.entries(data.pubchem.smiles ?? {})) } } : {}),
       ...(data.opsin && Object.keys(data.opsin).length ? { opsinLocal: new Map(Object.entries(data.opsin)) } : {}),
     };
-  } catch {
+  } catch (error) {
+    host().log('warn', `The local references were not consulted: ${error instanceof Error ? error.message : String(error)}`);
     return {};
   }
 }
@@ -890,9 +899,10 @@ async function productStereoChoices(steps: string[]): Promise<Record<string, { o
     const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
     if (!ready.ready) return {};
     const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT], persistent: true, stdin: JSON.stringify({ stereoChoices: products }), timeoutMs: 60_000 });
-    if (run.code !== 0) return {};
+    if (run.code !== 0) { host().log('warn', pythonFailure('Stereo choices were not enumerated', run)); return {}; }
     return (JSON.parse(run.stdout) as { stereoChoices?: Record<string, { open: number; mirrorOnly: boolean } | number | null> }).stereoChoices ?? {};
-  } catch {
+  } catch (error) {
+    host().log('warn', `Stereo choices were not enumerated: ${error instanceof Error ? error.message : String(error)}`);
     return {};
   }
 }
@@ -950,7 +960,7 @@ async function knownReactions(input: { indexDir?: string; reactions?: string[]; 
     }),
     timeoutMs: 240_000,
   });
-  if (run.code !== 0) throw new Error('The reaction lookup failed.');
+  if (run.code !== 0) throw new Error(pythonFailure('The reaction lookup failed', run));
   const data = JSON.parse(run.stdout) as { reactions?: Array<{ count: number }>; products?: Array<{ count: number }> };
   const exact = data.reactions?.filter(entry => entry.count > 0).length ?? 0;
   const made = data.products?.filter(entry => entry.count > 0).length ?? 0;
@@ -986,7 +996,7 @@ async function proposeDisconnections(input: { indexDir?: string; targets?: strin
     }),
     timeoutMs: 240_000,
   });
-  if (run.code !== 0) throw new Error('The disconnection search failed.');
+  if (run.code !== 0) throw new Error(pythonFailure('The disconnection search failed', run));
   const data = JSON.parse(run.stdout) as { disconnections?: Array<{ madeBy?: unknown[]; proposals?: unknown[] }> };
   const entries = data.disconnections ?? [];
   const recorded = entries.filter(entry => (entry.madeBy?.length ?? 0) > 0).length;
@@ -1010,7 +1020,7 @@ async function checkStock(input: { stockDir?: string; molecules?: string[] }) {
     stdin: JSON.stringify({ stock: molecules, stockDir }),
     timeoutMs: 60_000,
   });
-  if (run.code !== 0) throw new Error('The stock check failed.');
+  if (run.code !== 0) throw new Error(pythonFailure('The stock check failed', run));
   const data = JSON.parse(run.stdout) as { stock?: Record<string, string[]>; orderable?: Record<string, string[]>; lists?: string[]; orderLists?: string[] };
   const found = Object.values(data.stock ?? {}).filter(vendors => vendors.length > 0).length;
   const orderable = Object.entries(data.orderable ?? {}).filter(([molecule, vendors]) => vendors.length > 0 && !(data.stock?.[molecule]?.length)).length;
@@ -1047,7 +1057,7 @@ async function searchRoutes(input: { indexDirs?: string[]; target?: string; star
     // The worker returns at its budget; the margin covers loading the indexes.
     timeoutMs: (budgetSeconds + 60) * 1000,
   });
-  if (run.code !== 0) throw new Error('The route search failed.');
+  if (run.code !== 0) throw new Error(pythonFailure('The route search failed', run));
   const data = JSON.parse(run.stdout) as { route?: { routes?: unknown[]; expanded?: number; timedOut?: boolean } };
   const route = data.route ?? {};
   const summary = `Route search: ${route.routes?.length ?? 0} complete route(s) after ${route.expanded ?? 0} expansion(s)${route.timedOut ? ', stopped at the time budget' : ''}.`;
@@ -1076,7 +1086,7 @@ async function checkCompatibility(input: { steps?: CompatibilityStepInput[]; tex
     stdin: JSON.stringify({ compatibility: steps, ...(typeof input.textbookDir === 'string' && input.textbookDir ? { textbookDir: input.textbookDir } : {}) }),
     timeoutMs: 90_000,
   });
-  if (run.code !== 0) throw new Error('The compatibility check failed.');
+  if (run.code !== 0) throw new Error(pythonFailure('The compatibility check failed', run));
   const data = JSON.parse(run.stdout) as { compatibility?: Array<{ hazards?: Array<{ severity?: string }> }> };
   const hazards = (data.compatibility ?? []).flatMap(step => step.hazards ?? []);
   const high = hazards.filter(hazard => hazard.severity === 'high').length;

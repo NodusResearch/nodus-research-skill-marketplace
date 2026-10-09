@@ -3848,3 +3848,19 @@ test('resolve-names answers a name this worker already resolved without asking t
   await fresh.invoke({ invocationId: 'n3', toolId: 'resolve-names', locale: 'en', input: { names: ['3-methylhexan-2-one'] } });
   assert.ok(host.calls.length > before);
 });
+
+test('a failed Python call says why, and a silent fallback is logged', async () => {
+  const logged = [];
+  const host = stubHost();
+  host.log = (level, message) => logged.push(`${level}: ${message}`);
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 1, stdout: '', stderr: 'Traceback (most recent call last):\n  ...\nSystemExit: the reaction index is missing exact.tsv.zst\n' }) };
+  const worker = lib.createWorker(host);
+  await assert.rejects(worker.invoke({ invocationId: 'k1', toolId: 'known-reactions', locale: 'en', input: { indexDir: '/idx', reactions: ['CCO>>CC=O'] } }),
+    /reaction lookup failed \(exit 1: SystemExit: the reaction index is missing exact\.tsv\.zst\)/);
+  // The local mirror falls back to the network without failing the call — and now says so.
+  await worker.invoke({ invocationId: 'k2', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'], pubchemDir: '/mirror' } });
+  assert.ok(logged.some(line => line.startsWith('warn:') && line.includes('local references') && line.includes('missing exact.tsv.zst')), JSON.stringify(logged));
+  // So does the stereo enumeration of the route check.
+  await worker.invoke({ invocationId: 'k3', toolId: 'verify-route', locale: 'en', input: { steps: ['CC(=O)C>>CC(O)C'], enumerateStereo: true } });
+  assert.ok(logged.some(line => line.includes('Stereo choices were not enumerated')), JSON.stringify(logged));
+});
