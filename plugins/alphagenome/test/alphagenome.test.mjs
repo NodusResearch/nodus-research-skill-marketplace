@@ -144,8 +144,15 @@ test('settings report what is configured, never a stored value', async () => {
 test('the runtime is recorded as ready only after the adapter itself answers', async () => {
   const host = stubHost({ secrets: ['api-key'], state: { terms: 2 }, checkCode: 1 });
   const worker = createWorker(host);
-  await assert.rejects(worker.runAction({ actionId: 'install-runtime' }), /GENOMICS_RUNTIME_FAILED/);
+  // The settings panel shows what comes back verbatim: a failed check is a failed status
+  // with a sentence, never a bare error code.
+  const failed = await worker.runAction({ actionId: 'install-runtime' });
+  assert.equal(failed.status.state, 'failed');
+  assert.match(failed.status.label.en, /runtime or the API request failed/);
+  assert.doesNotMatch(JSON.stringify(failed), /GENOMICS_/);
   assert.equal(host.state.get('runtime'), undefined, 'a failed check leaves no runtime recorded');
+  await assert.rejects(createWorker(stubHost({ secrets: ['api-key'] })).runAction({ actionId: 'install-runtime' }),
+    error => /Accept the current AlphaGenome terms/.test(error.message) && !/GENOMICS_/.test(error.message));
 
   const working = stubHost({ secrets: ['api-key'], state: { terms: 2 } });
   const installed = await createWorker(working).runAction({ actionId: 'install-runtime' });
