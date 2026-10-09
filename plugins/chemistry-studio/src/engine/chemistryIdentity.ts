@@ -1,5 +1,6 @@
 import type { ChemistryIntent, ChemistryPartialReason, ChemistryReference, ChemistryResolution, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
 import { reactionSmilesSpecies } from './chemistryReactionShared';
+import { MAX_REACTION_COEFFICIENT } from './chemistryLimits';
 import { buildingBlockSmiles, isResinBoundName } from './peptideBuildingBlocks';
 
 export interface ChemistryIdentityDependencies {
@@ -134,7 +135,7 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
     ids.add(item.id);
     if (raw.kind === 'reaction' && raw.depiction !== 'skeletal') throw new Error('A reaction scheme must use depiction "skeletal".');
     if (raw.kind === 'reaction' && !['reactant', 'product', 'agent'].includes(item.role)) throw new Error(`${at}.role must be "reactant", "product" or "agent".`);
-    if (raw.kind === 'reaction' && (!Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > 12)) throw new Error(`${at}.coefficient must be a whole number from 1 to 12.`);
+    if (raw.kind === 'reaction' && (!Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > MAX_REACTION_COEFFICIENT)) throw new Error(`${at}.coefficient must be a whole number from 1 to ${MAX_REACTION_COEFFICIENT}.`);
     const input = item.input;
     if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['kind', 'value'].includes(key))) throw new Error(`${at}.input must be an object with exactly "kind" and "value".`);
     if (!['name', 'pubchem-cid', 'smiles'].includes(input.kind)) throw new Error(`${at}.input.kind must be "name", "pubchem-cid" or "smiles".`);

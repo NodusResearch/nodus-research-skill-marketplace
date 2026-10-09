@@ -1,4 +1,4 @@
-import { MAX_SPECIES_CHARS } from './chemistryLimits';
+import { MAX_REACTION_COEFFICIENT, MAX_SPECIES_CHARS } from './chemistryLimits';
 import type { ChemistryReactionArtifact, ChemistryValidationRequest, ChemistryValidationResult, ReactionSpecies } from './chemistryDocument';
 import { compileChemfig } from './chemistry';
 import { colourChemfigAtoms } from './elementColours';
@@ -183,7 +183,7 @@ interface Composition { atoms: Record<string, number>; charge: number }
  *  balance is more likely a wrong species set than a real equation. The multi-solution search
  *  keeps its own smaller ceiling, since its cost grows with the ceiling to the power of the
  *  solution-space dimension. */
-export const MAX_COEFFICIENT = 30;
+export const MAX_COEFFICIENT = MAX_REACTION_COEFFICIENT;
 
 type Frac = [bigint, bigint];
 const gcd = (a: bigint, b: bigint): bigint => { a = a < 0n ? -a : a; b = b < 0n ? -b : b; while (b) { const t = a % b; a = b; b = t; } return a; };

@@ -3526,3 +3526,16 @@ print(json.dumps(w._compatibility(steps)))
   assert.ok(out[0].reagentClasses.some(c => c.id === 'strong-acid'), 'HCl in dioxane is a strong acid');
   assert.deepEqual(flags[5], ['boc/null/medium'], 'a Boc lost with no acid named is still flagged');
 });
+
+test('a reaction intent may declare any coefficient the balancer can solve to', () => {
+  // Dichromate oxidising iodide takes 14 H+. Copied from the user, it was refused at 12, though
+  // the balancer accepts and solves to coefficients up to 30.
+  const question = 'Draw the balanced scheme: [O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-] + 6 [I-] + 14 [H+] gives 2 [Cr+3] + 3 II + 7 O';
+  const species = [
+    ['dichromate', '[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-]', 'reactant', 1], ['iodide', '[I-]', 'reactant', 6], ['proton', '[H+]', 'reactant', 14],
+    ['chromium', '[Cr+3]', 'product', 2], ['iodine', 'II', 'product', 3], ['water', 'O', 'product', 7],
+  ].map(([id, value, role, coefficient]) => ({ id, input: { kind: 'smiles', value }, role, coefficient }));
+  const intent = (list) => JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', species: list });
+  assert.equal(lib.parseChemistryIntent(intent(species), question).species[2].coefficient, 14);
+  assert.throws(() => lib.parseChemistryIntent(intent(species.map((entry, i) => (i === 2 ? { ...entry, coefficient: 31 } : entry))), question), /from 1 to 30/);
+});

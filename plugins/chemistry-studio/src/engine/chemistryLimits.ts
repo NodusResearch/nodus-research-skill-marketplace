@@ -126,6 +126,11 @@ export const maxSpeciesTotal = (budget?: ChemistryCapBudget): number =>
 /** One species' structure, and a label's structure: the same bound in both places. Not derived —
  *  no real SMILES or systematic name approaches this, whatever the window. */
 export const MAX_SPECIES_CHARS = 4000;
+/** The largest stoichiometric coefficient anywhere: what an intent may declare, what the renderer
+ *  accepts and what the balancer solves to (MAX_COEFFICIENT in chemistryReaction.ts). One number,
+ *  because the intent's own 12 refused "14 H+" copied from a user's dichromate equation that the
+ *  balancer would have solved to exactly 14. */
+export const MAX_REACTION_COEFFICIENT = 30;
 /** A species label. A species given as its own structure carries that structure as its name. */
 export const MAX_LABEL_NAME_CHARS = 4000;
 
