@@ -3500,3 +3500,29 @@ test('a legacy document that is malformed or not verified is refused, never badg
   const partial = lib.documentView({ status: 'partial', species: [{ input: { kind: 'name', value: 'ethanol' }, svg }] }, 'en');
   assert.equal(partial.nodes[0].items[0].label, 'Partly verified');
 });
+
+test('the Python compatibility check accepts the usual acid deprotections (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // "4 M HCl in dioxane" is the anhydrous strong acid that takes a Boc off, not a dilute work-up;
+  // and aqueous acid is how an acetal, a TMS ether or a trityl group usually comes off. Each used to
+  // be flagged as a protecting group lost with nothing named that removes it.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, sys
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+steps = [
+  {"reactants": ["CC(C)(C)OC(=O)NCc1ccccc1"], "products": ["NCc1ccccc1"], "reagents": "4 M HCl in dioxane"},
+  {"reactants": ["CC(C)(C)OC(=O)NCc1ccccc1"], "products": ["NCc1ccccc1"], "reagents": "4M HCl/dioxane"},
+  {"reactants": ["CC1(c2ccccc2)OCCO1"], "products": ["CC(=O)c1ccccc1"], "reagents": "aq. HCl, acetone"},
+  {"reactants": ["CC1(c2ccccc2)OCCO1"], "products": ["CC(=O)c1ccccc1"], "reagents": "H3O+"},
+  {"reactants": ["C[Si](C)(C)OCc1ccccc1"], "products": ["OCc1ccccc1"], "reagents": "1 M HCl, THF"},
+  {"reactants": ["CC(C)(C)OC(=O)NCCO"], "products": ["NCCO"], "reagents": "NaOH, water"},
+]
+print(json.dumps(w._compatibility(steps)))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }));
+  const flags = out.map(step => step.hazards.map(h => `${h.group}/${h.reagentClass}/${h.severity}`));
+  assert.deepEqual(flags.slice(0, 5), [[], [], [], [], []], 'each of these removes the group it loses');
+  assert.ok(out[0].reagentClasses.some(c => c.id === 'strong-acid'), 'HCl in dioxane is a strong acid');
+  assert.deepEqual(flags[5], ['boc/null/medium'], 'a Boc lost with no acid named is still flagged');
+});

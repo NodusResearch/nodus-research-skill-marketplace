@@ -1342,9 +1342,10 @@ def _attach_conditions(index_dir, items):
 # A protecting group that disappears in a step should have a reagent that removes it.
 _REMOVED_BY = {
     "boc": {"strong-acid"}, "cbz": {"hydrogenation", "strong-acid", "dissolving-metal"},
-    "fmoc": {"amine-base", "hydroxide", "alkoxide", "strong-base"}, "silyl-ether": {"fluoride", "strong-acid"},
+    "fmoc": {"amine-base", "hydroxide", "alkoxide", "strong-base"}, "silyl-ether": {"fluoride", "strong-acid", "aqueous-acid"},
     "benzyl-ether": {"hydrogenation", "dissolving-metal", "strong-acid"}, "benzyl-ester": {"hydrogenation", "hydroxide", "alkoxide", "strong-acid"},
-    "trityl": {"strong-acid", "hydrogenation"}, "acetal": {"strong-acid"}, "tbu-ester": {"strong-acid"},
+    # Aqueous acid is the usual way an acetal, a TMS ether or a trityl group comes off.
+    "trityl": {"strong-acid", "aqueous-acid", "hydrogenation"}, "acetal": {"strong-acid", "aqueous-acid"}, "tbu-ester": {"strong-acid"},
 }
 _compat_cache = {}
 
