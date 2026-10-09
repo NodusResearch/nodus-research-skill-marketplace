@@ -159,13 +159,16 @@ export function renderScene(scene: ChemicalScene): string {
 }
 
 /** A deliberately narrow, reversible ChemFig dialect, not arbitrary TeX. */
-export function exportSceneChemfig(scene: ChemicalScene): string {
+export function exportSceneChemfig(scene: ChemicalScene, anchoredBonds: ReadonlySet<number> = new Set()): string {
   const emitted = new Set<number>(), tree = new Set<number>();
   // Wedges must be explicit tree edges, never implicit ring closures. Build a
   // spanning tree with those edges first without changing atom order or parity.
+  // A bond an electron arrow starts or ends on comes next: only a tree edge carries
+  // the @{b…} name the arrow is drawn to, and a ring closure has none.
   const parents = scene.atoms.map((_, i) => i);
   const root = (i: number): number => parents[i] === i ? i : (parents[i] = root(parents[i]));
-  const edges = scene.bonds.map((b, i) => ({ b, i })).sort((x, y) => Number(!!y.b.stereo && !y.b.plain) - Number(!!x.b.stereo && !x.b.plain));
+  const rank = (b: SceneBond, i: number) => (b.stereo && !b.plain ? 2 : 0) + (anchoredBonds.has(i) ? 1 : 0);
+  const edges = scene.bonds.map((b, i) => ({ b, i })).sort((x, y) => rank(y.b, y.i) - rank(x.b, x.i));
   for (const { b, i } of edges) if (root(b.a) !== root(b.b)) { parents[root(b.a)] = root(b.b); tree.add(i); }
   if (tree.size !== scene.atoms.length - 1) throw new Error('Disconnected ChemFig scenes are unsupported.');
   // node-tikzjax's TeX never returns once branches nest 32 deep (a 33-atom chain), and a

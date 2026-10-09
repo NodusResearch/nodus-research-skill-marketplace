@@ -3471,3 +3471,18 @@ print(json.dumps({'wall': time.monotonic() - started, 'seconds': out['seconds'],
   assert.equal(out.timedOut, true);
   assert.ok(Math.abs(out.seconds - out.wall) < 0.3, `seconds is the time taken (${out.seconds} vs ${out.wall.toFixed(2)})`);
 });
+
+// ---------------------------------------------------------------- arrows on a ring-closure bond
+
+test('an arrow on the bond that closes a ring is drawn', async () => {
+  // Hydroxide opening propylene oxide at the CH2 breaks the CH2–O bond, which is the bond the
+  // ChemFig export wrote as a ring closure. A closure has no @{b…} name, so the checked
+  // mechanism was refused with "Unknown electron-flow anchor".
+  const electronFlow = [
+    { from: { species: 'nu', atom: { element: 'O' } }, to: { species: 'ep', atom: { element: 'C', index: 2 } } },
+    { from: { species: 'ep', bond: { between: ['C', 'O'], index: 2 } }, to: { species: 'ep', atom: { element: 'O' } } },
+  ];
+  const checked = await lib.validateChemicalReferences({ references: ['[OH-]'], mechanism: { rule: 'electron-flow', inputs: ['[OH-]', 'CC1CO1'], order: ['nu', 'ep'], electronFlow } });
+  assert.equal(checked.mechanism.chemfig.status, 'validated');
+  assert.deepEqual(checked.mechanism.canonicalProducts, ['CC(O)C[O-]']);
+});
