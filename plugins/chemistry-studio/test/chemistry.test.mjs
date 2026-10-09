@@ -2108,15 +2108,12 @@ test('a step that inverts a stereocentre is refused, though its equation balance
   assert.equal(flipped.steps[0].balanced, false);
   const why = flipped.steps[0].differences.join(' ');
   assert.match(why, /inverts a stereocentre/);
-  assert.match(why, /1 \(S\) and 0 \(R\)/);   // what went in
-  assert.match(why, /0 \(S\) and 1 \(R\)/);   // what came out
+  assert.match(why, /atom 1 of L-alanine \(S\) comes out as atom 1 of the amide \(R\) with the opposite configuration/);   // which centre, in and out
 
   // Counts alone cannot be acted on: with a dozen centres in play, "give the product the
   // configuration its reactant carries" does not say which one moved. Each side is therefore
   // named species by species, with the atom index of every specified centre, so the reader can
   // find it in the string they wrote.
-  assert.match(why, /In: L-alanine: \(S\) at atom \d+\./, why);
-  assert.match(why, /Out: the amide: \(R\) at atom \d+\./, why);
   assert.match(why, /Atom indices count from zero/);
   // The species with no specified centre is left out rather than listed as having none.
   assert.ok(!why.includes('N-methylmethanamine'), why);
@@ -3657,6 +3654,22 @@ test('a route message names the species the author meant, whatever order the lab
   // An unlabelled reactant shifts every position after it.
   const inverted = await lib.auditRoute({ steps: ['CC(=O)O.Cl[C@H](C)C(=O)OC>>Cl[C@@H](C)C(=O)O.CC(=O)OC'], labels: [[
     label('reactant', 'methyl (S)-2-chloropropanoate', 'Cl[C@H](C)C(=O)OC'), label('reactant', 'acetic acid', 'CC(=O)O')]] });
-  assert.match(inverted.blocked.join(' '), /In: methyl \(S\)-2-chloropropanoate: /);
-  assert.doesNotMatch(inverted.blocked.join(' '), /In: acetic acid/);
+  assert.match(inverted.blocked.join(' '), /atom 1 of methyl \(S\)-2-chloropropanoate /);
+  assert.doesNotMatch(inverted.blocked.join(' '), /of acetic acid/);
+});
+
+test('a stereocentre is compared through its branches, not by its CIP letter', async () => {
+  const refused = async (step) => (await lib.auditRoute({ steps: [step] })).blocked.join(' ');
+  // Cyanide displaces the bromide two bonds from the centre: the configuration is kept, but CH2CN
+  // ranks below the phenyl where CH2Br ranked above it, so the letter flips from S to R.
+  assert.doesNotMatch(await refused('BrC[C@@H](C)c1ccccc1.[Na+].[C-]#N>CS(C)=O>N#CC[C@@H](C)c1ccccc1.[Na+].[Br-]'), /inverts a stereocentre/);
+  // The same step with the centre really inverted keeps the letter S, and must be refused.
+  assert.match(await refused('BrC[C@@H](C)c1ccccc1.[Na+].[C-]#N>CS(C)=O>N#CC[C@H](C)c1ccccc1.[Na+].[Br-]'), /inverts a stereocentre: atom 2 of C9H11Br/);
+  // An ester reduced to the alcohol beside the centre: the rewritten branch changes its hydrogens,
+  // and the letter flips (the aryl ether outranks CH2OH but not CO2Me).
+  assert.doesNotMatch(await refused('COC(=O)[C@@H](C)c1ccccc1OC.[H][H]>[Ru]>OC[C@@H](C)c1ccccc1OC.CO'), /inverts a stereocentre/);
+  // A molecule merely written in another atom order is the same molecule.
+  assert.doesNotMatch(await refused('N[C@@H](Cc1ccccc1)C(=O)OC.O>>COC(=O)[C@H](Cc1ccccc1)N.O'), /inverts a stereocentre/);
+  // An epimer at a centre whose two ring branches are alike is still caught, by its letter.
+  assert.match(await refused('CN1[C@H]2CC[C@@H]1C[C@H](O)C2.O>>CN1[C@H]2CC[C@@H]1C[C@@H](O)C2.O'), /inverts a stereocentre/);
 });

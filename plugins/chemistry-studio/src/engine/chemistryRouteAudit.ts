@@ -3,7 +3,7 @@ import { MAX_CHEMICAL_NAME } from './chemistryIdentity';
 import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit, RouteTargetAudit } from './chemistryDocument';
 import { BalanceUnchecked, balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
-import { deliveredAtOpenCentres, productMatchesTarget, validateChemicalReferences } from './chemistryValidationCore';
+import { deliveredAtOpenCentres, productMatchesTarget, stereoGraph, validateChemicalReferences, type StereoGraph } from './chemistryValidationCore';
 import { bondLedger, skeletonChange, type SkeletonReport } from './chemistrySkeleton';
 import { maxSpeciesPerStep, maxSpeciesTotal, maxSteps, type ChemistryCapBudget } from './chemistryLimits';
 
@@ -163,49 +163,142 @@ function sumSide(species: RouteSpeciesSummary[]): { composition: Record<string, 
 
 /** A stereocentre a step neither makes nor breaks must come out the way it went in.
  *
- *  Compare the multiset of specified CIP descriptors on each side. When both sides carry the SAME
- *  NUMBER of specified centres but a different mix, a centre was inverted — which an amide
- *  coupling, a deprotection or a cleavage does not do. Differing counts mean a centre was created
- *  or destroyed, which is ordinary chemistry, so that case is left alone.
- *
  *  This is the one error class atom balance cannot reach. An epimer has identical atom counts, so
  *  the equation balances; it carries over as the same declared structure, so continuity holds; and
  *  the right bonds form, so the skeleton ledger is satisfied. A route can therefore be balanced,
  *  continuous, skeleton-clean and end on an exact match to the requested target while passing
  *  through a compound that cannot give it.
  *
- *  Descriptors, not geometry, because a CIP label is what the toolkit reports here — sound for
- *  this comparison since the ranking at such a centre does not change when a neighbouring acid
- *  becomes an amide, which is the change these steps make. */
-function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = (entry) => entry.name): string {
-  const tags = (list: RouteSpeciesSummary[]): string[] => list.flatMap(entry => entry.cipTags ?? []).sort();
-  const left = tags(reactants);
-  const right = tags(products);
-  if (left.length !== right.length || left.join(',') === right.join(',')) return '';
-  // The toolkit reports descriptors parenthesised — "(S)", "(R)" — as the "(?)" filter beside
-  // stereocentres shows, so match that form rather than a bare letter.
-  const count = (list: string[], tag: string) => list.filter(entry => entry.replace(/[()]/g, '') === tag).length;
-  const describe = (list: string[]) => `${count(list, 'S')} (S) and ${count(list, 'R')} (R)`;
-  // Counts alone are not actionable. "Give the product the configuration its reactant carries" is
-  // advice a reader can follow with two centres in play and cannot follow with a dozen: nothing in
-  // the sentence says which one moved. So each side is also listed species by species, in the
-  // molecule's own atom order, with the atom index of every specified centre — the index locates
-  // it in the very string the author wrote, which is the only handle they have on it.
-  const perSpecies = (list: RouteSpeciesSummary[]) => list
-    .map((entry) => ({ entry, name: nameOf(entry) ?? entry.formula }))
-    .filter(({ entry }) => (entry.cipCentres ?? entry.cipTags ?? []).length)
-    .map(({ entry, name }) => {
-      const centres = entry.cipCentres?.length
-        ? entry.cipCentres.map(centre => `${centre.tag} at atom ${centre.atom}`).join(', ')
-        : (entry.cipTags ?? []).join(', ');
-      return `${name}: ${centres}`;
-    })
-    .join(' · ');
-  const sides = [perSpecies(reactants), perSpecies(products)];
-  const where = sides.every(Boolean)
-    ? ` In: ${sides[0]}. Out: ${sides[1]}. Atom indices count from zero in the structure as the application parsed it.`
-    : '';
-  return `This step inverts a stereocentre: its reactants carry ${describe(left)} specified centres and its products ${describe(right)}, the same number on each side.${where} A coupling, a deprotection or a cleavage does not change configuration, so either a declared structure has the wrong descriptor at one centre — give the product the configuration its reactant carries — or, if an inversion is genuinely intended, say in this step's own prose which centre inverts and why.`;
+ *  Compared centre by centre, not by CIP letter. The letters were compared as a multiset, which is
+ *  only sound while no branch at the centre changes rank, and a step that changes a group two bonds
+ *  away does change it: a bromide displaced by cyanide next to a phenyl-bearing centre keeps its
+ *  configuration and flips its letter (CH2Br outranks phenyl, CH2CN does not), so a correct step was
+ *  refused — and the same step with the centre really inverted kept its letter and passed. Here each
+ *  centre on the left is matched to one on the right through its branches: a branch the step leaves
+ *  alone looks the same from the centre on both sides, a hydrogen is a hydrogen, and the one branch
+ *  the step rewrites is the one left over. With every neighbour placed, RDKit's own chiral tags say
+ *  whether the arrangement survived. A centre whose branches cannot be told apart is not judged. */
+const BRANCH_DEPTH = 6;
+
+/** A label for the branch that starts at `atom` and leads away from `from`, unfolded `depth` bonds:
+ *  equal labels mean the branch looks the same from the centre that far out. */
+function branchLabels(graph: StereoGraph): (atom: number, from: number, depth: number) => string {
+  const memo = new Map<string, string>();
+  const label = (atom: number, from: number, depth: number): string => {
+    const key = `${atom}:${from}:${depth}`;
+    const known = memo.get(key);
+    if (known !== undefined) return known;
+    const { z, charge, hydrogens } = graph.atoms[atom];
+    const own = `${z}/${charge}/${hydrogens}/${graph.neighbours[atom].length}`;
+    const value = depth === 0 ? own : `${own}(${graph.neighbours[atom]
+      .filter((next) => next.atom !== from)
+      .map((next) => `${next.order}${label(next.atom, atom, depth - 1)}`).sort().join(',')})`;
+    memo.set(key, value);
+    return value;
+  };
+  return label;
+}
+
+/** Each neighbour of centre `a` placed among the neighbours of centre `b` (-1 stands for the implicit
+ *  hydrogens), with how far out the placed branches agree; null when the placement is ambiguous. */
+function placeNeighbours(left: StereoGraph, a: number, right: StereoGraph, b: number): { order: number[]; agreement: number } | null {
+  const leftLabel = branchLabels(left), rightLabel = branchLabels(right);
+  const around = (graph: StereoGraph, centre: number) => [...graph.neighbours[centre].map((entry) => entry.atom), ...Array.from({ length: graph.atoms[centre].hydrogens }, () => -1)];
+  const from = around(left, a), to = around(right, b);
+  if (from.length !== to.length || from.filter((atom) => atom === -1).length > 1) return null;
+  const depthOf = (x: number, y: number): number => {
+    if (x === -1 || y === -1) return x === y ? BRANCH_DEPTH + 1 : -1;
+    let depth = -1;
+    while (depth < BRANCH_DEPTH && leftLabel(x, a, depth + 1) === rightLabel(y, b, depth + 1)) depth += 1;
+    return depth;
+  };
+  const placed = new Array<number>(from.length).fill(-2);
+  const taken = new Set<number>();
+  let agreement = 0;
+  // Branches the step leaves alone agree at least two bonds out, and must agree with exactly one
+  // branch on the other side: a tie between two is a symmetry this cannot settle.
+  for (let i = 0; i < from.length; i += 1) {
+    const depths = to.map((y) => depthOf(from[i], y));
+    const best = Math.max(...depths);
+    if (best < 2 || depths.filter((depth) => depth === best).length !== 1) continue;
+    const j = depths.indexOf(best);
+    if (taken.has(j)) return null;
+    placed[i] = j;
+    taken.add(j);
+    agreement += 1;
+  }
+  const leftOver = placed.map((value, i) => (value === -2 ? i : -1)).filter((i) => i >= 0);
+  const free = to.map((_, j) => j).filter((j) => !taken.has(j));
+  // The branch the step rewrote is the one left over, and it must still start with the same element
+  // (its hydrogens may change: an ester reduced to the alcohol).
+  if (leftOver.length > 1 || leftOver.length !== free.length) return null;
+  if (leftOver.length === 1) {
+    const [x, y] = [from[leftOver[0]], to[free[0]]];
+    if ((x === -1) !== (y === -1) || (x !== -1 && left.atoms[x].z !== right.atoms[y].z)) return null;
+    placed[leftOver[0]] = free[0];
+  }
+  return { order: placed, agreement };
+}
+
+/** Whether a permutation is odd. */
+function oddPermutation(order: number[]): boolean {
+  const seen = new Array<boolean>(order.length).fill(false);
+  let odd = false;
+  for (let start = 0; start < order.length; start += 1) {
+    if (seen[start]) continue;
+    let length = 0;
+    for (let at = start; !seen[at]; at = order[at]) { seen[at] = true; length += 1; }
+    if (length % 2 === 0) odd = !odd;
+  }
+  return odd;
+}
+
+async function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = (entry) => entry.name): Promise<string> {
+  const centred = async (list: RouteSpeciesSummary[]) => (await Promise.all(list
+    .filter((entry) => (entry.cipTags ?? []).length > 0)
+    .map(async (entry) => ({ entry, graph: await stereoGraph(entry.input) }))))
+    .filter((item): item is { entry: RouteSpeciesSummary; graph: StereoGraph } => item.graph !== null);
+  const left = await centred(reactants), right = await centred(products);
+  if (!left.length || !right.length) return '';
+  const centres = (graph: StereoGraph) => graph.tags.map((tag, atom) => (tag ? atom : -1)).filter((atom) => atom >= 0);
+  const used = new Set<string>();
+  const found: string[] = [];
+  const unplaced: string[] = [];
+  for (const source of left) {
+    for (const a of centres(source.graph)) {
+      // The one centre on the right this one became: most branches agreeing, and no tie.
+      let best: { product: (typeof right)[number]; b: number; order: number[]; agreement: number } | null = null;
+      let tied = false;
+      for (const product of right) {
+        for (const b of centres(product.graph)) {
+          if (used.has(`${right.indexOf(product)}:${b}`)) continue;
+          const atomA = source.graph.atoms[a], atomB = product.graph.atoms[b];
+          if (atomA.z !== atomB.z || atomA.hydrogens !== atomB.hydrogens) continue;
+          const placement = placeNeighbours(source.graph, a, product.graph, b);
+          if (!placement || placement.agreement < 2) continue;
+          if (!best || placement.agreement > best.agreement) { best = { product, b, ...placement }; tied = false; }
+          else if (placement.agreement === best.agreement) tied = true;
+        }
+      }
+      if (!best || tied) { unplaced.push(source.graph.cip.get(a) ?? '?'); continue; }
+      used.add(`${right.indexOf(best.product)}:${best.b}`);
+      // The tags are relative to each atom's neighbour order, so the arrangement survived when the
+      // tags agree and the placement is an even permutation, or disagree and it is odd.
+      const kept = (source.graph.tags[a] === best.product.graph.tags[best.b]) === !oddPermutation(best.order);
+      if (kept) continue;
+      const name = (entry: RouteSpeciesSummary) => nameOf(entry) ?? entry.formula;
+      found.push(`atom ${a} of ${name(source.entry)} ${source.graph.cip.get(a) ?? ''} comes out as atom ${best.b} of ${name(best.product.entry)} ${best.product.graph.cip.get(best.b) ?? ''} with the opposite configuration`.replace(/ {2,}/g, ' '));
+    }
+  }
+  // A centre whose branches are alike (the ring carbon opposite a bridge) cannot be placed. Those
+  // are still compared by letter, among themselves only, as the whole step used to be: a matched
+  // centre's letter no longer takes part, so a rank change at a placed centre cannot trip it.
+  const unmatched = right.flatMap((product, p) => centres(product.graph).filter((b) => !used.has(`${p}:${b}`)).map((b) => product.graph.cip.get(b) ?? '?'));
+  if (!found.length && unplaced.length && unplaced.length === unmatched.length && [...unplaced].sort().join(',') !== [...unmatched].sort().join(',')) {
+    found.push(`its reactants carry ${[...unplaced].sort().join(', ')} at centres that could not be matched one to one, and its products ${[...unmatched].sort().join(', ')}`);
+  }
+  if (!found.length) return '';
+  return `This step inverts a stereocentre: ${found.join('; ')}. Atom indices count from zero in the SMILES as written. A coupling, a deprotection or a cleavage does not change configuration, so either a declared structure has the wrong configuration at that centre — give the product the configuration its reactant carries — or, if an inversion is genuinely intended, say in this step's own prose which centre inverts and why.`;
 }
 
 /** Whether the declared species admit a balanced equation, solved exactly as the drawing
@@ -660,7 +753,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       }
       // An inverted stereocentre balances perfectly, so it has to be refused separately.
       const inverted = balance.balanced
-        ? invertedConfiguration(reactants, products, nameOf)
+        ? await invertedConfiguration(reactants, products, nameOf)
         : '';
       if (inverted) balance = { ...balance, balanced: false, differences: [inverted] };
       // A reactant-side species that takes no part in the only balance is a reagent or a

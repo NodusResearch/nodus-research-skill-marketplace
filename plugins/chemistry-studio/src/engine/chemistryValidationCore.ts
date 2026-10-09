@@ -90,6 +90,50 @@ type MatchableMol = JSMol & {
   get_substruct_matches(query: JSMol, details: string): string;
 };
 
+/** A structure's tetrahedral centres as RDKit holds them, numbered in the SMILES as written: each
+ *  atom's element, charge and hydrogen count, its neighbours in bond order with the bond orders,
+ *  and the chiral tag ('cw' / 'ccw') a specified centre carries, which is relative to that
+ *  neighbour order. Null when RDKit cannot read the string. */
+export interface StereoGraph {
+  atoms: Array<{ z: number; charge: number; hydrogens: number }>;
+  neighbours: Array<Array<{ atom: number; order: number }>>;
+  tags: Array<'cw' | 'ccw' | null>;
+  cip: Map<number, string>;
+}
+
+export async function stereoGraph(smiles: string): Promise<StereoGraph | null> {
+  const kit = await rdkit();
+  const molecule = kit.get_mol(smiles);
+  if (!molecule) return null;
+  try {
+    if (!molecule.is_valid()) return null;
+    const json = JSON.parse(molecule.get_json()) as {
+      defaults: { atom: { z: number; chg: number; impHs: number; stereo: string }; bond: { bo: number } };
+      molecules: Array<{ atoms: Array<{ z?: number; chg?: number; impHs?: number; stereo?: string }>; bonds?: Array<{ atoms: [number, number]; bo?: number }> }>;
+    };
+    const graph: StereoGraph = { atoms: [], neighbours: [], tags: [], cip: new Map() };
+    for (const raw of json.molecules) {
+      const offset = graph.atoms.length;
+      for (const atom of raw.atoms) {
+        graph.atoms.push({ z: atom.z ?? json.defaults.atom.z, charge: atom.chg ?? json.defaults.atom.chg, hydrogens: atom.impHs ?? json.defaults.atom.impHs });
+        graph.neighbours.push([]);
+        const stereo = atom.stereo ?? json.defaults.atom.stereo;
+        graph.tags.push(stereo === 'cw' || stereo === 'ccw' ? stereo : null);
+      }
+      for (const bond of raw.bonds ?? []) {
+        const [a, b] = [bond.atoms[0] + offset, bond.atoms[1] + offset];
+        const order = bond.bo ?? json.defaults.bond.bo;
+        graph.neighbours[a].push({ atom: b, order });
+        graph.neighbours[b].push({ atom: a, order });
+      }
+    }
+    for (const [atom, tag] of (JSON.parse(molecule.get_stereo_tags()) as { CIP_atoms: Array<[number, string]> }).CIP_atoms) graph.cip.set(atom, tag);
+    return graph;
+  } finally {
+    molecule.delete();
+  }
+}
+
 export async function moleculeGraph(smiles: string): Promise<MoleculeGraph> {
   const kit = await rdkit();
   const molecule = kit.get_mol(smiles);
