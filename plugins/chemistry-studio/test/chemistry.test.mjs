@@ -3864,3 +3864,21 @@ test('a failed Python call says why, and a silent fallback is logged', async () 
   await worker.invoke({ invocationId: 'k3', toolId: 'verify-route', locale: 'en', input: { steps: ['CC(=O)C>>CC(O)C'], enumerateStereo: true } });
   assert.ok(logged.some(line => line.includes('Stereo choices were not enumerated')), JSON.stringify(logged));
 });
+
+test('a call from a reply never reaches the local OPSIN or mirror folder the reply named', async () => {
+  // The local OPSIN folder holds a program the package RUNS. The application fills these folders
+  // on its own calls; a request that came out of a chat reply (it carries a node id) must not
+  // choose one, whatever host it reaches — an older host forwards the reply's JSON as it stands.
+  const sent = [];
+  const host = ethanolHost();
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async (request) => { sent.push(JSON.parse(request.stdin)); return { code: 0, stderr: '', stdout: '{}' }; } };
+  const worker = lib.createWorker(host);
+  await worker.invoke({ invocationId: 'hp1', toolId: 'compile', locale: 'en', chat: { nodeId: 'n1', question: 'Draw ethanol.' },
+    input: { plan: plan(), question: 'Draw ethanol.', opsinDir: '/Users/someone/Downloads/kit', pubchemDir: '/elsewhere' } });
+  assert.deepEqual(sent.filter((request) => 'opsinDir' in request || 'pubchemDir' in request), [], 'no folder the reply chose is handed to Python');
+
+  // The application's own call (no chat node) still uses the folders it passes.
+  sent.length = 0;
+  await worker.invoke({ invocationId: 'hp2', toolId: 'compile', locale: 'en', input: { plan: plan(), question: 'Draw ethanol.', opsinDir: '/opsin' } });
+  assert.equal(sent.filter((request) => request.opsinDir === '/opsin').length, 1, 'a host call keeps its local OPSIN');
+});

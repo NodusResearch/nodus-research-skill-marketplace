@@ -127,6 +127,11 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       // Sized against what this turn's model can hold; absent on an older host, which falls back
       // to the floors each cap has always had.
       const budget = chat?.budget;
+      // A request that came out of a chat reply carries the reply's node. The local folders (a
+      // PubChem mirror, an OPSIN install this package RUNS, indexes, stock lists) are the
+      // application's to choose on its own calls; a reply that names one is ignored, so a
+      // prompt-injected `"opsinDir": "~/Downloads/kit"` cannot have a program run from there.
+      if (chat?.nodeId) input = withoutHostFolders(input);
       if (toolId === 'resolve-names') return resolveNames(input, referenceCache, resolvedNames, budget);
       if (toolId === 'resolve-structure') return nameStructures(input, budget);
       if (toolId === 'inspect') return inspectMolecule(input);
@@ -590,6 +595,17 @@ async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cac
     entry.smiles = canonical.get(entry.smiles) ?? entry.smiles;
     rememberReference(cache, entry.name, [entry.smiles]);
   }
+}
+
+/** The inputs only the application supplies: directories read (or, for OPSIN, run from) and the
+ *  switch that keeps a run off the network. */
+const HOST_FOLDER_INPUTS = ['pubchemDir', 'opsinDir', 'indexDir', 'indexDirs', 'stockDir', 'textbookDir', 'localOnly'] as const;
+
+function withoutHostFolders<T extends object>(input: T): T {
+  if (!input || typeof input !== 'object') return input;
+  const copy = { ...input } as Record<string, unknown>;
+  for (const key of HOST_FOLDER_INPUTS) delete copy[key];
+  return copy as T;
 }
 
 /** One Python call answering a batch from the local PubChem mirror and a local OPSIN, whichever
