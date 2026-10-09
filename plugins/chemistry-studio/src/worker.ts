@@ -65,8 +65,10 @@ interface ChatNode { id: string; kind: 'prose' | 'fence'; fence?: string; conten
 export default function createWorker(capabilityHost: CapabilityHost) {
   bindHost(capabilityHost);
   // One cache per worker: the resolve pass populates it and the route audit reuses it, so a
-  // name is looked up over the network once per turn.
+  // name is looked up over the network once. The host may keep a worker for a whole conversation
+  // (its answers and their correction rounds), so only answers are kept, never a failed lookup.
   const referenceCache: ReferenceCache = new Map();
+  const resolvedNames: ResolvedNames = new Map();
 
   return {
     async health() { return { status: 'ready' as const, dataVersion: DATA_VERSION }; },
@@ -117,7 +119,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       // Sized against what this turn's model can hold; absent on an older host, which falls back
       // to the floors each cap has always had.
       const budget = chat?.budget;
-      if (toolId === 'resolve-names') return resolveNames(input, referenceCache, budget);
+      if (toolId === 'resolve-names') return resolveNames(input, referenceCache, resolvedNames, budget);
       if (toolId === 'resolve-structure') return nameStructures(input, budget);
       if (toolId === 'inspect') return inspectMolecule(input);
       if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache, budget);
@@ -343,9 +345,25 @@ async function inspectMolecule(input: { smiles?: string[] }) {
 const NAME_CONCURRENCY = 4;
 
 /** Names resolved in this worker, so the route label check reuses the first pass instead of
- *  paying for a second network round trip. It is scoped to one worker instance — one turn —
- *  so a later turn can never read a stale reference. */
+ *  paying for a second network round trip. Only structures are kept — a name that resolved to
+ *  nothing may have met a refusal or an outage, and must be asked again next time — and the
+ *  cache is bounded, because a worker can now serve a conversation rather than one turn. */
 type ReferenceCache = Map<string, string[]>;
+const REFERENCE_CACHE_CAP = 4096;
+
+function rememberReference(cache: ReferenceCache, name: string, smiles: string[]): void {
+  if (!smiles.length) return;
+  cache.delete(name);
+  cache.set(name, smiles);
+  if (cache.size > REFERENCE_CACHE_CAP) cache.delete(cache.keys().next().value!);
+}
+
+/** Names `resolve-names` has resolved in this worker, as it answered them. A correction round
+ *  sends back most of the names of the round before; each costs PubChem round trips at a pace of
+ *  at least 200 ms a request, and longer under throttling. Only resolutions are kept, never an
+ *  "unresolved" (which also covers a network failure); bounded, oldest first out. */
+type ResolvedNames = Map<string, SpeciesNameResolution>;
+const RESOLVED_NAMES_CAP = 4096;
 
 const PUBCHEM_ORIGIN = 'https://pubchem.ncbi.nlm.nih.gov';
 
@@ -562,7 +580,7 @@ async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cac
   for (const entry of resolutions) {
     if (entry.status !== 'resolved' || !entry.smiles) continue;
     entry.smiles = canonical.get(entry.smiles) ?? entry.smiles;
-    cache.set(entry.name, [entry.smiles]);
+    rememberReference(cache, entry.name, [entry.smiles]);
   }
 }
 
@@ -622,7 +640,7 @@ function planNames(plan?: string): string[] {
   } catch { return []; }
 }
 
-async function resolveNames(input: { names?: string[]; pubchemDir?: string; opsinDir?: string; localOnly?: boolean }, cache: ReferenceCache, budget?: ChemistryCapBudget) {
+async function resolveNames(input: { names?: string[]; pubchemDir?: string; opsinDir?: string; localOnly?: boolean }, cache: ReferenceCache, resolvedNames: ResolvedNames, budget?: ChemistryCapBudget) {
   const limit = maxNames(budget);
   const list = Array.isArray(input?.names) ? input.names : [];
   const cleaned = [...new Set(list
@@ -632,25 +650,42 @@ async function resolveNames(input: { names?: string[]; pubchemDir?: string; opsi
     // NAME is unknown when the fault was the cut.
     .map((entry) => entry.trim().slice(0, MAX_CHEMICAL_NAME)))].slice(0, limit);
   if (!cleaned.length) throw new Error(`Provide between one and ${limit} chemical names.`);
-  const deps = await referenceDependencies(input, cleaned, []);
-  const signal = host().signal;
   const results: Array<SpeciesNameResolution | undefined> = new Array(cleaned.length);
+  const todo: number[] = [];
+  cleaned.forEach((name, index) => {
+    const known = resolvedNames.get(name);
+    if (known) results[index] = { ...known };
+    else todo.push(index);
+  });
+  const deps = await referenceDependencies(input, todo.map((index) => cleaned[index]), []);
+  const signal = host().signal;
   let cursor = 0;
   const run = async () => {
     for (;;) {
-      const index = cursor;
+      const next = cursor;
       cursor += 1;
-      if (index >= cleaned.length) return;
+      if (next >= todo.length) return;
       signal.throwIfAborted();
+      const index = todo[next];
       results[index] = await resolveSpeciesName(cleaned[index], deps, signal);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, cleaned.length) }, run));
+  await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, todo.length) }, run));
   // resolveSpeciesName reads an aborted look-up as "no answer", so a cancelled batch would come
   // back as names that do not resolve. Cancelled is cancelled.
   signal.throwIfAborted();
+  const fresh = todo.map((index) => results[index]).filter((entry): entry is SpeciesNameResolution => entry !== undefined);
+  await canonicalizeResolutions(fresh, cache, signal);
+  for (const entry of fresh) {
+    if (entry.status !== 'resolved') continue;
+    resolvedNames.set(entry.name, { ...entry });
+    if (resolvedNames.size > RESOLVED_NAMES_CAP) resolvedNames.delete(resolvedNames.keys().next().value!);
+  }
+  for (const index of cleaned.keys()) {
+    const entry = results[index];
+    if (entry?.status === 'resolved' && entry.smiles && !todo.includes(index)) rememberReference(cache, entry.name, [entry.smiles]);
+  }
   const resolved = results.filter((entry): entry is SpeciesNameResolution => entry !== undefined);
-  await canonicalizeResolutions(resolved, cache, signal);
   const unresolved = resolved.filter((entry) => entry.status !== 'resolved').length;
   const summary = unresolved
     ? `${resolved.length - unresolved} of ${resolved.length} name(s) resolved`
@@ -773,7 +808,9 @@ async function resolveRouteLabels(
   await adoptStoredReferences(cache, entries.map(({ label }) => label.name));
   const pending = [...new Set(entries.map(({ label }) => label.name).filter((name) => !cache.has(name)))];
   const lookedUp = pending.slice(0, total);
-  for (const name of pending.slice(total)) cache.set(name, []);
+  // A worker can now serve a whole conversation, so a miss is never remembered in it: names past
+  // the cap, and names that found nothing, are unchecked for THIS call and asked again by the next.
+  const missed = new Set(pending.slice(total));
   if (lookedUp.length) {
     const deps = await referenceDependencies(references, lookedUp, []);
     let cursor = 0;
@@ -783,7 +820,9 @@ async function resolveRouteLabels(
         cursor += 1;
         if (next >= lookedUp.length) return;
         signal?.throwIfAborted();
-        cache.set(lookedUp[next], fixedCandidates(lookedUp[next], await resolveNameReferences(lookedUp[next], deps, signal)));
+        const found = fixedCandidates(lookedUp[next], await resolveNameReferences(lookedUp[next], deps, signal));
+        if (found.length) rememberReference(cache, lookedUp[next], found);
+        else missed.add(lookedUp[next]);
       }
     };
     await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, lookedUp.length) }, run));

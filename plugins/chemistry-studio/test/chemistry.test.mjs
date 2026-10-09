@@ -3810,3 +3810,41 @@ test('each tool declares at least the concurrency the application runs it at', (
   assert.ok(declared['check-stock'] >= 2);
   assert.ok(declared.inspect >= 2);
 });
+
+test('a name that found nothing is asked again by the next call to the same worker', async () => {
+  // The host may keep one worker for a whole conversation. A lookup that failed — a refusal, an
+  // outage — must not stand as "this name has no structure" for every later round.
+  let online = false;
+  const host = stubHost({ fetch: (endpointId, target) => online && endpointId === 'opsin' && target.includes('/opsin/ws/') ? { status: 'SUCCESS', smiles: 'CCCC(C)C(C)=O' } : undefined });
+  const worker = lib.createWorker(host);
+  const check = id => worker.invoke({ invocationId: id, toolId: 'verify-route', locale: 'en', input: {
+    steps: ['CCCC(C)C(C)=O.[BH4-].[Na+].CO>>CCCC(C)C(C)O.[Na+].[BH3-]OC'],
+    labels: [[{ role: 'reactant', name: '3-methylhexan-2-one', smiles: 'CCCC(C)C(C)=O' }]],
+  } });
+  const offline = (await check('off')).artifacts[0].data;
+  assert.equal(offline.steps[0].reactants[0].nameOk, undefined, 'unchecked while the reference is unreachable');
+  online = true;
+  const before = host.calls.length;
+  const later = (await check('on')).artifacts[0].data;
+  assert.ok(host.calls.length > before, 'the name was looked up again');
+  assert.equal(later.steps[0].reactants[0].nameOk, true);
+});
+
+test('resolve-names answers a name this worker already resolved without asking the network again', async () => {
+  lib.resetPubchemPacing();
+  const host = stubHost({ fetch: (endpointId, target) => endpointId === 'opsin' && target.includes('/opsin/ws/') ? { status: 'SUCCESS', smiles: 'CCCC(C)C(C)=O' } : undefined });
+  const worker = lib.createWorker(host);
+  const first = (await worker.invoke({ invocationId: 'n1', toolId: 'resolve-names', locale: 'en', input: { names: ['3-methylhexan-2-one', 'not-a-compound-xyz'] } })).artifacts[0].data.results;
+  const asked = host.calls.length;
+  assert.ok(asked > 0);
+  const second = (await worker.invoke({ invocationId: 'n2', toolId: 'resolve-names', locale: 'en', input: { names: ['3-methylhexan-2-one', 'not-a-compound-xyz'] } })).artifacts[0].data.results;
+  assert.deepEqual(second[0], first[0], 'the same resolution, source and formula');
+  const again = host.calls.slice(asked);
+  assert.ok(again.every(call => !call.includes('3-methylhexan-2-one')), `the resolved name was asked again: ${again.join(', ')}`);
+  assert.equal(second[1].status, first[1].status, 'an unresolved name is answered as before');
+  // A fresh worker knows nothing.
+  const fresh = lib.createWorker(host);
+  const before = host.calls.length;
+  await fresh.invoke({ invocationId: 'n3', toolId: 'resolve-names', locale: 'en', input: { names: ['3-methylhexan-2-one'] } });
+  assert.ok(host.calls.length > before);
+});
