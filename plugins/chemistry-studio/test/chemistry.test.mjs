@@ -3728,3 +3728,18 @@ print(json.dumps([short, whole]))
   assert.deepEqual(whole.methane, { status: 'SUCCESS', smiles: 'C' });
   assert.equal(whole['a\tb unparsable'].message, 'a\tb unparsable is unparsable', 'the message is not cut at a tab');
 });
+
+// ---------------------------------------------------------------- lone pairs beyond the second row
+
+test('lone pairs are counted for every main-group element, and a radical keeps its electron', async () => {
+  // Selenium was missing from the valence table, so hydrogen selenide drew with a bare
+  // selenium; an odd count was rounded down, so the methyl radical drew with no electron.
+  const selenide = scene([['Se', 0], ['H', 0], ['H', 0]], [[0, 1, 1], [0, 2, 1]]);
+  lib.assignLonePairs(selenide);
+  assert.deepEqual(selenide.atoms.map(atom => atom.lonePairs), [2, 0, 0]);
+
+  const dots = async smiles => ((await lib.validateChemicalReferences({ references: [smiles], depiction: 'lone-pairs' })).svg.match(/<circle/g) ?? []).length;
+  assert.equal(await dots('[SeH2]'), 4, 'two pairs on selenium');
+  assert.equal(await dots('[CH3]'), 1, 'one unpaired electron on the methyl radical');
+  assert.equal(await dots('O'), 4, 'water is unchanged');
+});
