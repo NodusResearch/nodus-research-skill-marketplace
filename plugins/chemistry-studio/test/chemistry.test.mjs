@@ -1850,6 +1850,41 @@ test('a local OPSIN answers names by the web service rules: a warning still mean
   assert.equal(ebi, 0, 'EBI was never asked about a name the local OPSIN answered');
 });
 
+test('a half-built or corrupt PubChem mirror costs only the mirror, not the local OPSIN answers (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // One exception in the mirror lookup failed the whole local call, so the host fell back to the
+  // network for every name — the ones a local OPSIN had just parsed included.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, sqlite3, tempfile
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+w._opsin_local = lambda opsin_dir, names: {name: {'status': 'SUCCESS', 'smiles': 'CCO'} for name in names}
+half = tempfile.mkdtemp(); db = sqlite3.connect(os.path.join(half, 'pubchem.sqlite'))
+db.execute('CREATE TABLE synonym (name TEXT, cid INTEGER, rank INTEGER)'); db.commit(); db.close()
+corrupt = tempfile.mkdtemp(); open(os.path.join(corrupt, 'pubchem.sqlite'), 'wb').write(b'not a database' * 512)
+print(json.dumps([w.handle({'pubchemDir': d, 'opsinDir': '/opsin', 'pubchemNames': ['ethanol'], 'pubchemSmiles': ['CCO']}) for d in (half, corrupt)]))
+`;
+  for (const out of JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }))) {
+    assert.equal(out.opsin.ethanol.smiles, 'CCO', 'the local OPSIN answer survives');
+    assert.equal(out.pubchem.available, false, 'the broken mirror reads as no mirror, so the network answers instead');
+    assert.match(out.pubchem.error, /Error/, 'and says why');
+  }
+});
+
+test('a failed local reference run is logged with its stderr, not dropped silently', async () => {
+  const logged = [];
+  const host = resolveHost(() => undefined);
+  host.log = (level, message, detail) => { logged.push({ level, message, detail }); };
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 1, stdout: '', stderr: 'Traceback (most recent call last):\nsqlite3.DatabaseError: file is not a database' }) };
+  await lib.createWorker(host).invoke({ invocationId: 'lr1', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'], pubchemDir: '/m', localOnly: true } });
+  assert.ok(logged.some((entry) => /file is not a database/.test(String(entry.detail?.stderr))), JSON.stringify(logged));
+
+  logged.length = 0;
+  host.python.run = async () => ({ code: 0, stderr: '', stdout: JSON.stringify({ pubchem: { available: false, names: {}, smiles: {}, error: 'DatabaseError: file is not a database' } }) });
+  await lib.createWorker(host).invoke({ invocationId: 'lr2', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'], pubchemDir: '/m', localOnly: true } });
+  assert.ok(logged.some((entry) => /file is not a database/.test(String(entry.detail?.error))), 'a mirror the run could not read is logged too');
+});
+
 test('the local OPSIN wrapper runs and reports warnings per name (needs CHEMISTRY_TEST_PYTHON and a local OPSIN)', { skip: !process.env.CHEMISTRY_TEST_PYTHON || !process.env.CHEMISTRY_TEST_OPSIN }, async () => {
   const { execFileSync } = await import('node:child_process');
   const script = `

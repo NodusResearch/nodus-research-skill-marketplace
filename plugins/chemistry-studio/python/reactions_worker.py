@@ -1584,10 +1584,21 @@ def handle(request):
         names = [n for n in request.get("pubchemNames", []) if isinstance(n, str) and n.strip()]
         smiles = [m for m in request.get("pubchemSmiles", []) if isinstance(m, str) and m.strip()]
         out = {}
+        # Each source fails on its own: a half-built or corrupt mirror reads as no mirror, so the
+        # caller asks the network for those names, and the local OPSIN answers are still returned.
         if isinstance(request.get("pubchemDir"), str):
-            out["pubchem"] = _pubchem_mirror(request["pubchemDir"], names, smiles)
+            try:
+                out["pubchem"] = _pubchem_mirror(request["pubchemDir"], names, smiles)
+            except Exception as error:
+                reason = f"{type(error).__name__}: {error}"[:300]
+                print(f"PubChem mirror unusable: {reason}", file=sys.stderr)
+                out["pubchem"] = {"names": {}, "smiles": {}, "available": False, "error": reason}
         if isinstance(request.get("opsinDir"), str):
-            out["opsin"] = _opsin_local(request["opsinDir"], names)
+            try:
+                out["opsin"] = _opsin_local(request["opsinDir"], names)
+            except Exception as error:
+                print(f"Local OPSIN unusable: {type(error).__name__}: {error}"[:300], file=sys.stderr)
+                out["opsin"] = {}
         return out
     index_dir = request.get("indexDir")
     index_dirs = [d for d in request.get("indexDirs", []) if isinstance(d, str) and d][:4] if isinstance(request.get("indexDirs"), list) else []

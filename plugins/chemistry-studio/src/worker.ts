@@ -564,11 +564,16 @@ async function localReferencesFor(input: { pubchemDir?: unknown; opsinDir?: unkn
   try {
     const run = await host().python.run({ runtimeId: REACTIONS_RUNTIME_ID, args: ['-I', REACTIONS_SCRIPT],
       stdin: JSON.stringify({ ...(pubchemDir ? { pubchemDir } : {}), ...(opsinDir ? { opsinDir } : {}), pubchemNames: names, pubchemSmiles: smiles }), timeoutMs: 120_000 });
-    if (run.code !== 0) return {};
+    // Logged, not only dropped: every name then goes to the network, and nothing else says why.
+    if (run.code !== 0) {
+      host().log('warn', 'The local reference lookup failed; the network answers instead.', { code: run.code, stderr: run.stderr.slice(-2000) });
+      return {};
+    }
     const data = JSON.parse(run.stdout) as {
-      pubchem?: { available?: boolean; names?: Record<string, { cid: number; smiles: string; formula?: string }>; smiles?: Record<string, { cid: number; name?: string; formula?: string }> };
+      pubchem?: { available?: boolean; error?: string; names?: Record<string, { cid: number; smiles: string; formula?: string }>; smiles?: Record<string, { cid: number; name?: string; formula?: string }> };
       opsin?: Record<string, { status: string; smiles?: string; warnings?: string[]; message?: string }>;
     };
+    if (data.pubchem?.error) host().log('warn', 'The local PubChem mirror could not be read; the network answers instead.', { error: data.pubchem.error });
     return {
       ...(data.pubchem?.available ? { pubchemMirror: { names: new Map(Object.entries(data.pubchem.names ?? {})), smiles: new Map(Object.entries(data.pubchem.smiles ?? {})) } } : {}),
       ...(data.opsin && Object.keys(data.opsin).length ? { opsinLocal: new Map(Object.entries(data.opsin)) } : {}),
