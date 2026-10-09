@@ -20,8 +20,17 @@ const routedFetch = (async (input: string | URL | Request, init?: RequestInit) =
   const url = new URL(raw);
   const endpoint = ENDPOINTS.find(candidate => new URL(candidate.origin).origin === url.origin);
   if (!endpoint) throw new Error(`Chemistry Studio does not declare access to ${url.origin}.`);
-  void init;
-  const response = await host().network.fetch(endpoint.id, { path: `${url.pathname}${url.search}`, method: 'GET' });
+  // The host's fetch takes no signal, so the request's own is raced against it. Dropped, as it
+  // was, neither readJSON's 10 s timeout nor the turn's abort could end a look-up: with replies
+  // taking 14 s a name resolved after 29 s, and an abort was answered only when the reply came.
+  const signal = init?.signal ?? undefined;
+  signal?.throwIfAborted();
+  const pending = host().network.fetch(endpoint.id, { path: `${url.pathname}${url.search}`, method: 'GET' });
+  const response = !signal ? await pending : await new Promise<Awaited<typeof pending>>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('Chemical reference request aborted.'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
   const bytes = Buffer.from(response.body);
   // The engine reads the body as a stream and bounds it as it goes, which is how a
   // hostile reference is stopped before it is held in memory. The adapter has to present

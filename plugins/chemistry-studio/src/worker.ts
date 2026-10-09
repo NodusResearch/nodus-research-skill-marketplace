@@ -630,6 +630,9 @@ async function resolveNames(input: { names?: string[]; pubchemDir?: string; opsi
     }
   };
   await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, cleaned.length) }, run));
+  // resolveSpeciesName reads an aborted look-up as "no answer", so a cancelled batch would come
+  // back as names that do not resolve. Cancelled is cancelled.
+  signal.throwIfAborted();
   const resolved = results.filter((entry): entry is SpeciesNameResolution => entry !== undefined);
   await canonicalizeResolutions(resolved, cache, signal);
   const unresolved = resolved.filter((entry) => entry.status !== 'resolved').length;
@@ -680,6 +683,8 @@ async function nameStructures(input: { smiles?: string[]; pubchemDir?: string; l
     }
   };
   await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, todo.length) }, run));
+  // Likewise here: an aborted look-up reads as "PubChem does not hold this structure".
+  signal.throwIfAborted();
   const fresh = todo.map((index) => results[index]).filter((entry): entry is SpeciesStructureName => entry !== undefined);
   await attachCanonical(fresh, signal);
   for (const entry of fresh) {

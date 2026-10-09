@@ -3395,3 +3395,17 @@ test('a ChemFig line longer than the TeX input buffer is refused, not fatal', as
   assert.equal(chemfig.status, 'unsupported');
   assert.match(chemfig.reason, /input buffer/);
 });
+
+test('an abort ends a reference request the host is still answering', { timeout: 10_000 }, async () => {
+  // The host's fetch never answers. The turn's abort must still end the look-up, and a cancelled
+  // batch must not come back as names that simply did not resolve.
+  const controller = new AbortController();
+  lib.resetPubchemPacing();
+  const host = stubHost({ signal: controller.signal });
+  host.network.fetch = () => new Promise(() => {});
+  const worker = lib.createWorker(host);
+  setTimeout(() => controller.abort(new Error('cancelled by the user')), 50);
+  const started = Date.now();
+  await assert.rejects(worker.invoke({ invocationId: 'abort-fetch', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'] } }), /cancelled by the user/);
+  assert.ok(Date.now() - started < 2000, 'the abort did not wait for the reply');
+});
