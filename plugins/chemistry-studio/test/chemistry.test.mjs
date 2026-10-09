@@ -3486,3 +3486,17 @@ test('an arrow on the bond that closes a ring is drawn', async () => {
   assert.equal(checked.mechanism.chemfig.status, 'validated');
   assert.deepEqual(checked.mechanism.canonicalProducts, ['CC(O)C[O-]']);
 });
+
+// ---------------------------------------------------------------- legacy documents
+
+test('a legacy document that is malformed or not verified is refused, never badged as verified', async () => {
+  // Any status but "partial" was drawn under a green "Verified structure" badge, and a payload
+  // missing a field failed with a TypeError instead of the unreadable-legacy error.
+  const worker = lib.createWorker(stubHost());
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+  for (const payload of [{}, null, { species: [{ input: {} }] }, { status: 'needs-clarification', species: [{ input: { kind: 'name', value: 'ethanol' }, svg }] }]) {
+    await assert.rejects(worker.renderLegacyResult({ fence: 'chemistry-document', payload: JSON.stringify(payload), locale: 'en' }), /UNREADABLE/, JSON.stringify(payload));
+  }
+  const partial = lib.documentView({ status: 'partial', species: [{ input: { kind: 'name', value: 'ethanol' }, svg }] }, 'en');
+  assert.equal(partial.nodes[0].items[0].label, 'Partly verified');
+});
