@@ -388,9 +388,17 @@ _GROUPS = {
     "ether": "[#6][OX2][#6;!$(C=O)]",
 }
 _group_queries = {}
+# Group counts by SMILES. Every proposal for a target counts the target again and many proposals
+# share precursors: 23,034 counts for 11,517 classified proposals in one replayed turn. A count
+# depends on the SMILES alone, so it never goes stale; the cache is only bounded.
+_counts_cache = {}
+COUNTS_CACHE_CAP = 50_000
 
 
 def _counts(smiles):
+    cached = _counts_cache.get(smiles)
+    if cached is not None:
+        return dict(cached)
     from rdkit import Chem
 
     if not _group_queries:
@@ -403,7 +411,10 @@ def _counts(smiles):
             continue
         for name, query in _group_queries.items():
             counts[name] += len(mol.GetSubstructMatches(query))
-    return counts
+    if len(_counts_cache) >= COUNTS_CACHE_CAP:
+        _counts_cache.clear()
+    _counts_cache[smiles] = counts
+    return dict(counts)
 
 
 def _step_classes(reaction):
@@ -526,14 +537,18 @@ def _scan(path, wanted, width=None):
 
 
 _block_cache = {}
+# Rows already looked up in a blocked table, by path then key (None: the table has no such row).
+# A served interpreter answers many disconnection calls in a turn, and they look up many of the same
+# molecules and reactions: each lookup decompressed and searched the key's frame again. Dropped with
+# the table's directory (`_drop_stale`), and bounded.
+_row_cache = {}
+ROW_CACHE_CAP = 200_000
 
 
 def _lookup(path, wanted):
     """Rows whose first field is wanted. With a `<path>.blocks` index (a sorted table written as
     independent zstd frames), only the frames that can hold a wanted key are read: milliseconds
     instead of a full scan. Without one, the table is streamed."""
-    import bisect
-
     wanted = set(wanted)
     if not wanted or not os.path.isfile(path):
         # A table an older index does not ship (format 3 has no molecules table) reads as empty.
@@ -541,6 +556,24 @@ def _lookup(path, wanted):
     blocks_path = path + ".blocks"
     if not os.path.isfile(blocks_path):
         return _scan(path, wanted)
+    known = _row_cache.setdefault(path, {})
+    found = {key: list(known[key]) for key in wanted if key in known and known[key] is not None}
+    missing = {key for key in wanted if key not in known}
+    if missing:
+        fresh = _lookup_blocks(path, blocks_path, missing)
+        if len(known) + len(missing) > ROW_CACHE_CAP:
+            known.clear()
+        for key in missing:
+            row = fresh.get(key)
+            known[key] = tuple(row) if row is not None else None
+            if row is not None:
+                found[key] = row
+    return found
+
+
+def _lookup_blocks(path, blocks_path, wanted):
+    import bisect
+
     if path not in _block_cache:
         firsts, spans = [], []
         with open(blocks_path, encoding="utf-8") as fh:
@@ -1773,7 +1806,7 @@ def _dir_signature(path):
 
 
 def _cached_dirs():
-    return set(_stores) | set(_retro_cache) | set(_retro_screen) | set(_STOCK_CACHE) | set(_SKELETON_CACHE) | {os.path.dirname(path) for path in _block_cache}
+    return set(_stores) | set(_retro_cache) | set(_retro_screen) | set(_STOCK_CACHE) | set(_SKELETON_CACHE) | {os.path.dirname(path) for path in _block_cache} | {os.path.dirname(path) for path in _row_cache}
 
 
 def _drop_stale():
@@ -1789,6 +1822,8 @@ def _drop_stale():
             cache.pop(path, None)
         for key in [key for key in _block_cache if os.path.dirname(key) == path]:
             del _block_cache[key]
+        for key in [key for key in _row_cache if os.path.dirname(key) == path]:
+            del _row_cache[key]
         _dir_signatures.pop(path, None)
     # Parsed templates are keyed by their own text, so they never go stale, but a process that serves
     # many targets would otherwise keep every template it ever applied.

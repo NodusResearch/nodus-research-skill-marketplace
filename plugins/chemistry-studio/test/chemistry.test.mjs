@@ -2635,6 +2635,64 @@ print(json.dumps(out))
   assert.deepEqual(out.whole, [false], 'without a deadline nothing is marked');
 });
 
+test('a served interpreter looks a blocked row up once and counts a SMILES once, and forgets rows of a rebuilt table (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // A turn's disconnection calls share one interpreter and look up many of the same molecules and
+  // reactions, and classify every proposal against the same target: each lookup decompressed and
+  // searched its frame again, and each count parsed and matched the SMILES again.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, tempfile, zstandard as zstd
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+from rdkit import Chem
+d = tempfile.mkdtemp()
+path = os.path.join(d, 'molecules.tsv.zst')
+def write(rows):
+    frame = zstd.ZstdCompressor().compress(("\\n".join(rows) + "\\n").encode())
+    open(path, 'wb').write(frame)
+    open(path + '.blocks', 'w').write(f'{rows[0].split(chr(9))[0]}\\t0\\t{len(frame)}')
+write(['CCO\\t12\\t3', 'CC\\t40\\t0', 'c1ccccc1\\t99\\t7\\tk1,k2'])
+frames = [0]
+real = zstd.ZstdDecompressor
+class Counting(real):
+    def decompress(self, *args, **kwargs):
+        frames[0] += 1
+        return super().decompress(*args, **kwargs)
+zstd.ZstdDecompressor = Counting
+out = {}
+out['first'] = w._lookup(path, {'CCO', 'c1ccccc1', 'nope'})
+w._note_cached()
+out['again'] = w._lookup(path, {'CCO', 'c1ccccc1', 'nope'})
+out['frames'] = frames[0]
+w._lookup(path, {'CCO'})['CCO'].append('changed by a caller')
+out['third'] = w._lookup(path, {'CCO'})
+write(['CCO\\t13\\t4', 'CC\\t40\\t0', 'c1ccccc1\\t100\\t7\\tk1,k2,k3'])
+os.utime(path, ns=(1, 1))
+w._drop_stale()
+out['rebuilt'] = w._lookup(path, {'CCO', 'c1ccccc1'})
+parsed = [0]
+original = Chem.MolFromSmiles
+def counting(*args, **kwargs):
+    parsed[0] += 1
+    return original(*args, **kwargs)
+Chem.MolFromSmiles = counting
+first = w._counts('CC(=O)O.OCC')
+first['acid'] += 100
+second = w._counts('CC(=O)O.OCC')
+out['parsed'] = parsed[0]
+out['counts'] = [w._counts('CC(=O)O.OCC')['acid'], second['acid'], first['acid']]
+print(json.dumps(out))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(out.first, { CCO: ['CCO', '12', '3'], c1ccccc1: ['c1ccccc1', '99', '7', 'k1,k2'] }, 'rows by key, none for an unknown key');
+  assert.deepEqual(out.again, { CCO: ['CCO', '12', '3'], c1ccccc1: ['c1ccccc1', '99', '7', 'k1,k2'] }, 'the same rows again');
+  assert.equal(out.frames, 1, 'the frame was decompressed for the first lookup only');
+  assert.deepEqual(out.third.CCO, ['CCO', '12', '3'], 'a caller changing a returned row does not change the next answer');
+  assert.deepEqual(out.rebuilt, { CCO: ['CCO', '13', '4'], c1ccccc1: ['c1ccccc1', '100', '7', 'k1,k2,k3'] }, 'a rebuilt table is read again');
+  assert.equal(out.parsed, 2, 'the two molecules of a SMILES were parsed for its first count only');
+  assert.deepEqual(out.counts, [1, 1, 101], 'a cached count is the same count, and a caller changing it does not change the next');
+});
+
 test('a stock import writes first-block lists; the stock check reports the same compound in another form (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
   // A synthetic catalogue: racemic lactic acid and benzocaine. (S)-lactic acid is not listed as
   // such but is the same compound by InChIKey connectivity, so it comes back under sameSkeleton;
