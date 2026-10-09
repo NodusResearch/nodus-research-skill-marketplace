@@ -2926,7 +2926,9 @@ test('a reactant nothing accounts for is named, not silently refiled', async () 
   assert.ok(step.refiledReactant, 'the assumption is reported');
   assert.match(step.refiledReactant, /"the carbodiimide" was listed under Reactants/);
   assert.match(step.refiledReactant, /treated it as a condition/);
-  assert.match(step.refiledReactant, /the product it becomes is missing from this step/);
+  // One explicit edit, not a conditional to weigh: the author either moves it or names its product.
+  assert.match(step.refiledReactant, /Make one edit to this step: move "the carbodiimide" to Agents, or name under Products the product it becomes\.$/);
+  assert.doesNotMatch(step.refiledReactant, /If that is right/);
 
   // A step that balances on its own terms carries no such note.
   const clean = await lib.auditRoute({

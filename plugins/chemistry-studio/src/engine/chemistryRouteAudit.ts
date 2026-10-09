@@ -650,7 +650,9 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
             const names = namesFor(stepLabels, 'reactant');
             const refiled = moved.map(position => reactants[position].name ?? names[position] ?? reactants[position].formula ?? reactants[position].canonicalSmiles);
             const list = refiled.map(name => `"${name}"`).join(' and ');
-            step.refiledReactant = `${list} ${refiled.length > 1 ? 'were' : 'was'} listed under Reactants, and the step balances only if ${refiled.length > 1 ? 'they take' : 'it takes'} no part, so the check treated ${refiled.length > 1 ? 'them' : 'it'} as ${refiled.length > 1 ? 'conditions' : 'a condition'}. If that is right, list ${refiled.length > 1 ? 'them' : 'it'} under Agents. If ${refiled.length > 1 ? 'they are' : 'it is'} genuinely consumed, then the product ${refiled.length > 1 ? 'they become' : 'it becomes'} is missing from this step, and naming it is what makes the equation close.`;
+            // One explicit edit, named: either reading closes the equation, and only the author knows which.
+            const many = refiled.length > 1;
+            step.refiledReactant = `${list} ${many ? 'were' : 'was'} listed under Reactants, and the step balances only if ${many ? 'they take' : 'it takes'} no part, so the check treated ${many ? 'them' : 'it'} as ${many ? 'conditions' : 'a condition'}. Make one edit to this step: move ${list} to Agents, or name under Products the ${many ? 'products they become' : 'product it becomes'}.`;
             reactants.splice(0, reactants.length, ...kept);
             agents.splice(0, agents.length, ...asAgents);
             balance = retried;
