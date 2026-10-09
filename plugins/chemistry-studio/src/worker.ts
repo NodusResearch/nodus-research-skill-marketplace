@@ -525,6 +525,19 @@ function covalentForIonicOxide(resolutions: SpeciesNameResolution[]): void {
   }
 }
 
+/** The label pass's candidates for a name, with the fix-ups resolve-names applies to the same
+ *  answer. Without them a salt resolve-names refused, or an oxide it rewrote as covalent, is
+ *  compared in its raw form, and the structure the author supplied in its place — as the refusal
+ *  asked — is reported as a different compound. A refused candidate is dropped, so a name left
+ *  with none is unchecked, not a disagreement. */
+function fixedCandidates(name: string, candidates: string[]): string[] {
+  const entries: SpeciesNameResolution[] = candidates.map((smiles) => ({ name, status: 'resolved', smiles }));
+  refuseUnbalancedSalts(entries);
+  dihydrogenForHydrogen(entries);
+  covalentForIonicOxide(entries);
+  return [...new Set(entries.flatMap((entry) => (entry.status === 'resolved' && entry.smiles ? [entry.smiles] : [])))];
+}
+
 async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cache: ReferenceCache, signal: AbortSignal): Promise<void> {
   refuseUnbalancedSalts(resolutions);
   dihydrogenForHydrogen(resolutions);
@@ -767,7 +780,7 @@ async function resolveRouteLabels(
         cursor += 1;
         if (next >= lookedUp.length) return;
         signal?.throwIfAborted();
-        cache.set(lookedUp[next], await resolveNameReferences(lookedUp[next], deps, signal));
+        cache.set(lookedUp[next], fixedCandidates(lookedUp[next], await resolveNameReferences(lookedUp[next], deps, signal)));
       }
     };
     await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, lookedUp.length) }, run));

@@ -3539,3 +3539,26 @@ test('a reaction intent may declare any coefficient the balancer can solve to', 
   assert.equal(lib.parseChemistryIntent(intent(species), question).species[2].coefficient, 14);
   assert.throws(() => lib.parseChemistryIntent(intent(species.map((entry, i) => (i === 2 ? { ...entry, coefficient: 31 } : entry))), question), /from 1 to 30/);
 });
+
+test('the route label check applies the fix-ups resolve-names applies to the same name', async () => {
+  // Synthetic records: a "salt" PubChem writes as the neutral diester beside a sodium ion, which
+  // resolve-names refuses and asks to be given as SMILES, and an oxide written as bare ions, which
+  // it rewrites as covalent. The structures the author then supplies must not read as mismatches.
+  const records = { 'sodium diethyl propanedioate': 'CCOC(=O)CC(=O)OCC.[Na+]', 'chromium trioxide': '[Cr+6].[O-2].[O-2].[O-2]' };
+  const names = Object.keys(records);
+  lib.resetPubchemPacing();
+  const worker = lib.createWorker(stubHost({ fetch: (endpointId, requestPath) => {
+    if (endpointId !== 'pubchem') return undefined;
+    const byName = /\/compound\/name\/([^/]+)\/cids\/JSON/.exec(requestPath);
+    if (byName) { const index = names.indexOf(decodeURIComponent(byName[1])); return index < 0 ? undefined : { IdentifierList: { CID: [index + 1] } }; }
+    const byCid = /\/compound\/cid\/(\d+)\/property\//.exec(requestPath);
+    const name = byCid && names[Number(byCid[1]) - 1];
+    return name ? { PropertyTable: { Properties: [{ CID: Number(byCid[1]), IsomericSMILES: records[name] }] } } : undefined;
+  } }));
+  const result = await worker.invoke({ invocationId: 'label-fixups', toolId: 'verify-route', locale: 'en', input: {
+    steps: ['CCOC(=O)[CH-]C(=O)OCC.[Na+].CCBr>>CCOC(=O)C(CC)C(=O)OCC.[Na+].[Br-]', 'O=[Cr](=O)=O.O>>O[Cr](=O)(=O)O'],
+    labels: [[{ role: 'reactant', name: 'sodium diethyl propanedioate', smiles: 'CCOC(=O)[CH-]C(=O)OCC.[Na+]' }],
+      [{ role: 'reactant', name: 'chromium trioxide', smiles: 'O=[Cr](=O)=O' }]],
+  } });
+  for (const step of result.artifacts[0].data.steps) assert.deepEqual(step.nameProblems ?? [], [], `step ${step.index}`);
+});
