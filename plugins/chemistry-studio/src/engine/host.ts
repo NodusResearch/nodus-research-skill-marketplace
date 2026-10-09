@@ -12,7 +12,7 @@ export interface CapabilityHost {
   subworker: { run(request: { entry: string; input: unknown; timeoutMs: number }): Promise<unknown> };
   python: {
     ensureRuntime(runtimeId: string): Promise<{ ready: boolean; detail?: string }>;
-    run(request: { runtimeId: string; args: string[]; stdin?: string; secretId?: string; timeoutMs: number }): Promise<{ code: number; stdout: string; stderr: string }>;
+    run(request: { runtimeId: string; args: string[]; stdin?: string; secretId?: string; timeoutMs: number; persistent?: boolean }): Promise<{ code: number; stdout: string; stderr: string }>;
   };
   attachments: { store(request: { bytes: Uint8Array; name: string; mimeType: string }): Promise<{ attachmentId: string; bytes: number }> };
   storage: { state: KeyValue; cache: KeyValue; temp: { dir(): Promise<string>; clear(): Promise<void> } };

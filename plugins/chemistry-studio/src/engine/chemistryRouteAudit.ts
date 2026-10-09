@@ -1,7 +1,11 @@
+import { MAX_REACTION_CHARS } from './chemistryLimits';
+import { MAX_CHEMICAL_NAME } from './chemistryIdentity';
 import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit, RouteTargetAudit } from './chemistryDocument';
-import { balanceReaction } from './chemistryReaction';
+import { BalanceUnchecked, balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
-import { validateChemicalReferences } from './chemistryValidationCore';
+import { deliveredAtOpenCentres, productMatchesTarget, stereoGraph, validateChemicalReferences, type StereoGraph } from './chemistryValidationCore';
+import { bondLedger, skeletonChange, type SkeletonReport } from './chemistrySkeleton';
+import { maxSpeciesPerStep, maxSpeciesTotal, maxSteps, type ChemistryCapBudget } from './chemistryLimits';
 
 /** The read-only route checker. It never draws: it parses each step with RDKit and answers
  *  two questions the model cannot be trusted to answer about its own plan — is every
@@ -11,18 +15,37 @@ import { validateChemicalReferences } from './chemistryValidationCore';
 
 // Solid-phase peptide syntheses run to ~80 steps (a coupling and a deprotection per residue,
 // e.g. tirzepatide's 39 residues, then cleavage); 96 keeps them checkable. Not a chemistry rule.
-const MAX_STEPS = 96;
+// Which is why it is now a FLOOR under a cap taken from the turn's context window rather than the
+// cap itself: the figure above was sized for one target, and a longer one needs room without
+// anybody picking a new constant for it.
+const MAX_STEPS_FLOOR = 96;
 // A backstop against pathological input, not a chemistry constraint. A named salt expands to
 // its ions in the equation (`sodium dichromate` is three components), so a legitimate redox
 // step can exceed a tight per-step limit; the application caps the author's labels per step
 // and the whole route separately, and the subworker is killable and time-bounded.
-const MAX_SPECIES_PER_STEP = 48;
-const MAX_SPECIES_TOTAL = 1024;
-const MAX_REACTION_CHARS = 4000;
+const MAX_SPECIES_PER_STEP_FLOOR = 48;
+const MAX_SPECIES_TOTAL_FLOOR = 1024;
 
-async function summarize(input: string): Promise<RouteSpeciesSummary> {
+
+/** Every species one audit has summarised, by the SMILES as written. A route names an intermediate
+ *  on the step that makes it and the step that uses it, a reagent on many steps, and every label
+ *  again for its name check: 289 summaries for 32 distinct species on a 20-step route, each a full
+ *  RDKit pass. Each caller gets its own copy, because the audit writes coefficients and names onto
+ *  the summary it is handed. */
+type SummaryCache = Map<string, Promise<RouteSpeciesSummary>>;
+
+async function summarize(input: string, cache?: SummaryCache): Promise<RouteSpeciesSummary> {
+  let pending = cache?.get(input);
+  if (!pending) {
+    pending = summarizeOnce(input);
+    cache?.set(input, pending);
+  }
+  return { ...(await pending) };
+}
+
+async function summarizeOnce(input: string): Promise<RouteSpeciesSummary> {
   try {
-    const checked = await validateChemicalReferences({ references: [input], inspect: true });
+    const checked = await validateChemicalReferences({ references: [input], inspect: true, summaryOnly: true });
     if (!checked.inspection) throw new Error('RDKit produced no inspection summary.');
     return { input, ...checked.inspection };
   } catch (error) {
@@ -47,10 +70,83 @@ const canCarry = (species: RouteSpeciesSummary): boolean =>
 
 const splitField = (field: string): string[] => field.split('.').map(entry => entry.trim()).filter(Boolean);
 
-async function summarizeField(field: string): Promise<RouteSpeciesSummary[]> {
+async function summarizeField(field: string, cache?: SummaryCache): Promise<RouteSpeciesSummary[]> {
   const out: RouteSpeciesSummary[] = [];
-  for (const smiles of splitField(field)) out.push(await summarize(smiles));
+  for (const smiles of splitField(field)) out.push(await summarize(smiles, cache));
   return out;
+}
+
+/** One side's species, grouped as the AUTHOR declared them rather than as the reaction string
+ *  happens to be punctuated.
+ *
+ *  A reaction SMILES separates components with `.` and cannot say which of them belong to one
+ *  species, so a salt the author declared once — `[Mg+2].[Br-].[OH-]` — arrives as three
+ *  independent species, and each one is a free coefficient for the solver. That freedom lets a
+ *  wrong equation balance: a hydrolysis one hydrogen short came back balanced by taking two of
+ *  the organometallic and one water, at 2/1/2/2/2/1, when the author's own equation was 1:1 and
+ *  simply had oxide where it needed hydroxide. The arithmetic was right and the chemistry was
+ *  not, which is the worst way for a check to be wrong.
+ *
+ *  The boundary is not lost, only absent from the string: `labels` carries each declared species
+ *  with its own SMILES. So each label claims its fragments from the side's pool and becomes ONE
+ *  species with ONE coefficient. A fragment no label claims stays a species of its own, which is
+ *  what happens for every route that sends no labels, so nothing changes for them. */
+async function summarizeFieldGrouped(field: string, declared: string[], cache?: SummaryCache): Promise<RouteSpeciesSummary[]> {
+  const tokens = splitField(field);
+  if (!declared.length) return summarizeField(field, cache);
+  const unclaimed = tokens.map((token) => ({ token, taken: false }));
+  const claim = (fragment: string): boolean => {
+    const slot = unclaimed.find((entry) => !entry.taken && entry.token === fragment);
+    if (!slot) return false;
+    slot.taken = true;
+    return true;
+  };
+  const grouped: Array<{ position: number; smiles: string }> = [];
+  for (const smiles of declared) {
+    const fragments = smiles.split('.').map((part) => part.trim()).filter(Boolean);
+    if (fragments.length < 2) continue;        // a single-fragment species is already one species
+    const first = unclaimed.findIndex((entry) => !entry.taken && entry.token === fragments[0]);
+    if (first < 0) continue;
+    // All of a declared species' fragments must be present, or the grouping would silently drop
+    // atoms. A partial match leaves every fragment where it was.
+    const snapshot = unclaimed.map((entry) => entry.taken);
+    if (fragments.every((fragment) => claim(fragment))) grouped.push({ position: first, smiles });
+    else unclaimed.forEach((entry, index) => { entry.taken = snapshot[index]; });
+  }
+  if (!grouped.length) return summarizeField(field, cache);
+  // Keep document order: a grouped species sits where its first fragment was.
+  const entries = [
+    ...grouped.map((entry) => ({ position: entry.position, smiles: entry.smiles })),
+    ...unclaimed.map((entry, index) => (entry.taken ? null : { position: index, smiles: entry.token }))
+      .filter((entry): entry is { position: number; smiles: string } => entry !== null),
+  ].sort((a, b) => a.position - b.position);
+  const out: RouteSpeciesSummary[] = [];
+  for (const entry of entries) out.push(await summarize(entry.smiles, cache));
+  return out;
+}
+
+/** The name the author gave a species on this step, found by the structure it was written beside.
+ *  Matched by position it named the wrong species whenever the labels were not in the order of the
+ *  reaction string, or one species had no label: a step told the author that the acid it esterified
+ *  was "a condition" because the catalyst's label came first. A grouped salt's summary carries the
+ *  declared SMILES as its input, so it matches its label too. */
+type SpeciesNamer = (entry: RouteSpeciesSummary) => string | undefined;
+
+function namerFor(labels: Array<RouteLabelInput | null | undefined>): SpeciesNamer {
+  const byStructure = new Map<string, string>();
+  for (const label of labels) {
+    if (!label || typeof label.smiles !== 'string' || typeof label.name !== 'string' || !label.name.trim()) continue;
+    if (!byStructure.has(label.smiles.trim())) byStructure.set(label.smiles.trim(), label.name.trim());
+  }
+  return (entry) => entry.name ?? byStructure.get(entry.input.trim());
+}
+
+/** The SMILES of every species the author declared for one role on one step, in order. */
+
+function declaredFor(labels: Array<RouteLabelInput | null | undefined>, role: 'reactant' | 'agent' | 'product'): string[] {
+  return labels
+    .filter((label): label is RouteLabelInput => Boolean(label) && label!.role === role && typeof label!.smiles === 'string' && label!.smiles.trim().length > 0)
+    .map((label) => label.smiles!.trim());
 }
 
 /** Sum a side's composition and charge. Agents are never passed here: a catalyst is
@@ -65,10 +161,150 @@ function sumSide(species: RouteSpeciesSummary[]): { composition: Record<string, 
   return { composition, charge };
 }
 
+/** A stereocentre a step neither makes nor breaks must come out the way it went in.
+ *
+ *  This is the one error class atom balance cannot reach. An epimer has identical atom counts, so
+ *  the equation balances; it carries over as the same declared structure, so continuity holds; and
+ *  the right bonds form, so the skeleton ledger is satisfied. A route can therefore be balanced,
+ *  continuous, skeleton-clean and end on an exact match to the requested target while passing
+ *  through a compound that cannot give it.
+ *
+ *  Compared centre by centre, not by CIP letter. The letters were compared as a multiset, which is
+ *  only sound while no branch at the centre changes rank, and a step that changes a group two bonds
+ *  away does change it: a bromide displaced by cyanide next to a phenyl-bearing centre keeps its
+ *  configuration and flips its letter (CH2Br outranks phenyl, CH2CN does not), so a correct step was
+ *  refused — and the same step with the centre really inverted kept its letter and passed. Here each
+ *  centre on the left is matched to one on the right through its branches: a branch the step leaves
+ *  alone looks the same from the centre on both sides, a hydrogen is a hydrogen, and the one branch
+ *  the step rewrites is the one left over. With every neighbour placed, RDKit's own chiral tags say
+ *  whether the arrangement survived. A centre whose branches cannot be told apart is not judged. */
+const BRANCH_DEPTH = 6;
+
+/** A label for the branch that starts at `atom` and leads away from `from`, unfolded `depth` bonds:
+ *  equal labels mean the branch looks the same from the centre that far out. */
+function branchLabels(graph: StereoGraph): (atom: number, from: number, depth: number) => string {
+  const memo = new Map<string, string>();
+  const label = (atom: number, from: number, depth: number): string => {
+    const key = `${atom}:${from}:${depth}`;
+    const known = memo.get(key);
+    if (known !== undefined) return known;
+    const { z, charge, hydrogens } = graph.atoms[atom];
+    const own = `${z}/${charge}/${hydrogens}/${graph.neighbours[atom].length}`;
+    const value = depth === 0 ? own : `${own}(${graph.neighbours[atom]
+      .filter((next) => next.atom !== from)
+      .map((next) => `${next.order}${label(next.atom, atom, depth - 1)}`).sort().join(',')})`;
+    memo.set(key, value);
+    return value;
+  };
+  return label;
+}
+
+/** Each neighbour of centre `a` placed among the neighbours of centre `b` (-1 stands for the implicit
+ *  hydrogens), with how far out the placed branches agree; null when the placement is ambiguous. */
+function placeNeighbours(left: StereoGraph, a: number, right: StereoGraph, b: number): { order: number[]; agreement: number } | null {
+  const leftLabel = branchLabels(left), rightLabel = branchLabels(right);
+  const around = (graph: StereoGraph, centre: number) => [...graph.neighbours[centre].map((entry) => entry.atom), ...Array.from({ length: graph.atoms[centre].hydrogens }, () => -1)];
+  const from = around(left, a), to = around(right, b);
+  if (from.length !== to.length || from.filter((atom) => atom === -1).length > 1) return null;
+  const depthOf = (x: number, y: number): number => {
+    if (x === -1 || y === -1) return x === y ? BRANCH_DEPTH + 1 : -1;
+    let depth = -1;
+    while (depth < BRANCH_DEPTH && leftLabel(x, a, depth + 1) === rightLabel(y, b, depth + 1)) depth += 1;
+    return depth;
+  };
+  const placed = new Array<number>(from.length).fill(-2);
+  const taken = new Set<number>();
+  let agreement = 0;
+  // Branches the step leaves alone agree at least two bonds out, and must agree with exactly one
+  // branch on the other side: a tie between two is a symmetry this cannot settle.
+  for (let i = 0; i < from.length; i += 1) {
+    const depths = to.map((y) => depthOf(from[i], y));
+    const best = Math.max(...depths);
+    if (best < 2 || depths.filter((depth) => depth === best).length !== 1) continue;
+    const j = depths.indexOf(best);
+    if (taken.has(j)) return null;
+    placed[i] = j;
+    taken.add(j);
+    agreement += 1;
+  }
+  const leftOver = placed.map((value, i) => (value === -2 ? i : -1)).filter((i) => i >= 0);
+  const free = to.map((_, j) => j).filter((j) => !taken.has(j));
+  // The branch the step rewrote is the one left over, and it must still start with the same element
+  // (its hydrogens may change: an ester reduced to the alcohol).
+  if (leftOver.length > 1 || leftOver.length !== free.length) return null;
+  if (leftOver.length === 1) {
+    const [x, y] = [from[leftOver[0]], to[free[0]]];
+    if ((x === -1) !== (y === -1) || (x !== -1 && left.atoms[x].z !== right.atoms[y].z)) return null;
+    placed[leftOver[0]] = free[0];
+  }
+  return { order: placed, agreement };
+}
+
+/** Whether a permutation is odd. */
+function oddPermutation(order: number[]): boolean {
+  const seen = new Array<boolean>(order.length).fill(false);
+  let odd = false;
+  for (let start = 0; start < order.length; start += 1) {
+    if (seen[start]) continue;
+    let length = 0;
+    for (let at = start; !seen[at]; at = order[at]) { seen[at] = true; length += 1; }
+    if (length % 2 === 0) odd = !odd;
+  }
+  return odd;
+}
+
+async function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = (entry) => entry.name): Promise<string> {
+  const centred = async (list: RouteSpeciesSummary[]) => (await Promise.all(list
+    .filter((entry) => (entry.cipTags ?? []).length > 0)
+    .map(async (entry) => ({ entry, graph: await stereoGraph(entry.input) }))))
+    .filter((item): item is { entry: RouteSpeciesSummary; graph: StereoGraph } => item.graph !== null);
+  const left = await centred(reactants), right = await centred(products);
+  if (!left.length || !right.length) return '';
+  const centres = (graph: StereoGraph) => graph.tags.map((tag, atom) => (tag ? atom : -1)).filter((atom) => atom >= 0);
+  const used = new Set<string>();
+  const found: string[] = [];
+  const unplaced: string[] = [];
+  for (const source of left) {
+    for (const a of centres(source.graph)) {
+      // The one centre on the right this one became: most branches agreeing, and no tie.
+      let best: { product: (typeof right)[number]; b: number; order: number[]; agreement: number } | null = null;
+      let tied = false;
+      for (const product of right) {
+        for (const b of centres(product.graph)) {
+          if (used.has(`${right.indexOf(product)}:${b}`)) continue;
+          const atomA = source.graph.atoms[a], atomB = product.graph.atoms[b];
+          if (atomA.z !== atomB.z || atomA.hydrogens !== atomB.hydrogens) continue;
+          const placement = placeNeighbours(source.graph, a, product.graph, b);
+          if (!placement || placement.agreement < 2) continue;
+          if (!best || placement.agreement > best.agreement) { best = { product, b, ...placement }; tied = false; }
+          else if (placement.agreement === best.agreement) tied = true;
+        }
+      }
+      if (!best || tied) { unplaced.push(source.graph.cip.get(a) ?? '?'); continue; }
+      used.add(`${right.indexOf(best.product)}:${best.b}`);
+      // The tags are relative to each atom's neighbour order, so the arrangement survived when the
+      // tags agree and the placement is an even permutation, or disagree and it is odd.
+      const kept = (source.graph.tags[a] === best.product.graph.tags[best.b]) === !oddPermutation(best.order);
+      if (kept) continue;
+      const name = (entry: RouteSpeciesSummary) => nameOf(entry) ?? entry.formula;
+      found.push(`atom ${a} of ${name(source.entry)} ${source.graph.cip.get(a) ?? ''} comes out as atom ${best.b} of ${name(best.product.entry)} ${best.product.graph.cip.get(best.b) ?? ''} with the opposite configuration`.replace(/ {2,}/g, ' '));
+    }
+  }
+  // A centre whose branches are alike (the ring carbon opposite a bridge) cannot be placed. Those
+  // are still compared by letter, among themselves only, as the whole step used to be: a matched
+  // centre's letter no longer takes part, so a rank change at a placed centre cannot trip it.
+  const unmatched = right.flatMap((product, p) => centres(product.graph).filter((b) => !used.has(`${p}:${b}`)).map((b) => product.graph.cip.get(b) ?? '?'));
+  if (!found.length && unplaced.length && unplaced.length === unmatched.length && [...unplaced].sort().join(',') !== [...unmatched].sort().join(',')) {
+    found.push(`its reactants carry ${[...unplaced].sort().join(', ')} at centres that could not be matched one to one, and its products ${[...unmatched].sort().join(', ')}`);
+  }
+  if (!found.length) return '';
+  return `This step inverts a stereocentre: ${found.join('; ')}. Atom indices count from zero in the SMILES as written. A coupling, a deprotection or a cleavage does not change configuration, so either a declared structure has the wrong configuration at that centre — give the product the configuration its reactant carries — or, if an inversion is genuinely intended, say in this step's own prose which centre inverts and why.`;
+}
+
 /** Whether the declared species admit a balanced equation, solved exactly as the drawing
  *  path solves it. Coefficients cannot be written inside a reaction SMILES, so a species
  *  list that balances only at 2:3:2:2 is balanced, not refused. Agents take no part. */
-function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): { balanced: boolean; chargeBalanced: boolean; differences: string[]; coefficients: number[] | null } {
+function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): { balanced: boolean; unchecked?: boolean; chargeBalanced: boolean; differences: string[]; coefficients: number[] | null } {
   const chargeBalanced = sumSide(reactants).charge === sumSide(products).charge;
   const ordered = [...reactants, ...agents, ...products];
   const roles = [
@@ -81,6 +317,8 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
     const coefficients = balanceReaction(compositions, roles, ordered.map(() => 1));
     return { balanced: true, chargeBalanced, differences: [], coefficients };
   } catch (error) {
+    // Unchecked keeps its single action: no hint about an Agent that would add a species.
+    if (error instanceof BalanceUnchecked) return { balanced: false, unchecked: true, chargeBalanced, differences: [error.message], coefficients: null };
     const message = error instanceof Error ? error.message : 'The species cannot be balanced.';
     return { balanced: false, chargeBalanced, differences: [message + agentMisplacementHint(reactants, agents, products)], coefficients: null };
   }
@@ -88,7 +326,7 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
 
 /** The sentence naming a single species listed on the wrong side, when moving it across
  *  balances the step; empty otherwise. A species on both sides is left alone. */
-function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = () => undefined): string {
   const same = (a: RouteSpeciesSummary, b: RouteSpeciesSummary) => a.canonicalSmiles === b.canonicalSmiles;
   const tryMove = (from: RouteSpeciesSummary[], to: RouteSpeciesSummary[], position: number, toProducts: boolean): string => {
     const species = from[position];
@@ -99,7 +337,7 @@ function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpe
     if (!result.balanced || !result.coefficients) return '';
     const ordered = toProducts ? [...nextFrom, ...agents, ...nextTo] : [...nextTo, ...agents, ...nextFrom];
     const count = result.coefficients[ordered.indexOf(species)];
-    const label = speciesLabel(species);
+    const label = authorLabel(species, nameOf);
     return toProducts
       ? `"${label}" is listed as a reactant, but the step forms it: list it under Byproducts (${count} ${label}).`
       : `"${label}" is listed on the product side, but the step consumes it: list it under Reactants (${count} ${label}).`;
@@ -113,11 +351,11 @@ function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpe
  *  that side too balances the step: a solvent the reaction makes (ethanol from sodium ethoxide in
  *  ethanol, water in an aqueous oxidation) or a "catalyst" that is really used up. The agent keeps
  *  its place as the solvent; the step only lacks it as a byproduct or reactant. Empty otherwise. */
-function agentRoleThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+function agentRoleThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = () => undefined): string {
   for (let i = 0; i < agents.length; i++) {
     const species = agents[i];
     const others = agents.filter((_, position) => position !== i);
-    const label = speciesLabel(species);
+    const label = authorLabel(species, nameOf);
     const formed = stepBalance(reactants, others, [...products, species]);
     if (formed.balanced && formed.coefficients) {
       const count = formed.coefficients[reactants.length + others.length + products.length];
@@ -145,22 +383,83 @@ function agentsThatBalance(reactants: RouteSpeciesSummary[], agents: RouteSpecie
   return null;
 }
 
-/** When a step will not balance and a species is listed under Agents that carries atoms the
- *  reactants are short of, the usual cause is a consumed species mislabelled as a catalyst: a
- *  "citric acid catalyst" that is really decarboxylated and consumed. Name it. Only fires when
- *  an Agent actually contains a deficient element, so a plain solvent on an unrelated imbalance
- *  is left alone. */
+/** When a step will not balance, whether a species listed under Agents is the cause. The usual
+ *  case is a consumed species mislabelled as a catalyst: a "citric acid catalyst" that is really
+ *  decarboxylated and consumed. Name it only when adding whole copies of it to the reactant side
+ *  balances the step EXACTLY.
+ *
+ *  The old test was "this Agent contains some element the reactants are short of", which named
+ *  the wrong species on any large step: a solvent contains C, H, N and O, so it was blamed for a
+ *  shortfall it could not explain, and the advice to move it to Reactants was wrong chemistry.
+ *  When no Agent can account for the shortfall, that is itself the finding — the declared
+ *  products or byproducts are incomplete — so say that instead of implicating a condition. */
 function agentMisplacementHint(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
   if (!agents.length) return '';
   const keys = new Set<string>();
-  for (const entry of [...reactants, ...products]) for (const key of Object.keys(entry.composition)) keys.add(key);
+  for (const entry of [...reactants, ...products, ...agents]) for (const key of Object.keys(entry.composition)) keys.add(key);
   const total = (list: RouteSpeciesSummary[], key: string): number => list.reduce((sum, entry) => sum + (entry.composition[key] ?? 0), 0);
-  const deficient = [...keys].filter((key) => total(products, key) > total(reactants, key));
-  if (!deficient.length) return '';
-  const culprits = agents.filter((agent) => deficient.some((key) => (agent.composition[key] ?? 0) > 0));
-  if (!culprits.length) return '';
-  const labels = culprits.map((agent) => agent.formula || agent.canonicalSmiles).join(', ');
-  return ` ${labels} ${culprits.length > 1 ? 'are' : 'is'} listed under Agents, but the reactants are missing atoms that species contains: an Agent takes no part in the balance, so move it to Reactants if it is actually consumed.`;
+  const deficit = new Map<string, number>();
+  for (const key of keys) {
+    const diff = total(products, key) - total(reactants, key);
+    if (diff !== 0) deficit.set(key, diff);
+  }
+  if (![...deficit.values()].some((value) => value > 0)) return '';
+  const closesExactly = (agent: RouteSpeciesSummary, copies: number): boolean =>
+    [...keys].every((key) => total(reactants, key) + copies * (agent.composition[key] ?? 0) === total(products, key));
+  for (const agent of agents) {
+    // The copy count is fixed by any one deficient element the agent carries; the rest must agree.
+    const anchor = [...deficit].find(([key, diff]) => diff > 0 && (agent.composition[key] ?? 0) > 0);
+    if (!anchor) continue;
+    const copies = anchor[1] / (agent.composition[anchor[0]] ?? 1);
+    if (!Number.isInteger(copies) || copies < 1 || !closesExactly(agent, copies)) continue;
+    const label = agent.formula || agent.canonicalSmiles;
+    return ` "${label}" is listed under Agents, and adding ${copies === 1 ? 'it' : `${copies} copies of it`} to the reactants balances the step exactly: an Agent takes no part in the balance, so list it under Reactants (${copies} ${label}) if it is actually consumed.`;
+  }
+  // No Agent closes the balance. One may still be a consumed species, so it is still named —
+  // but the instruction is conditional now, and the likelier fault is said out loud. Blaming a
+  // solvent outright is how a large step with incomplete byproducts came back advising that the
+  // reaction medium be moved to Reactants.
+  const carriers = agents.filter((agent) => [...deficit].some(([key, diff]) => diff > 0 && (agent.composition[key] ?? 0) > 0));
+  if (!carriers.length) return '';
+  const labels = carriers.map((agent) => agent.formula || agent.canonicalSmiles).join(', ');
+  return ` ${labels} ${carriers.length > 1 ? 'are' : 'is'} listed under Agents, but the reactants are missing atoms that species contains. Move it to Reactants only if it is actually consumed: adding it does not balance the step either, so the declared products or byproducts are probably incomplete.`;
+}
+
+/** A bare multiply-charged monatomic anion: free oxide, nitride, sulfide. These are not species a
+ *  solution-phase route consumes or releases — the author means the salt, the hydroxide or the
+ *  acid — and each one that reaches the equation is a free coefficient for the solver, because a
+ *  species declared as one salt arrives as several independent fragments.
+ *
+ *  That freedom lets a wrong equation balance. CH3MgBr + H2O -> CH4 + Mg(2+) + Br(-) + O(2-) is
+ *  one hydrogen short as written, and the solver rescues it at 2:1 by taking two of the metal
+ *  species and one water. The hydroxide form of the same step balances at unit coefficients,
+ *  which is the answer the author wanted. Naming the species is the fix; the solver cannot tell
+ *  which of several arithmetic answers is the chemistry. */
+function freeMultiplyChargedAnion(species: RouteSpeciesSummary): string | null {
+  const smiles = species.canonicalSmiles.trim();
+  const match = /^\[([A-Z][a-z]?)(?:H0)?((?:-{2,})|(?:-[2-9]))\]$/.exec(smiles);
+  if (!match) return null;
+  // Only the non-metals a route would otherwise have named as part of a salt or an acid.
+  return ['O', 'N', 'S', 'P', 'C'].includes(match[1]) ? smiles : null;
+}
+
+/** The diatomic form of an element written as a lone atom, or null when the species is not one.
+ *
+ *  An inert atmosphere written `[N]` is atomic nitrogen: a species that does not exist in a flask,
+ *  where the prose beside it says the diatomic gas. It reached a report as "nitrogen (N)" and
+ *  passed, because it had been filed under Agents and an Agent never enters the balance — so
+ *  nothing compared it with anything. Found by two independent reviewers reading the same answer.
+ *
+ *  Only the elements whose free form is unambiguous, so the correction is a single edit rather
+ *  than a judgement. Sulfur and phosphorus are left out: their free forms are rings and cages
+ *  whose formula depends on the allotrope, and an author writing `[S]` may have meant something
+ *  the package should not guess at. */
+const DIATOMIC_FORM: Record<string, string> = { H: '[H][H]', N: 'N#N', O: 'O=O', F: 'FF', Cl: 'ClCl', Br: 'BrBr', I: 'II' };
+
+function loneAtomOfDiatomicElement(species: RouteSpeciesSummary): { written: string; correct: string } | null {
+  const match = /^\[([A-Z][a-z]?)(?:H0)?\]$/.exec(species.canonicalSmiles.trim());
+  const correct = match ? DIATOMIC_FORM[match[1]] : undefined;
+  return correct ? { written: species.canonicalSmiles.trim(), correct } : null;
 }
 
 /** A bound on the packing search and on the copies it will consider, so a pathological step
@@ -168,6 +467,13 @@ function agentMisplacementHint(reactants: RouteSpeciesSummary[], agents: RouteSp
 const PACKING_BUDGET = 20000;
 
 const speciesLabel = (entry: RouteSpeciesSummary): string => entry.formula || entry.canonicalSmiles;
+
+/** A species as the author wrote it — their name, with the formula beside it — or the formula alone
+ *  when the step carried no name for it. */
+const authorLabel = (entry: RouteSpeciesSummary, nameOf: SpeciesNamer): string => {
+  const name = nameOf(entry);
+  return name ? `${name} (${speciesLabel(entry)})` : speciesLabel(entry);
+};
 
 /** The per-molecule capacity a simple necessary condition exposes: for the largest product
  *  size that is short, how many such molecules are needed and how many substrate molecules can
@@ -196,19 +502,24 @@ function formatFraction(numerator: number, denominator: number): string {
  *  may host several products, which is fragmentation. A product larger than every substrate is
  *  a multi-component coupling, which this does not model, so the step is left unchecked rather
  *  than refused; and the test is symmetry-blind, so any assignment of equal carbons is fine. */
-function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: false; reason: string } | 'unchecked' {
+/** Three outcomes, not two, and the distinction matters. 'n/a' means the shape is outside what
+ *  packing models — most of all a convergent coupling, where a product legitimately carries more
+ *  carbon than any single substrate. That is every coupling in a stepwise assembly, so saying
+ *  "unchecked" for it would bury the real case in noise. `unchecked` means the search GAVE UP,
+ *  which the author should hear about. */
+function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: false; reason: string } | 'n/a' | { unchecked: string } {
   const carbonOf = (entry: RouteSpeciesSummary): number => entry.composition['6:0'] ?? 0;
   const substrates = step.reactants.filter((entry) => carbonOf(entry) > 0);
   const products = step.products.filter((entry) => carbonOf(entry) > 0);
   const maxBin = substrates.reduce((max, entry) => Math.max(max, carbonOf(entry)), 0);
-  if (!maxBin || !products.length) return 'unchecked';
-  for (const product of products) if (carbonOf(product) > maxBin) return 'unchecked'; // a coupling
+  if (!maxBin || !products.length) return 'n/a';
+  for (const product of products) if (carbonOf(product) > maxBin) return 'n/a'; // a convergent coupling: not modelled
   const bins: number[] = [];
   for (const reactant of substrates) for (let i = 0; i < (reactant.coefficient ?? 1); i += 1) bins.push(carbonOf(reactant));
   const items: number[] = [];
   for (const product of products) for (let i = 0; i < (product.coefficient ?? 1); i += 1) items.push(carbonOf(product));
-  if (!bins.length || !items.length) return 'unchecked';
-  if (bins.length + items.length > PACKING_BUDGET) return 'unchecked';
+  if (!bins.length || !items.length) return 'n/a';
+  if (bins.length + items.length > PACKING_BUDGET) return { unchecked: `too many fragments to pack (${bins.length + items.length} against a budget of ${PACKING_BUDGET})` };
   items.sort((a, b) => b - a);
   let visited = 0;
   const fit = (index: number): boolean => {
@@ -226,8 +537,19 @@ function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: fal
     return false;
   };
   let packed: boolean;
-  try { packed = fit(0); } catch { return 'unchecked'; }
+  try { packed = fit(0); } catch { return { unchecked: `the packing search exceeded its budget of ${PACKING_BUDGET} candidate tests` }; }
   if (packed) return { ok: true };
+
+  // Packing assigns each product to one substrate, which is only valid for a fragmentation of a
+  // SINGLE molecule. With two or more substrate molecules the step may be a convergent coupling
+  // whose product draws carbon from more than one substrate — a Wittig forms stilbene from the
+  // phosphonium's benzyl and the aldehyde while the phosphonium also sheds triphenylphosphine
+  // oxide; an aldol, a Claisen or a Grignard addition are the same shape. The single-substrate
+  // model cannot represent that, so it must not refuse it; atom and charge balance still apply.
+  // Two or more distinct carbon-bearing substrates, not the coefficient count: a single substrate
+  // taken several times (8 citric acid -> 9 acetonedicarboxylic) is a redistribution of one molecule
+  // and is still a real impossibility to refuse.
+  if (substrates.length >= 2) return 'n/a';   // convergent: outside the single-substrate model
 
   const bottleneck = packingBottleneck(bins, items);
   const culprit = bottleneck ? products.find((entry) => carbonOf(entry) === bottleneck.size) : undefined;
@@ -264,6 +586,12 @@ export interface RouteAuditInput {
   /** A declared racemate, per step or for the whole route: open stereocentres on those steps
    *  are reported, not refused. */
   racemic?: boolean | Array<boolean | null | undefined>;
+  /** A declared rearrangement, per step or for the whole route: a 1,2-shift or a new bond at an
+   *  unactivated carbon on those steps is reported, not refused. */
+  rearrangement?: boolean | Array<boolean | null | undefined>;
+  /** A declared radical or C–H functionalisation, per step or for the whole route: a new bond at
+   *  an unactivated carbon on those steps is reported, not refused. */
+  radical?: boolean | Array<boolean | null | undefined>;
   /** The requested target as SMILES. When given, the route must form it. */
   target?: string | null;
   /** Per-step species labels. Each label's name is checked against the structure its SMILES
@@ -281,22 +609,86 @@ export interface StereoChoice { open: number; mirrorOnly: boolean }
 
 /** A stereoChoices entry as given: the current object, or a bare count from an older runtime
  *  (where 1 meant an enantiomer pair). */
+/** Read a balanced step as a C–C graph edit (chemistrySkeleton.ts) and keep the facts on the
+ *  step. Returns the refusal, or null when the skeleton change is explained or declared. A step
+ *  the search cannot settle is never refused for it. */
+async function checkSkeleton(step: RouteStepAudit, declared: { rearrangement: boolean; radical: boolean }): Promise<string | null> {
+  const species = (side: RouteSpeciesSummary[]) => side.map(entry => ({ smiles: entry.canonicalSmiles, coefficient: entry.coefficient }));
+  let report: SkeletonReport;
+  try {
+    report = await skeletonChange(species(step.reactants), species(step.products));
+    const bonds = await bondLedger(species(step.reactants), species(step.products));
+    if (Object.keys(bonds).length) step.bonds = bonds;
+  } catch (error) {
+    // Record that the check did not run, rather than returning as though it had passed. Without
+    // this the step carries no skeleton report at all, so it is not even counted as unchecked and
+    // the report reads exactly like a step whose bonds were examined and found sound.
+    step.skeleton = {
+      change: 'unchecked', formed: 0, cleaved: 0, ringSizes: [], migration: false,
+      reorganised: false, unactivated: 0, unactivatedHetero: 0, heteroElements: [],
+      reason: `the bond-edit check failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+    return null;
+  }
+  step.skeleton = report;
+  if (declared.rearrangement) step.rearrangement = true;
+  if (declared.radical) step.radical = true;
+  if (report.change === 'unchecked') return null;
+  const unactivatedNote = 'a carbon nothing activates — no leaving group, metal, heteroatom or multiple bond on it, and not next to a carbonyl, alkene or arene';
+  // A rearrangement is the only thing that explains a 1,2-shift; an unactivated carbon reacting
+  // is also explained by a radical or C–H functionalisation.
+  if (report.migration && !declared.rearrangement) {
+    return 'the carbon skeleton is rearranged: a carbon leaves one carbon and bonds to its neighbour (a 1,2-shift), so a C–C bond breaks and another forms. '
+      + 'If this step is a rearrangement (Wagner–Meerwein, pinacol, benzilic acid, Favorskii, Wolff…), name it in this step\'s prose; if not, the product does not follow from the reactants';
+  }
+  if (report.reorganised && !declared.rearrangement) {
+    return 'the carbon skeleton is reorganised: a C–C bond is broken while its two carbons stay joined in the product, and new C–C bonds form elsewhere, so the starting skeleton cannot simply close to the product. '
+      + 'Check that the precursor\'s carbons are where the product needs them (a cyclisation forms bonds, it does not move branches); if this step is a rearrangement (Cope, ring expansion…), name it in this step\'s prose';
+  }
+  if (declared.rearrangement || declared.radical) return null;
+  if (report.unactivated > 0) {
+    const ring = report.ringSizes.length ? ` (closing a ${report.ringSizes.join('-, ')}-membered ring)` : '';
+    return `a new C–C bond${ring} forms at ${unactivatedNote}, so the product does not follow from the reactants as written. `
+      + 'Check which carbon reacts (the regiochemistry) and the amounts of each reactant; if a rearrangement or a radical or C–H functionalisation is intended, name it in this step\'s prose';
+  }
+  if (report.unactivatedHetero > 0) {
+    const bonds = report.heteroElements.map(element => `C–${element}`).join(', ');
+    return `a new ${bonds} bond forms at ${unactivatedNote}, so the product does not follow from the reactants as written. `
+      + 'Check which carbon reacts (the regiochemistry: an enol or enolate reacts only at the α-carbon); if a radical or C–H functionalisation is intended (light, NBS, a peroxide initiator…), name it in this step\'s prose';
+  }
+  return null;
+}
+
 function stereoChoiceOf(value: StereoChoice | number | null | undefined): StereoChoice | null {
   if (typeof value === 'number') return value >= 0 ? { open: value, mirrorOnly: value === 1 } : null;
   if (value && typeof value === 'object' && typeof value.open === 'number' && value.open >= 0) return { open: value.open, mirrorOnly: value.mirrorOnly === true };
   return null;
 }
 
-export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
+export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBudget): Promise<RouteAudit> {
+  const maxStepCount = Math.max(MAX_STEPS_FLOOR, maxSteps(budget));
+  const maxPerStep = Math.max(MAX_SPECIES_PER_STEP_FLOOR, maxSpeciesPerStep(budget));
+  const maxTotal = Math.max(MAX_SPECIES_TOTAL_FLOOR, maxSpeciesTotal(budget));
   const steps = Array.isArray(input?.steps) ? input.steps : [];
-  if (!steps.length || steps.length > MAX_STEPS) throw new Error(`A route needs between one and ${MAX_STEPS} steps.`);
+  if (!steps.length || steps.length > maxStepCount) throw new Error(`A route needs between one and ${maxStepCount} steps.`);
   const carriers = Array.isArray(input?.carriers) ? input.carriers : [];
   const racemicInput = input?.racemic;
   const declaredRacemic = (index: number): boolean => Array.isArray(racemicInput)
     ? Boolean(racemicInput[index])
     : racemicInput === true;
+  const rearrangementInput = input?.rearrangement;
+  const declaredRearrangement = (index: number): boolean => Array.isArray(rearrangementInput)
+    ? Boolean(rearrangementInput[index])
+    : rearrangementInput === true;
+  const radicalInput = input?.radical;
+  const declaredRadical = (index: number): boolean => Array.isArray(radicalInput)
+    ? Boolean(radicalInput[index])
+    : radicalInput === true;
   const audited: RouteStepAudit[] = [];
+  const cache: SummaryCache = new Map();
   let totalSpecies = 0;
+  const labelInput: Array<Array<RouteLabelInput | null | undefined> | null | undefined> =
+    Array.isArray(input?.labels) ? input.labels : [];
 
   for (const [index, raw] of steps.entries()) {
     const reaction = typeof raw === 'string' ? raw.trim() : '';
@@ -310,15 +702,60 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       if (!reaction) throw new Error('This step could not be built: a species it names has no resolved structure.');
       if (reaction.length > MAX_REACTION_CHARS) throw new Error(`A step must be a reaction SMILES under ${MAX_REACTION_CHARS} characters.`);
       const { reactants: reactantField, agents: agentField, products: productField } = splitReactionSmiles(reaction);
-      const reactants = await summarizeField(reactantField);
-      const agents = await summarizeField(agentField);
-      const products = await summarizeField(productField);
+      // Group each side's fragments back into the species the author declared, so a salt counts
+      // once and takes one coefficient. Without labels this is exactly the old behaviour.
+      const stepLabels = Array.isArray(labelInput[index]) ? labelInput[index]!.filter(Boolean) : [];
+      const nameOf = namerFor(stepLabels);
+      const reactants = await summarizeFieldGrouped(reactantField, declaredFor(stepLabels, 'reactant'), cache);
+      const agents = await summarizeFieldGrouped(agentField, declaredFor(stepLabels, 'agent'), cache);
+      const products = await summarizeFieldGrouped(productField, declaredFor(stepLabels, 'product'), cache);
       if (!reactants.length || !products.length) throw new Error('A step needs at least one reactant and one product.');
       const count = reactants.length + agents.length + products.length;
-      if (count > MAX_SPECIES_PER_STEP) throw new Error(`A step may name at most ${MAX_SPECIES_PER_STEP} species.`);
+      if (count > maxPerStep) throw new Error(`A step may name at most ${maxPerStep} species.`);
       totalSpecies += count;
-      if (totalSpecies > MAX_SPECIES_TOTAL) throw new Error(`A route may name at most ${MAX_SPECIES_TOTAL} species.`);
+      if (totalSpecies > maxTotal) throw new Error(`A route may name at most ${maxTotal} species.`);
       let balance = stepBalance(reactants, agents, products);
+      // A free oxide or nitride is never the species the author meant, and it hands the solver a
+      // degree of freedom that can make a wrong equation balance. Refuse the balance and name it,
+      // rather than reporting a verdict the arithmetic supports and the chemistry does not.
+      const freeAnions = [...reactants, ...products]
+        .map(freeMultiplyChargedAnion).filter((value): value is string => value !== null);
+      if (freeAnions.length) {
+        const names = [...new Set(freeAnions)].map(value => `"${value}"`).join(', ');
+        balance = { ...balance, balanced: false, differences: [
+          `${names} ${freeAnions.length > 1 ? 'are' : 'is'} a free multiply-charged anion, which is not a species a route consumes or releases: name the salt, the hydroxide or the acid that carries it. As written it also leaves the balance underdetermined, so an equation that is wrong can still be solved.`,
+        ] };
+      }
+      // A lone atom of an element that only exists as a diatomic molecule, anywhere in the step.
+      // Agents are included on purpose: that is where it hides, because an Agent takes no part in
+      // the balance and so nothing else in the check ever looks at it. Not reported on a step
+      // declared radical, where an atom genuinely is a species.
+      if (!declaredRadical(index)) {
+        // The role matters, because WHY it goes unnoticed differs by side and the first version of
+        // this message asserted the Agents case for both. Measured on a real route: the model wrote
+        // bromine as a lone atom under REACTANTS, the coefficient solver scaled it to 2, and the
+        // equation balanced — "benzene (C6H6) + 2 bromine (Br)". The message told the author it
+        // "takes no part in the balance", which was false there, and three fix rounds failed to
+        // correct it.
+        const lone = ([['reactant', reactants], ['agent', agents], ['product', products]] as const)
+          .flatMap(([role, list]) => list.flatMap((entry) => {
+            const found = loneAtomOfDiatomicElement(entry);
+            return found ? [{ role, ...found }] : [];
+          }));
+        if (lone.length) {
+          const unique = [...new Map(lone.map((entry) => [`${entry.role}:${entry.written}`, entry])).values()];
+          const named = unique.map((entry) => `\`${entry.written}\` should be \`${entry.correct}\``).join('; ');
+          const balanced = unique.some((entry) => entry.role !== 'agent');
+          step.monatomicSpecies = `${named}. A lone atom of that element is not a species a route uses: its free form is diatomic. ${balanced
+            ? 'Because a lone atom carries one atom, the coefficient solver can scale it to whatever the equation needs, so the step balances around a species that does not exist — which is why nothing else in the check objects.'
+            : 'Listed under Agents it takes no part in the balance, so nothing else in the check compares it with the name beside it.'}`;
+        }
+      }
+      // An inverted stereocentre balances perfectly, so it has to be refused separately.
+      const inverted = balance.balanced
+        ? await invertedConfiguration(reactants, products, nameOf)
+        : '';
+      if (inverted) balance = { ...balance, balanced: false, differences: [inverted] };
       // A reactant-side species that takes no part in the only balance is a reagent or a
       // condition (a catalyst, a solvent) the author listed with the reactants: file it under
       // agents and check again, rather than refusing an otherwise balanced step. Products are
@@ -330,6 +767,18 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
           const asAgents = [...agents, ...moved.map(position => reactants[position])];
           const retried = stepBalance(kept, asAgents, products);
           if (retried.balanced) {
+            // Say what was assumed. The arithmetic is the same whether the species is a condition
+            // that was never consumed or a reagent that was consumed and whose product the author
+            // forgot — so moving it in silence reported a balanced step for the exact mistake the
+            // request warns about ("if a reagent is used up, list it as a reactant and name what it
+            // becomes"). Measured: a coupling reagent listed under Reactants with its co-product
+            // omitted came back balanced, no differences, and refiled under Agents under a bare
+            // formula. The verdict is not flipped on a guess; the reading is named instead.
+            const refiled = moved.map(position => nameOf(reactants[position]) ?? reactants[position].formula ?? reactants[position].canonicalSmiles);
+            const list = refiled.map(name => `"${name}"`).join(' and ');
+            // One explicit edit, named: either reading closes the equation, and only the author knows which.
+            const many = refiled.length > 1;
+            step.refiledReactant = `${list} ${many ? 'were' : 'was'} listed under Reactants, and the step balances only if ${many ? 'they take' : 'it takes'} no part, so the check treated ${many ? 'them' : 'it'} as ${many ? 'conditions' : 'a condition'}. Make one edit to this step: move ${list} to Agents, or name under Products the ${many ? 'products they become' : 'product it becomes'}.`;
             reactants.splice(0, reactants.length, ...kept);
             agents.splice(0, agents.length, ...asAgents);
             balance = retried;
@@ -339,8 +788,8 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       // Still refused: when moving one species to the other side makes the step balance (water
       // written as a reactant in an oxidation that forms it), say so — the totals alone did not
       // tell the author which species or which way.
-      if (!balance.balanced) {
-        const flip = agentRoleThatBalances(reactants, agents, products) || sideFlipThatBalances(reactants, agents, products);
+      if (!balance.balanced && !balance.unchecked) {
+        const flip = agentRoleThatBalances(reactants, agents, products, nameOf) || sideFlipThatBalances(reactants, agents, products, nameOf);
         if (flip) balance.differences = balance.differences.map(entry => `${entry} ${flip}`);
       }
       // The solved coefficients travel with the species so the report can show the equation
@@ -353,6 +802,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       step.agents = agents;
       step.products = products;
       step.balanced = balance.balanced;
+      if (balance.unchecked) step.balanceUnchecked = balance.differences.join(' ');
       step.chargeBalanced = balance.chargeBalanced;
       step.differences = balance.differences;
       // Only the species the step makes are the route's responsibility to specify. A purchased
@@ -393,15 +843,26 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       if (!raw || typeof raw.name !== 'string' || !raw.name.trim() || typeof raw.smiles !== 'string' || !raw.smiles.trim()) continue;
       if (raw.role !== 'reactant' && raw.role !== 'product' && raw.role !== 'agent') continue;
       let declared: RouteSpeciesSummary;
-      try { declared = await summarize(raw.smiles); } catch { continue; }
+      try { declared = await summarize(raw.smiles, cache); } catch { continue; }
       const candidates = (Array.isArray(raw.nameSmiles) ? raw.nameSmiles : [])
         .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+      // A structure carrying a dummy atom is an ABSTRACTION: the author has deliberately left
+      // part of it unspecified, an attachment to something not drawn, which is what the engine
+      // itself asks them to do. No catalogue record can match such a structure, so resolving the
+      // name and comparing would report a disagreement that is really just the abstraction —
+      // and the only way to satisfy it would be to write a VAGUER name, one the references
+      // cannot resolve at all. Leave the name unchecked rather than wrong. A dummy atom survives
+      // canonicalisation as `*` and no real species contains one, so the test is exact.
+      const abstracted = declared.canonicalSmiles.includes('*');
       let nameOk: boolean | undefined;
-      if (candidates.length) {
+      if (abstracted) {
+        // Not checked, and deliberately not counted as unresolved: the name resolved fine, it is
+        // the structure that is partly undrawn.
+      } else if (candidates.length) {
         nameOk = false;
         for (const candidate of candidates) {
           try {
-            const resolved = await summarize(candidate);
+            const resolved = await summarize(candidate, cache);
             if (resolved.canonicalSmiles === declared.canonicalSmiles) { nameOk = true; break; }
             if (resolved.skeletonSmiles === declared.skeletonSmiles && resolved.charge === declared.charge) {
               // Same constitution: a name that is silent about stereochemistry is not a
@@ -419,12 +880,12 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       const target = side.find(entry => entry.canonicalSmiles === declared.canonicalSmiles)
         ?? side.find(entry => entry.input === raw.smiles.trim());
       if (target) {
-        target.name = raw.name.trim().slice(0, 200);
+        target.name = raw.name.trim().slice(0, MAX_CHEMICAL_NAME);
         if (raw.byproduct === true) target.byproduct = true;
         if (typeof nameOk === 'boolean') target.nameOk = nameOk;
       }
       if (nameOk === false) {
-        const problem = `the IUPAC name "${raw.name.trim().slice(0, 200)}" denotes a different structure than \`${declared.canonicalSmiles}\`${declared.formula ? ` (${declared.formula})` : ''}`;
+        const problem = `the name "${raw.name.trim().slice(0, 200)}" denotes a different structure than \`${declared.canonicalSmiles}\`${declared.formula ? ` (${declared.formula})` : ''}`;
         (step.nameProblems ??= []).push(problem);
       }
     }
@@ -501,7 +962,7 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
     const declared = typeof carriers[step.index] === 'string' && carriers[step.index] ? carriers[step.index]!.trim() : '';
     if (!declared) continue;
     let canonical: string | null = null;
-    try { canonical = (await summarize(declared)).canonicalSmiles; } catch { canonical = null; }
+    try { canonical = (await summarize(declared, cache)).canonicalSmiles; } catch { canonical = null; }
     const inReactant = canonical ? step.reactants.some(entry => entry.canonicalSmiles === canonical) : false;
     const earlier = canonical ? (producers.get(canonical) ?? []).filter(index => index < step.index) : [];
     const entry = [...linkByKey.values()].find(item => item.to === step.index && item.from < step.index)
@@ -524,21 +985,58 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
   // constitution only is a stereochemistry failure unless the target leaves its stereo open.
   let target: RouteTargetAudit | undefined;
   let requestedWithoutStereo = false;
+  /** How many centres the request itself left open, so a step is held only to what was asked. */
+  let openInTarget = 0;
   const requested = typeof input?.target === 'string' ? input.target.trim() : '';
   if (requested) {
     target = { input: requested, canonicalSmiles: null, formula: null, formedAt: null, reason: 'unparsed' };
     try {
-      const wanted = await summarize(requested);
+      const wanted = await summarize(requested, cache);
       const formedBy = (match: (product: RouteSpeciesSummary) => boolean): number[] =>
         audited.filter(step => step.ok && step.products.some(match)).map(step => step.index);
       const exact = formedBy(product => product.canonicalSmiles === wanted.canonicalSmiles);
       const skeleton = formedBy(product => product.skeletonSmiles === wanted.skeletonSmiles);
-      requestedWithoutStereo = wanted.stereocentres === 0;
-      const formed = exact.length ? exact : wanted.stereocentres === 0 ? skeleton : [];
+      // Whether the request left ANY centre open, which is not the same as leaving them all open.
+      // This used to be `stereocentres === 0` — no stereochemistry anywhere — so a target that
+      // specified one centre and left another open counted as fully specified, and every step was
+      // held to stereochemistry the request had not asked for.
+      openInTarget = wanted.unspecifiedStereocentres;
+      requestedWithoutStereo = openInTarget > 0;
+      // Three ways to have formed it, in falling order of confidence: the same molecule; the same
+      // molecule up to the centres the request left open; or, when the request specified nothing,
+      // the same constitution. The middle one is new and is the case the author's own targets land
+      // in — without it they could not be reported as formed by any route at all.
+      const admitted = openInTarget > 0 && wanted.stereocentres > 0
+        ? (await Promise.all(audited.map(async (step) => {
+          if (!step.ok) return null;
+          for (const product of step.products) {
+            if (await productMatchesTarget(requested, product.input)) return step.index;
+          }
+          return null;
+        }))).filter((index): index is number => index !== null)
+        : [];
+      const formed = exact.length ? exact
+        : admitted.length ? admitted
+        : wanted.stereocentres === 0 ? skeleton : [];
+      const formedAt = formed.length ? Math.max(...formed) : null;
+      // What the route actually chose where the request left the choice open. Measured from the
+      // product, not read out of the answer's prose: the request accepts either configuration, so
+      // choosing one is not an error, but which one it chose is the author's to accept and before
+      // this nothing reported it.
+      const openCentres = formedAt !== null && openInTarget > 0
+        ? await (async () => {
+          for (const product of audited[formedAt].products) {
+            const delivered = await deliveredAtOpenCentres(requested, product.input);
+            if (delivered.length) return delivered;
+          }
+          return [];
+        })()
+        : [];
       target = {
         input: requested, canonicalSmiles: wanted.canonicalSmiles, formula: wanted.formula,
-        formedAt: formed.length ? Math.max(...formed) : null,
+        formedAt,
         reason: formed.length ? 'formed' : skeleton.length ? 'stereo-mismatch' : 'not-formed',
+        ...(openCentres.length ? { openCentres } : {}),
       };
     } catch {
       // Left as `unparsed`: a target that cannot be read says nothing about the route.
@@ -554,7 +1052,16 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
   // aldol adduct → the Wieland–Miescher ketone), or makes an intermediate that is itself lost
   // (isobornyl acetate → isoborneol → camphor) — need not be specified or declared racemic.
   // A target requested with stereo keeps every step held to it.
-  if (target?.reason === 'formed' && target.formedAt !== null && input.stereoChoices && requestedWithoutStereo) {
+  // Runs whenever the target was formed, which is the change. It used to require the target to
+  // have been requested WITHOUT stereochemistry, on the reasoning that a specified target should
+  // hold every step to it. That conflates two different things: a centre that REACHES the target,
+  // which must match it, and a centre DESTROYED before the target, which cannot affect it however
+  // the target was written. Measured on real routes, every open centre in 219 species was a
+  // sulfoxide sulfur — made by an oxidation, removed by the reduction after it, reaching nothing —
+  // and because those routes have fully specified targets the excusal never ran and each one
+  // blocked its step. The enumeration is no longer required either: the zero case is counted
+  // below without it.
+  if (target?.reason === 'formed' && target.formedAt !== null) {
     const organicMains = (step: RouteStepAudit) => step.products.filter(product => !product.byproduct && /C/.test(product.formula ?? ''));
     const lost = new Map<number, boolean>();
     for (let index = audited.length - 1; index >= 0; index -= 1) {
@@ -562,9 +1069,16 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
       if (!step.ok) continue;
       const mains = organicMains(step);
       const settled = mains.length > 0 && mains.every((product) => {
+        // Nothing unspecified is settled by construction, and the toolkit has already counted
+        // that for every species at any size. Asking the enumeration instead answered "unknown"
+        // past 60 heavy atoms, so on a route whose intermediates run to 106 atoms nothing was
+        // ever settled and no centre downstream of them could be excused.
+        if (product.unspecifiedStereocentres === 0) return true;
         const choice = stereoChoiceOf(input.stereoChoices?.[product.input]);
         if (!choice) return false;
-        return choice.open === 0 || (index === target!.formedAt && choice.mirrorOnly);
+        // The mirror clause is only sound where the request left the choice open: delivering the
+        // enantiomer of a target that specified its centres is wrong, not moot.
+        return choice.open === 0 || (index === target!.formedAt && choice.mirrorOnly && requestedWithoutStereo);
       });
       const consumers = links.filter(item => item.from === index && item.to > index && item.ok).map(item => item.to);
       lost.set(index, settled || (consumers.length > 0 && consumers.every(to => lost.get(to) === true)));
@@ -576,15 +1090,31 @@ export async function auditRoute(input: RouteAuditInput): Promise<RouteAudit> {
     }
   }
 
+  // A reason that is already a sentence keeps its own full stop. Every check below ends its
+  // message with one, and appending another put ".." in front of the model on most routes.
+  const sentence = (text: string) => (/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`);
   const blocked: string[] = [];
   for (const step of audited) {
     if (!step.ok) { blocked.push(`Step ${step.index + 1}: ${step.error ?? 'could not be parsed.'}`); continue; }
-    for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${problem}.`);
-    if (!step.balanced) { blocked.push(`Step ${step.index + 1} is not balanced: ${step.differences.join('; ')}.`); continue; }
+    for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${sentence(problem)}`);
+    if (!step.balanced) {
+      blocked.push(step.balanceUnchecked
+        ? `Step ${step.index + 1} was not checked for balance: ${sentence(step.balanceUnchecked)}`
+        : `Step ${step.index + 1} is not balanced: ${sentence(step.differences.join('; '))}`);
+      continue;
+    }
     const packing = checkPerMoleculePacking(step);
-    if (packing !== 'unchecked' && !packing.ok) {
+    if (packing !== 'n/a' && 'unchecked' in packing) {
+      step.assemblyUnchecked = packing.unchecked;
+    } else if (packing !== 'n/a' && !packing.ok) {
       step.assemblyProblem = packing.reason;
-      blocked.push(`Step ${step.index + 1}: ${packing.reason}.`);
+      blocked.push(`Step ${step.index + 1}: ${sentence(packing.reason)}`);
+      continue;
+    }
+    const skeletonProblem = await checkSkeleton(step, { rearrangement: declaredRearrangement(step.index), radical: declaredRadical(step.index) });
+    if (skeletonProblem) {
+      step.skeletonProblem = skeletonProblem;
+      blocked.push(`Step ${step.index + 1}: ${sentence(skeletonProblem)}`);
       continue;
     }
     if (step.unspecifiedStereocentres > 0 && !step.racemic && !step.stereoNotRequired) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);

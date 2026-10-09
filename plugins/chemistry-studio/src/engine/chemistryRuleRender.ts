@@ -9,7 +9,9 @@ import { compileChemfig } from './chemistry';
 import { colourChemfigAtoms } from './elementColours';
 
 export async function renderCheckedMechanism(checked: CheckedMechanism, kit: RDKitModule): Promise<ChemistryMechanismArtifact> {
-  const parts = checked.scenes.map((s, i) => { const source = exportSceneChemfig(s); verifySceneChemfig(source, s, canonicalScene(s, kit), kit); return source.replace(/@\{([ab]\d+)\}/g, `@{m${i}$1}`); });
+  const parts = checked.scenes.map((s, i) => {
+    const arrowBonds = new Set(checked.electronFlow.flatMap(f => [f.from, f.to]).filter(e => e.molecule === i && e.bond != null).map(e => e.bond!));
+    const source = exportSceneChemfig(s, arrowBonds); verifySceneChemfig(source, s, canonicalScene(s, kit), kit); return source.replace(/@\{([ab]\d+)\}/g, `@{m${i}$1}`); });
   const group = (ids: number[]) => ids.map(i => parts[i]).join(' \\arrow{0}[,0.4] \\+ \\arrow{0}[,0.4] ');
   const anchor = (e: { molecule: number; atom?: number; bond?: number }) => `m${e.molecule}${e.atom == null ? `b${e.bond}` : `a${e.atom}`}`;
   const flows = checked.electronFlow.map(flow => {

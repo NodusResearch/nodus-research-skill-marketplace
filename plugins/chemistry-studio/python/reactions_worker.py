@@ -33,6 +33,7 @@ before trusting it. Canonicalisation and the DRFP fingerprint match the offline 
 import hashlib
 import json
 import os
+import subprocess
 import sys
 
 INDEX_FILES = (
@@ -60,50 +61,119 @@ def _versions():
     }
 
 
-def _load(index_dir):
-    """Load the index once per process. Each worker invocation is a fresh process, so this
-    runs per call; the caller batches its lookups into one request to amortise it."""
-    if index_dir in _stores:
-        return _stores[index_dir]
-    import zstandard as zstd
+class _ExactView:
+    """`exact` counts or `samples` of the index, looked up by key on first use. The table ships a
+    `.blocks` sidecar, so one key costs one small zstd frame rather than the whole table."""
 
+    def __init__(self, store, field):
+        self._store, self._field = store, field
+
+    def _row(self, key):
+        rows = self._store._exact_rows
+        if key not in rows:
+            rows[key] = None
+            rows.update(_lookup(os.path.join(self._store.dir, "exact.tsv.zst"), [key]))
+        return rows[key]
+
+    def get(self, key, default=None):
+        row = self._row(key)
+        if row is None:
+            return default
+        if self._field == "count":
+            return int(row[1])
+        return row[2] if len(row) > 2 and row[2] else default
+
+    def __contains__(self, key):
+        return self.get(key) is not None
+
+    def __getitem__(self, key):
+        value = self.get(key)
+        if value is None:
+            raise KeyError(key)
+        return value
+
+
+class _ProductsView:
+    """`products` entries by key. The table has no `.blocks` sidecar, so the wanted keys are
+    collected in one streamed pass (`prefetch`) instead of a dict of the whole table."""
+
+    def __init__(self, store):
+        self._store, self._entries = store, {}
+
+    def prefetch(self, keys):
+        wanted = {key for key in keys if key and key not in self._entries}
+        if not wanted:
+            return
+        found = _lookup(os.path.join(self._store.dir, "products.tsv.zst"), wanted)
+        for key in wanted:
+            row = found.get(key)
+            self._entries[key] = {"count": int(row[1]), "keys": row[2].split(",") if len(row) > 2 and row[2] else []} if row else None
+
+    def get(self, key, default=None):
+        self.prefetch([key])
+        entry = self._entries.get(key)
+        return default if entry is None else entry
+
+
+class _LazyStore:
+    """The index, read only as far as a request needs it.
+
+    `_load` used to decompress the whole index and build dicts of every row before answering:
+    1.94 M exact keys and 1.38 M product entries, 3.9 s and a 3 GB peak, in a fresh process per
+    call, for a request that asks about a few dozen keys (measured 2026-10-09; 18 such calls in a
+    nine-turn trace). The fingerprint index and the key list are loaded only for `similar`."""
+
+    def __init__(self, index_dir):
+        self.dir = index_dir
+        self._exact_rows = {}
+        self._index = None
+        self._keys = None
+        self.views = {"exact": _ExactView(self, "count"), "samples": _ExactView(self, "samples"), "products": _ProductsView(self)}
+
+    def __getitem__(self, name):
+        if name in self.views:
+            return self.views[name]
+        if name == "smiles_path":
+            return os.path.join(self.dir, "reaction-smiles.tsv.zst")
+        if name == "index":
+            if self._index is None:
+                import faiss
+
+                plain = os.path.join(self.dir, "reactions.faiss")
+                if os.path.isfile(plain):
+                    # Written uncompressed by newer builds: mapped, not unpacked (77 MB -> 248 MB a call).
+                    try:
+                        self._index = faiss.read_index_binary(plain, faiss.IO_FLAG_MMAP)
+                    except Exception:
+                        self._index = faiss.read_index_binary(plain)
+                else:
+                    import numpy as np
+                    import zstandard as zstd
+
+                    with open(os.path.join(self.dir, "reactions.faiss.zst"), "rb") as fh:
+                        blob = zstd.ZstdDecompressor().stream_reader(fh).read()
+                    self._index = faiss.deserialize_index_binary(np.frombuffer(blob, dtype=np.uint8))
+            return self._index
+        if name == "keys":
+            if self._keys is None:
+                self._keys = list(_zst_lines(os.path.join(self.dir, "reaction-keys.txt.zst")))
+            return self._keys
+        raise KeyError(name)
+
+
+def _open_store(index_dir):
+    """The lazy store, after the same completeness check `_load` makes."""
     missing = [name for name in INDEX_FILES if not os.path.isfile(os.path.join(index_dir, name))]
     if missing:
         raise SystemExit(f"the reaction index is missing {', '.join(missing)}")
-
-    def read_text(name):
-        with open(os.path.join(index_dir, name), "rb") as fh:
-            return zstd.ZstdDecompressor().stream_reader(fh).read().decode()
-
     from rdkit import RDLogger
 
     RDLogger.DisableLog("rdApp.*")
-
-    exact, samples = {}, {}
-    for line in read_text("exact.tsv.zst").splitlines():
-        key, count, *rest = line.split("\t")
-        exact[key] = int(count)
-        if rest and rest[0]:
-            samples[key] = rest[0]
-
-    products = {}
-    for line in read_text("products.tsv.zst").splitlines():
-        key, count, ids = line.split("\t")
-        products[key] = {"count": int(count), "keys": ids.split(",") if ids else []}
-
-    keys = read_text("reaction-keys.txt.zst").splitlines()
-
-    import faiss
-    import numpy as np
-
-    with open(os.path.join(index_dir, "reactions.faiss.zst"), "rb") as fh:
-        blob = zstd.ZstdDecompressor().stream_reader(fh).read()
-    index = faiss.deserialize_index_binary(np.frombuffer(blob, dtype=np.uint8))
-
-    store = {"exact": exact, "samples": samples, "products": products, "keys": keys, "index": index,
-             "smiles_path": os.path.join(index_dir, "reaction-smiles.tsv.zst")}
-    _stores[index_dir] = store
-    return store
+    # Kept for the life of the process: a served worker then maps the fingerprint index and reads
+    # the key list once, not once per request. `_drop_stale` forgets it when the index changes.
+    if index_dir not in _stores:
+        _stores[index_dir] = _LazyStore(index_dir)
+    return _stores[index_dir]
 
 
 def _canon(smiles):
@@ -318,9 +388,17 @@ _GROUPS = {
     "ether": "[#6][OX2][#6;!$(C=O)]",
 }
 _group_queries = {}
+# Group counts by SMILES. Every proposal for a target counts the target again and many proposals
+# share precursors: 23,034 counts for 11,517 classified proposals in one replayed turn. A count
+# depends on the SMILES alone, so it never goes stale; the cache is only bounded.
+_counts_cache = {}
+COUNTS_CACHE_CAP = 50_000
 
 
 def _counts(smiles):
+    cached = _counts_cache.get(smiles)
+    if cached is not None:
+        return dict(cached)
     from rdkit import Chem
 
     if not _group_queries:
@@ -333,7 +411,10 @@ def _counts(smiles):
             continue
         for name, query in _group_queries.items():
             counts[name] += len(mol.GetSubstructMatches(query))
-    return counts
+    if len(_counts_cache) >= COUNTS_CACHE_CAP:
+        _counts_cache.clear()
+    _counts_cache[smiles] = counts
+    return dict(counts)
 
 
 def _step_classes(reaction):
@@ -366,7 +447,17 @@ def _reaction_classes(precursors, product):
     if up("ester") and before["acid"] and not before["acyl_halide"] and not before["anhydride"]: classes.append("Fischer esterification")
     if up("ester") and (before["acyl_halide"] or before["anhydride"]): classes.append("acylation of an alcohol or phenol")
     if up("amide") and (before["acyl_halide"] or before["anhydride"] or before["ester"] or before["acid"]): classes.append("amide formation by acylation of an amine")
-    if down("ester") and (up("acid") or up("alcohol") or up("ketone")): classes.append("ester hydrolysis")
+    # An ester that disappears is a hydrolysis only when the ACID appears: saponification gives the
+    # acid (or its salt) alongside the alcohol. A hydride reduction gives an alcohol and NO acid,
+    # and used to be labelled "ester hydrolysis" — LiAlH4 on an ester was read that way. These
+    # classes are search terms, and a wrong term retrieves the wrong textbook page, which is worse
+    # than no term. The alcohol test alone is not enough either: in `ester + X -> Y + ethanol` the
+    # leaving group IS an alcohol, so an alcohol appears in almost every ester reaction. A new
+    # carbonyl therefore rules the reduction out — an ester consumed with a ketone appearing is an
+    # organometallic addition, and this claims nothing rather than claiming the wrong thing.
+    if down("ester") and up("acid"): classes.append("ester hydrolysis")
+    elif down("ester") and up("alcohol") and not (up("ketone") or up("aldehyde")):
+        classes.append("reduction of an ester to an alcohol")
     if down("amide") and (up("arylamine") or up("amine")): classes.append("amide hydrolysis (deprotection of an acetamide)")
     if up("acid") and down("nitrile"): classes.append("nitrile hydrolysis")
     if up("acyl_halide") and before["acid"]: classes.append("acid chloride formation with thionyl chloride")
@@ -446,14 +537,18 @@ def _scan(path, wanted, width=None):
 
 
 _block_cache = {}
+# Rows already looked up in a blocked table, by path then key (None: the table has no such row).
+# A served interpreter answers many disconnection calls in a turn, and they look up many of the same
+# molecules and reactions: each lookup decompressed and searched the key's frame again. Dropped with
+# the table's directory (`_drop_stale`), and bounded.
+_row_cache = {}
+ROW_CACHE_CAP = 200_000
 
 
 def _lookup(path, wanted):
     """Rows whose first field is wanted. With a `<path>.blocks` index (a sorted table written as
     independent zstd frames), only the frames that can hold a wanted key are read: milliseconds
     instead of a full scan. Without one, the table is streamed."""
-    import bisect
-
     wanted = set(wanted)
     if not wanted or not os.path.isfile(path):
         # A table an older index does not ship (format 3 has no molecules table) reads as empty.
@@ -461,6 +556,24 @@ def _lookup(path, wanted):
     blocks_path = path + ".blocks"
     if not os.path.isfile(blocks_path):
         return _scan(path, wanted)
+    known = _row_cache.setdefault(path, {})
+    found = {key: list(known[key]) for key in wanted if key in known and known[key] is not None}
+    missing = {key for key in wanted if key not in known}
+    if missing:
+        fresh = _lookup_blocks(path, blocks_path, missing)
+        if len(known) + len(missing) > ROW_CACHE_CAP:
+            known.clear()
+        for key in missing:
+            row = fresh.get(key)
+            known[key] = tuple(row) if row is not None else None
+            if row is not None:
+                found[key] = row
+    return found
+
+
+def _lookup_blocks(path, blocks_path, wanted):
+    import bisect
+
     if path not in _block_cache:
         firsts, spans = [], []
         with open(blocks_path, encoding="utf-8") as fh:
@@ -483,20 +596,63 @@ def _lookup(path, wanted):
         for index, keys in by_block.items():
             offset, length = spans[index]
             fh.seek(offset)
-            for line in decompressor.decompress(fh.read(length)).decode("utf-8").splitlines():
-                tab = line.find("\t")
-                key = line[:tab] if tab >= 0 else line
-                if key in keys:
-                    found[key] = line.split("\t")
+            # Find each wanted key's line directly (anchored at a line start) instead of splitting
+            # the whole frame: a proposal set touches hundreds of frames for a few keys each.
+            text = "\n" + decompressor.decompress(fh.read(length)).decode("utf-8")
+            for key in keys:
+                start = text.find("\n" + key + "\t")
+                if start < 0:
+                    # A key with no further fields fills its whole line.
+                    start = text.find("\n" + key + "\n")
+                    if start < 0 and text.endswith("\n" + key):
+                        start = len(text) - len(key) - 1
+                    if start < 0:
+                        continue
+                end = text.find("\n", start + 1)
+                found[key] = text[start + 1:end if end >= 0 else len(text)].split("\t")
     return found
+
+
+def _audit_flags(index_dir, keys):
+    """The bond-edit audit's flags for recorded reactions that stay cited although the audit flagged
+    them (audit-flags.tsv.zst: key, who decided, flags) — e.g. a rearrangement a record could not
+    declare. Empty for an index built without the audit."""
+    rows = _lookup(os.path.join(index_dir, "audit-flags.tsv.zst"), {k for k in keys if k})
+    return {key: row[2].split(",") for key, row in rows.items() if len(row) > 2 and row[2]}
+
+
+def _tag(items, flags):
+    for item in items:
+        if item.get("key") in flags:
+            item["auditFlags"] = flags[item["key"]]
 
 
 _retro_cache = {}
 _rdchiral_cache = {}
+_retro_screen = {}
+
+
+def _screen_cache_path(path):
+    """Where the pattern screen of a templates file is cached: beside it, named for the file's
+    bytes and everything else the screen depends on, so a changed file or RDKit is a miss."""
+    import hashlib
+    from rdkit import rdBase
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    digest.update(f"screen-v1|{SCREEN_BITS}|{rdBase.rdkitVersion}".encode())
+    return f"{path}.screen-{digest.hexdigest()[:16]}.npz"
 
 
 def _retro_templates(index_dir):
-    """The shipped retro templates with their product-side screen query, parsed once per process."""
+    """The shipped retro templates, parsed once per process. Each row is
+    [count, rdchiral, smarts, query]; `query` is parsed on first use when the screen is cached.
+
+    The screen — one pattern fingerprint per template — took 4.8 s of the 5.7 s this cost per call
+    over 82,940 templates, in a fresh process every call (25 calls in a nine-turn trace, 2026-10-09).
+    It depends only on the file, so it is cached beside it, with the rows it covers."""
     if index_dir in _retro_cache:
         return _retro_cache[index_dir]
     from rdkit import Chem
@@ -507,13 +663,89 @@ def _retro_templates(index_dir):
         # A format-3 index has no retro templates: proposals then come only from recorded reactions.
         _retro_cache[index_dir] = rows
         return rows
-    for line in _zst_lines(path):
+    lines = list(_zst_lines(path))
+    cache = None
+    try:
+        import numpy as np
+
+        cache = _screen_cache_path(path)
+        if os.path.isfile(cache):
+            with np.load(cache, allow_pickle=False) as data:
+                screen, valid = data["screen"], data["valid"]
+            if len(screen) == len(valid) and (not len(valid) or int(valid.max()) < len(lines)):
+                for i in valid.tolist():
+                    count, rdchiral, smarts = lines[i].split("\t", 2)
+                    rows.append([int(count), int(rdchiral), smarts, None])
+                _retro_cache[index_dir] = rows
+                _retro_screen[index_dir] = screen
+                return rows
+    except Exception:
+        rows = []
+    valid = []
+    for i, line in enumerate(lines):
         count, rdchiral, smarts = line.split("\t", 2)
         query = Chem.MolFromSmarts(smarts.split(">>")[0])
         if query is not None:
-            rows.append((int(count), int(rdchiral), smarts, query))
+            rows.append([int(count), int(rdchiral), smarts, query])
+            valid.append(i)
     _retro_cache[index_dir] = rows
+    screen = _pattern_screen([row[3] for row in rows])
+    _retro_screen[index_dir] = screen
+    if cache and screen is not None:
+        # Best effort: an unwritable index directory just means the next call computes it again.
+        try:
+            import numpy as np
+
+            tmp = f"{cache}.{os.getpid()}.tmp.npz"
+            np.savez(tmp, screen=screen, valid=np.asarray(valid, dtype=np.int64))
+            os.replace(tmp, cache)
+            # One screen per templates file: an older one (different bytes or RDKit) is dead weight,
+            # and an index rebuilt by cloning the previous one would carry it forward for ever.
+            stem = os.path.basename(path) + ".screen-"
+            for name in os.listdir(os.path.dirname(cache)):
+                if name.startswith(stem) and name.endswith(".npz") and os.path.join(os.path.dirname(cache), name) != cache:
+                    os.remove(os.path.join(os.path.dirname(cache), name))
+        except Exception:
+            pass
     return rows
+
+
+SCREEN_BITS = 2048
+
+
+def _pattern_bits(mol):
+    """A molecule's or query's RDKit pattern fingerprint as 64-bit words."""
+    import numpy as np
+    from rdkit import Chem, DataStructs
+    bits = np.zeros((SCREEN_BITS,), dtype=np.uint8)
+    DataStructs.ConvertToNumpyArray(Chem.PatternFingerprint(mol, fpSize=SCREEN_BITS), bits)
+    return np.packbits(bits).view(np.uint64)
+
+
+def _pattern_screen(queries):
+    """The templates' product-side pattern fingerprints, one row each. A query can only match a
+    molecule whose pattern fingerprint holds every one of its bits, so one bitwise pass over all
+    templates replaces a substructure search per template (a large index has tens of thousands).
+    None when numpy is unavailable: the plain per-template search then runs."""
+    try:
+        import numpy as np
+        return np.stack([_pattern_bits(q) for q in queries]) if queries else None
+    except Exception:
+        return None
+
+
+def _screened(index_dir, templates, mol):
+    """The templates that may match `mol`, in their ranked order."""
+    screen = _retro_screen.get(index_dir)
+    if screen is None:
+        return templates
+    try:
+        import numpy as np
+        target = _pattern_bits(mol)
+        keep = ~np.any(screen & ~target, axis=1)
+        return [templates[i] for i in np.flatnonzero(keep)]
+    except Exception:
+        return templates
 
 
 def _makes(reaction, target):
@@ -527,7 +759,7 @@ def _makes(reaction, target):
     return target in organic and len(organic) <= 2
 
 
-def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
+def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_seconds=None):
     """For each target: the recorded reactions that make it, and template disconnections ranked by
     (1) the disconnection itself being a recorded reaction, (2) every organic precursor being a
     common ORD reactant, (3) template popularity. A precursor set containing the target is dropped.
@@ -556,6 +788,10 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
     except ImportError:
         rdchiralReaction = None
     templates = _retro_templates(index_dir) if rdchiralReaction else []
+    # The template pass stops at the deadline and keeps what it found; templates run best-ranked
+    # first, so what is cut is the tail. A target cut short, or never reached, is marked partial.
+    import time
+    deadline = time.monotonic() + budget_seconds if budget_seconds else None
     results = []
     for raw in targets:
         target = _canon(raw)
@@ -567,7 +803,13 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
         proposals = {}
         if mol is not None and templates:
             reactants = rdchiralReactants(target)
-            for count, rdchiral, smarts, query in templates:
+            for row in _screened(index_dir, templates, mol):
+                if deadline is not None and time.monotonic() > deadline:
+                    entry["partial"] = True
+                    break
+                count, rdchiral, smarts, query = row
+                if query is None:
+                    query = row[3] = Chem.MolFromSmarts(smarts.split(">>")[0])
                 if not mol.HasSubstructMatch(query):
                     continue
                 try:
@@ -642,6 +884,7 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None):
                 "templates": [smarts for _count, smarts in proposal.get("templates", [])],
                 "recorded": int(row[1]) if row else 0,
                 "samples": (row[2].split(",")[:3] if row and len(row) > 2 and row[2] else []),
+                **({"key": row[0]} if row else {}),
                 "availability": availability,
                 "available": bool(organic) and availability >= AVAILABLE_AS_REACTANT,
                 "uses": {m: as_reactant(m) for m in organic},
@@ -714,7 +957,8 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
 
     if isinstance(index_dirs, str):
         index_dirs = [index_dirs]
-    deadline = time.monotonic() + max(1.0, float(budget_seconds))
+    started = time.monotonic()
+    deadline = started + max(1.0, float(budget_seconds))
     labels = {d: _index_label(d) for d in index_dirs}
     target = _canon(target)
     starts = {c for c in (_canon(s) for s in starting) if c}
@@ -735,7 +979,10 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
                 if time.monotonic() >= deadline:
                     break
                 try:
-                    entries.append((labels[d], _disconnect(d, [m], branch * 3, sorted(starts), stock_dir)[0]))
+                    # The template pass gets what is left of the budget: one large molecule must not
+                    # hold the search past it (and past the host's timeout, which loses every route).
+                    entries.append((labels[d], _disconnect(d, [m], branch * 3, sorted(starts), stock_dir,
+                                                           budget_seconds=max(0.5, deadline - time.monotonic()))[0]))
                 except Exception:
                     continue
             cache[m] = entries
@@ -851,10 +1098,15 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
         leaves = sorted({p for step in route["steps"] for p in step["precursors"] if p not in made})
         route["startingMaterials"] = [{"smiles": p, "given": p in starts, "inStock": purchasable(p)} for p in leaves]
     return {"target": target, "routes": done, "expanded": expanded, "indexes": list(labels.values()),
-            "timedOut": timed_out, "seconds": round(budget_seconds - max(0.0, deadline - time.monotonic()), 1)}
+            "timedOut": timed_out, "seconds": round(time.monotonic() - started, 1)}
 
 
-def _stereo_choices(smiles, max_isomers=64):
+# The stereoChoices call's own budget: the host gives it 60 s in all (productStereoChoices in
+# src/worker.ts), and a reply after that is lost for every species, not only the slow one.
+STEREO_BUDGET_SECONDS = 40.0
+
+
+def _stereo_choices(smiles, max_isomers=64, deadline=None):
     """The stereo choices a structure written without them really leaves open.
 
     Returns {"open": k, "mirrorOnly": bool}, or None when the structure is too large to
@@ -864,11 +1116,13 @@ def _stereo_choices(smiles, max_isomers=64):
     its bridgeheads can only be cis, and cis is meso; 2 for tropinone-2,4-dicarboxylic acid,
     whose bridgeheads are fixed but whose two carboxyl carbons are not). `mirrorOnly` is true
     when the only choice is between two mirror images (camphor written without descriptors),
-    which "racemic" covers."""
+    which "racemic" covers. Past `deadline` (time.monotonic()) no further 3D build is started and
+    TimeoutError is raised: a structure that needs none is still answered."""
     import math
+    import time
     from rdkit import Chem
     from rdkit.Chem import AllChem
-    from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnumerationOptions
+    from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, GetStereoisomerCount, StereoEnumerationOptions
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None or mol.GetNumHeavyAtoms() > 60:
@@ -879,6 +1133,8 @@ def _stereo_choices(smiles, max_isomers=64):
         # for seconds. Both seeds failing marks the isomer as one that cannot exist.
         with_h = Chem.AddHs(isomer)
         for seed in (7, 11):
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError
             params = AllChem.ETKDGv3()
             params.randomSeed = seed
             params.maxIterations = 20
@@ -888,6 +1144,16 @@ def _stereo_choices(smiles, max_isomers=64):
         return False
 
     options = StereoEnumerationOptions(onlyUnassigned=True, unique=True, maxIsomers=max_isomers)
+    # Nothing left unassigned: the one isomer is the structure itself, and the answer is 0 whether
+    # or not it embeds, so no 3D build is needed to say so. Most of a route's species are like this,
+    # and the embedding was most of their time (about 0.15 s each at 50 heavy atoms).
+    count = GetStereoisomerCount(mol, options=options)
+    if count <= 1:
+        return {"open": 0, "mirrorOnly": False}
+    # Past max_isomers RDKit enumerates a random sample, and buildable isomers counted in a sample
+    # say nothing about the whole set: too large to enumerate, without building the sample first.
+    if count > max_isomers:
+        return None
     isomers = sorted({Chem.MolToSmiles(m) for m in EnumerateStereoisomers(mol, options=options) if buildable(m)})
     if len(isomers) >= max_isomers:
         return None
@@ -1132,9 +1398,10 @@ def _attach_conditions(index_dir, items):
 # A protecting group that disappears in a step should have a reagent that removes it.
 _REMOVED_BY = {
     "boc": {"strong-acid"}, "cbz": {"hydrogenation", "strong-acid", "dissolving-metal"},
-    "fmoc": {"amine-base", "hydroxide", "alkoxide", "strong-base"}, "silyl-ether": {"fluoride", "strong-acid"},
+    "fmoc": {"amine-base", "hydroxide", "alkoxide", "strong-base"}, "silyl-ether": {"fluoride", "strong-acid", "aqueous-acid"},
     "benzyl-ether": {"hydrogenation", "dissolving-metal", "strong-acid"}, "benzyl-ester": {"hydrogenation", "hydroxide", "alkoxide", "strong-acid"},
-    "trityl": {"strong-acid", "hydrogenation"}, "acetal": {"strong-acid"}, "tbu-ester": {"strong-acid"},
+    # Aqueous acid is the usual way an acetal, a TMS ether or a trityl group comes off.
+    "trityl": {"strong-acid", "aqueous-acid", "hydrogenation"}, "acetal": {"strong-acid", "aqueous-acid"}, "tbu-ester": {"strong-acid"},
 }
 _compat_cache = {}
 
@@ -1274,6 +1541,106 @@ def _compatibility(steps, textbook_dir=None):
     return results
 
 
+# The most names, or structures, the application sends in one call: SCHEMA_CEILINGS.names and
+# .structures in src/engine/chemistryLimits.ts. A lower cap here sent the rest to the network.
+LOCAL_REFERENCE_LIMIT = 512
+
+
+def _pubchem_mirror(mirror_dir, names, smiles):
+    """Answer name and structure lookups from a local PubChem mirror (built by the application's
+    tools from NCBI's bulk files), so a route's species need no network round trip.
+
+    Only what the mirror can answer DEFINITELY is answered: a name with exactly one CID, a structure
+    whose standard InChIKey has a CID. Everything else is left out and the caller asks the network
+    as before — the bulk synonym list is filtered, so the live service can know a synonym (and so a
+    second match) the mirror does not. Nothing here ever reports "unresolved"."""
+    import pathlib
+    import sqlite3
+
+    path = os.path.join(mirror_dir, "pubchem.sqlite")
+    if not os.path.isfile(path):
+        return {"names": {}, "smiles": {}, "available": False}
+    # as_uri() percent-escapes the path: written raw, a "#" or "?" in a folder name cut the URI short
+    # (SQLite then created an empty database there, read-write) and a "%" was decoded.
+    db = sqlite3.connect(f"{pathlib.Path(path).resolve().as_uri()}?mode=ro", uri=True)
+    out = {"names": {}, "smiles": {}, "available": True}
+
+    def optional(sql, cid):
+        # The formula and IUPAC tables only add to an answer: a mirror built without one still answers.
+        try:
+            return db.execute(sql, (cid,)).fetchone()
+        except sqlite3.OperationalError:
+            return None
+
+    try:
+        for name in names[:LOCAL_REFERENCE_LIMIT]:
+            cids = [row[0] for row in db.execute("SELECT DISTINCT cid FROM synonym WHERE name = ? COLLATE NOCASE LIMIT 2", (name,))]
+            if len(cids) != 1:
+                continue
+            cid = cids[0]
+            row = db.execute("SELECT smiles FROM smiles WHERE cid = ?", (cid,)).fetchone()
+            if not row:
+                continue
+            formula = optional("SELECT formula FROM formula WHERE cid = ?", cid)
+            out["names"][name] = {"cid": cid, "smiles": row[0], **({"formula": formula[0]} if formula else {})}
+        if smiles:
+            from rdkit import Chem, RDLogger
+
+            RDLogger.DisableLog("rdApp.*")
+            for value in smiles[:LOCAL_REFERENCE_LIMIT]:
+                mol = Chem.MolFromSmiles(value)
+                key = Chem.MolToInchiKey(mol) if mol is not None else ""
+                if not key:
+                    continue
+                row = db.execute("SELECT cid FROM inchikey WHERE key = ?", (key,)).fetchone()
+                if not row:
+                    continue
+                cid = row[0]
+                name = optional("SELECT name FROM iupac WHERE cid = ?", cid)
+                formula = optional("SELECT formula FROM formula WHERE cid = ?", cid)
+                out["smiles"][value] = {"cid": cid, "inchikey": key, **({"name": name[0]} if name else {}), **({"formula": formula[0]} if formula else {})}
+    except sqlite3.DatabaseError as error:
+        # Not a database, or one without the tables every answer needs: no mirror at all, so the
+        # caller asks the network exactly as before, and the local OPSIN's answers still go back.
+        # The reason goes back too, so a half-built mirror is logged rather than silently skipped.
+        return {"names": {}, "smiles": {}, "available": False, "error": f"{type(error).__name__}: {error}"}
+    finally:
+        db.close()
+    return out
+
+
+def _opsin_local(opsin_dir, names):
+    """Names parsed by a local OPSIN (the same parser EBI's web service runs), when the application
+    has one: <opsin_dir> holds a `java` link, OPSIN's jar and the OpsinBatch wrapper, which prints
+    per name what the web service returns — status, SMILES, warnings, message. Any failure to run
+    is no answer at all, and the caller uses the web service exactly as before."""
+    java = os.path.join(opsin_dir, "java")
+    jars = [n for n in os.listdir(opsin_dir) if n.startswith("opsin-") and n.endswith(".jar")] if os.path.isdir(opsin_dir) else []
+    if not names or not jars or not os.path.exists(java) or not os.path.isfile(os.path.join(opsin_dir, "OpsinBatch.class")):
+        return {}
+    clean = [n.replace("\n", " ").replace("\r", " ") for n in names[:LOCAL_REFERENCE_LIMIT]]
+    try:
+        run = subprocess.run([java, "-cp", os.pathsep.join([os.path.join(opsin_dir, jars[0]), opsin_dir]), "OpsinBatch"],
+                             input="\n".join(clean) + "\n", capture_output=True, text=True, timeout=120)
+    except Exception:
+        return {}
+    # One line per name, each ending in a newline. Any other count cannot be matched to the names
+    # (a line short used to give the last name an empty status, read as "not a name"), so it is no
+    # answer and the web service is asked.
+    lines = run.stdout.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    if run.returncode != 0 or len(lines) != len(clean):
+        return {}
+    out = {}
+    for name, line in zip(names[:LOCAL_REFERENCE_LIMIT], lines):
+        # The message comes last and may quote the name, tabs and all.
+        status, smiles, warnings, message = (line.split("\t", 3) + ["", "", "", ""])[:4]
+        out[name] = {"status": status, **({"smiles": smiles} if smiles else {}),
+                     **({"warnings": warnings.split("|")} if warnings else {}), **({"message": message} if message else {})}
+    return out
+
+
 def handle(request):
     if "stock" in request:
         stock_dir = request.get("stockDir")
@@ -1294,13 +1661,37 @@ def handle(request):
         textbook = request.get("textbookDir")
         return {"compatibility": _compatibility(steps, textbook if isinstance(textbook, str) and textbook else None)}
     if "stereoChoices" in request:
+        import time
+
+        # A species the budget cuts off is None (no answer), exactly as one that failed.
+        deadline = time.monotonic() + STEREO_BUDGET_SECONDS
         out = {}
         for smiles in [s for s in request.get("stereoChoices", []) if isinstance(s, str) and s.strip()][:48]:
             try:
-                out[smiles] = _stereo_choices(smiles)
+                out[smiles] = _stereo_choices(smiles, deadline=deadline)
             except Exception:
                 out[smiles] = None
         return {"stereoChoices": out}
+    if isinstance(request.get("pubchemDir"), str) or isinstance(request.get("opsinDir"), str):
+        names = [n for n in request.get("pubchemNames", []) if isinstance(n, str) and n.strip()]
+        smiles = [m for m in request.get("pubchemSmiles", []) if isinstance(m, str) and m.strip()]
+        out = {}
+        # Each source fails on its own: a half-built or corrupt mirror reads as no mirror, so the
+        # caller asks the network for those names, and the local OPSIN answers are still returned.
+        if isinstance(request.get("pubchemDir"), str):
+            try:
+                out["pubchem"] = _pubchem_mirror(request["pubchemDir"], names, smiles)
+            except Exception as error:
+                reason = f"{type(error).__name__}: {error}"[:300]
+                print(f"PubChem mirror unusable: {reason}", file=sys.stderr)
+                out["pubchem"] = {"names": {}, "smiles": {}, "available": False, "error": reason}
+        if isinstance(request.get("opsinDir"), str):
+            try:
+                out["opsin"] = _opsin_local(request["opsinDir"], names)
+            except Exception as error:
+                print(f"Local OPSIN unusable: {type(error).__name__}: {error}"[:300], file=sys.stderr)
+                out["opsin"] = {}
+        return out
     index_dir = request.get("indexDir")
     index_dirs = [d for d in request.get("indexDirs", []) if isinstance(d, str) and d][:4] if isinstance(request.get("indexDirs"), list) else []
     if not index_dirs and isinstance(index_dir, str) and index_dir:
@@ -1320,11 +1711,17 @@ def handle(request):
         limit = max(1, min(int(request.get("limit", 8) or 8), 32))
         starting = [s for s in request.get("startingMaterials", []) if isinstance(s, str) and s.strip()][:16]
         missing = [name for name in ("retro-templates.tsv.zst", "molecules.tsv.zst") if not os.path.isfile(os.path.join(index_dir, name))]
-        disconnections = _disconnect(index_dir, targets, limit, starting, request.get("stockDir"))
-        _attach_conditions(index_dir, [r for entry in disconnections for r in ((entry.get("madeBy") or {}).get("reactions") or [])]
-                           + [p for entry in disconnections for p in entry.get("proposals", []) if p.get("recorded")])
+        budget = request.get("budgetSeconds")
+        budget = max(5.0, min(float(budget), 230.0)) if isinstance(budget, (int, float)) and budget > 0 else None
+        disconnections = _disconnect(index_dir, targets, limit, starting, request.get("stockDir"), budget_seconds=budget)
+        recorded = ([r for entry in disconnections for r in ((entry.get("madeBy") or {}).get("reactions") or [])]
+                    + [p for entry in disconnections for p in entry.get("proposals", []) if p.get("recorded")])
+        _attach_conditions(index_dir, recorded)
+        _tag(recorded, _audit_flags(index_dir, [item.get("key") for item in recorded]))
         return {"disconnections": disconnections, **({"indexLacks": missing} if missing else {})}
-    store = _load(index_dir)
+    store = _open_store(index_dir)
+    if isinstance(store, _LazyStore):
+        store["products"].prefetch({_side(p) for p in request.get("products", [])[:32] if _side(p)})
 
     reactions = []
     for reaction in request.get("reactions", [])[:32]:
@@ -1366,6 +1763,9 @@ def handle(request):
             entry["samples"] = store["samples"][entry["key"]].split(",")[:3]
         if entry["count"] and entry["key"] in drawn:
             entry["reaction"] = drawn[entry["key"]]
+    flags = _audit_flags(index_dir, matched + near)
+    _tag([entry for entry in reactions if entry["count"]], flags)
+    _tag([neighbor for item in similar for neighbor in item["neighbors"]], flags)
     exact_inputs = {entry["input"] for entry in reactions if entry["count"]}
     # The closest recorded reaction of a step with no exact match: its sample ids, so it can be
     # cited with its conditions like an exact match.
@@ -1392,7 +1792,95 @@ def handle(request):
     return {"reactions": reactions, "products": products, "similar": similar}
 
 
+_dir_signatures = {}
+RDCHIRAL_CACHE_CAP = 5000
+
+
+def _dir_signature(path):
+    """Names, sizes and modification times of a directory's files: what changes when an index is
+    downloaded again or a stock list is imported again into the same directory."""
+    try:
+        return tuple(sorted((entry.name, entry.stat().st_size, entry.stat().st_mtime_ns) for entry in os.scandir(path) if entry.is_file()))
+    except OSError:
+        return None
+
+
+def _cached_dirs():
+    return set(_stores) | set(_retro_cache) | set(_retro_screen) | set(_STOCK_CACHE) | set(_SKELETON_CACHE) | {os.path.dirname(path) for path in _block_cache} | {os.path.dirname(path) for path in _row_cache}
+
+
+def _drop_stale():
+    """Forget every per-directory cache whose directory changed since the request that filled it.
+
+    A one-shot process could never see a stale table; a served one lives across requests, so an
+    index rebuilt or a stock list re-imported under the same path must not be answered from the
+    tables of the previous one."""
+    for path in _cached_dirs():
+        if path in _dir_signatures and _dir_signatures[path] == _dir_signature(path):
+            continue
+        for cache in (_stores, _retro_cache, _retro_screen, _STOCK_CACHE, _SKELETON_CACHE):
+            cache.pop(path, None)
+        for key in [key for key in _block_cache if os.path.dirname(key) == path]:
+            del _block_cache[key]
+        for key in [key for key in _row_cache if os.path.dirname(key) == path]:
+            del _row_cache[key]
+        _dir_signatures.pop(path, None)
+    # Parsed templates are keyed by their own text, so they never go stale, but a process that serves
+    # many targets would otherwise keep every template it ever applied.
+    if len(_rdchiral_cache) > RDCHIRAL_CACHE_CAP:
+        _rdchiral_cache.clear()
+
+
+def _note_cached():
+    """What each directory a request has just cached looked like, for `_drop_stale` to compare."""
+    for path in _cached_dirs():
+        if path not in _dir_signatures:
+            _dir_signatures[path] = _dir_signature(path)
+
+
+def serve():
+    """Answer requests until stdin closes, so the interpreter, RDKit and the index's parsed tables
+    are paid for once rather than once per request.
+
+    One request per line in, {"id", "stdin"}, where "stdin" is exactly what a one-shot run reads;
+    one reply per line out, {"id", "code", "stdout", "stderr"}, with what a one-shot run would have
+    exited with and printed. The reply channel is a private copy of stdout: everything else written
+    to stdout, from Python or from a C library, goes to stderr instead and never into a reply."""
+    import traceback
+
+    channel = os.fdopen(os.dup(1), "w", encoding="utf-8", newline="\n")
+    os.dup2(2, 1)
+    sys.stdout = sys.stderr
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            message = json.loads(line)
+            request_id = message.get("id")
+        except Exception:
+            continue
+        code, stdout, stderr = 0, "", ""
+        try:
+            _drop_stale()
+            try:
+                stdout = json.dumps(handle(json.loads(message.get("stdin") or "{}"))) + "\n"
+            finally:
+                _note_cached()
+        except SystemExit as stop:
+            code = stop.code if isinstance(stop.code, int) else 1
+            stderr = "" if isinstance(stop.code, int) or stop.code is None else str(stop.code)
+        except Exception:
+            code, stderr = 1, traceback.format_exc()[-8000:]
+        channel.write(json.dumps({"id": request_id, "code": code, "stdout": stdout, "stderr": stderr}) + "\n")
+        channel.flush()
+
+
 def main():
+    # The host asks for the loop by environment, so a host that does not know it runs the same
+    # arguments once per call, as before.
+    if "--serve" in sys.argv[1:] or os.environ.get("NODUS_PYTHON_SERVE") == "1":
+        serve()
+        return
     if "--check" in sys.argv[1:]:
         print(json.dumps(_versions()))
         return

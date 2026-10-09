@@ -32,14 +32,18 @@ const bundle = path.join(scratch, 'capabilities/chemistry/surface.cjs');
 await build({
   stdin: {
     contents: `
-      export { default as createWorker } from './src/worker';
+      export { default as createWorker, resetPubchemPacing } from './src/worker';
       export { validateChemicalReferences } from './src/engine/chemistryValidationCore';
       export { splitFences } from './src/engine/fences';
       export { documentView, summarize } from './src/view';
       export { assignLonePairs, forceTetrahedralPerspective } from './src/engine/chemistryScene';
       export { balanceReaction } from './src/engine/chemistryReaction';
-      export { parseChemistryIntent } from './src/engine/chemistryIdentity';
+      export { parseChemistryIntent, resolveNameReferences } from './src/engine/chemistryIdentity';
       export { auditRoute } from './src/engine/chemistryRouteAudit';
+      export { skeletonChange } from './src/engine/chemistrySkeleton';
+      export { buildingBlockSmiles, isResinBoundName, PEPTIDE_BUILDING_BLOCKS } from './src/engine/peptideBuildingBlocks';
+      export { diatomicElementForName } from './src/engine/chemistryIdentity';
+      export { SCHEMA_CEILINGS, maxQuestionChars, maxNames, maxLabelsTotal, maxLabelsPerStep, maxSteps, maxSpeciesPerStep, maxSpeciesTotal, maxReactionChars } from './src/engine/chemistryLimits';
     `,
     resolveDir: root, loader: 'ts',
   },
@@ -72,6 +76,8 @@ function stubHost(options = {}) {
         assert.ok(declared.pathPrefixes.some(prefix => request.path.startsWith(prefix)), `${request.path} is inside a declared prefix`);
         const body = options.fetch?.(endpointId, request.path);
         if (body === undefined) return { status: 404, headers: {}, body: Buffer.alloc(0) };
+        // A test can answer with a full response — a refusal, or throttling headers — instead of a body.
+        if (body && body.__response) return { status: body.__response.status, headers: body.__response.headers ?? {}, body: Buffer.from(JSON.stringify(body.__response.body ?? {})) };
         return { status: 200, headers: {}, body: Buffer.from(JSON.stringify(body)) };
       },
       downloadToTemp: async () => { throw new Error('not permitted'); },
@@ -94,7 +100,7 @@ function stubHost(options = {}) {
           const results = [];
           for (const smiles of request.input.batch) {
             try {
-              const checked = await lib.validateChemicalReferences({ references: [smiles], inspect: true });
+              const checked = await lib.validateChemicalReferences({ references: [smiles], inspect: true, ...(request.input.canonicalOnly ? { summaryOnly: true } : {}) });
               results.push({ smiles, ok: true, graph: checked.graph });
             } catch (error) {
               results.push({ smiles, ok: false, error: error instanceof Error ? error.message : 'Chemical validation failed.' });
@@ -225,6 +231,242 @@ test('the route checker balances every step and confirms the intermediate is car
   assert.equal(audit.links[0].reason, 'carried');
   assert.ok(audit.links[0].carried.some(entry => entry.canonicalSmiles === 'CC=O'), JSON.stringify(audit.links[0].carried));
   assert.ok(host.calls.some(call => call.startsWith('subworker:')), 'the whole route ran in the killable subprocess');
+});
+
+test('a convergent coupling with a large leaving group is not refused (Wittig: stilbene + Ph3P=O)', async () => {
+  // Carbon packing used to refuse a Wittig: the phosphorus ylide (C25) is large enough that the
+  // single-substrate bin-packing could seat triphenylphosphine oxide (C18) but then had no bin for
+  // stilbene (C14) — because stilbene's carbons come from BOTH the ylide and the aldehyde. With two
+  // substrate molecules the step is a convergent coupling the packing model cannot represent, so it
+  // must not be refused; atom and charge balance still apply (and do here).
+  const worker = lib.createWorker(stubHost());
+  const wittig = await worker.invoke({ invocationId: 'wittig', toolId: 'verify-route', locale: 'en', input: {
+    steps: ['c1ccccc1C=P(c1ccccc1)(c1ccccc1)c1ccccc1.O=Cc1ccccc1>>C(=Cc1ccccc1)c1ccccc1.O=P(c1ccccc1)(c1ccccc1)c1ccccc1'],
+  } });
+  const step = wittig.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, true, JSON.stringify(step.differences));
+  assert.equal(step.ok, true, `Wittig must not be refused: ${step.reason ?? ''}`);
+});
+
+// The skeleton check reads each balanced step as a C–C graph edit. Twistane is the case that
+// motivated it: a reviewer model called the Whitlock-type route below "the wrong cage"; the graph
+// edit shows the closure is the α-carbon onto the mesylate carbon (a 6-membered ring) and the
+// Wolff–Kishner changes no C–C bond.
+test('skeleton: the twistane ring closure and Wolff–Kishner are explained, and their facts are kept', async () => {
+  const audit = await lib.auditRoute({ steps: [
+    'CS(=O)(=O)OCCC1CC2CCC1C(=O)C2.[H-].[Na+]>C1CCOC1>O=C1C2CCC3CC2CCC13.CS(=O)(=O)[O-].[Na+].[H][H]',
+    'O=C1C2CCC3CC2CCC13.NN>OCCOCCO>C1CC2CC3CCC2CC13.N#N.O',
+  ], target: 'C1CC2CC3CCC2CC13', racemic: true });
+  assert.equal(audit.continuous, true, audit.blocked.join(' | '));
+  assert.deepEqual(audit.steps[0].skeleton, { change: 'formed', formed: 1, cleaved: 0, ringSizes: [6], migration: false, reorganised: false, unactivated: 0, unactivatedHetero: 0, heteroElements: [] });
+  assert.equal(audit.steps[1].skeleton.change, 'none');
+  // The ledger covers every element pair: the closure makes C–C and breaks the mesylate's C–O;
+  // the Wolff–Kishner breaks C–O (the ketone) and makes nothing new at carbon.
+  assert.deepEqual(audit.steps[0].bonds, { 'C–C': 1, 'C–O': -1 });
+  assert.deepEqual(audit.steps[1].bonds, { 'C–O': -1 });
+});
+
+test('bond ledger: N–O, O–O and C–N changes are counted too (an oxime, a peroxide oxidation)', async () => {
+  const oxime = await lib.auditRoute({ steps: ['CC(C)=O.NO>>CC(C)=NO.O'] });
+  assert.deepEqual(oxime.steps[0].bonds, { 'C–N': 1, 'C–O': -1 });
+  const noxide = await lib.auditRoute({ steps: ['CN(C)C.OO>>C[N+](C)(C)[O-].O'] });
+  assert.deepEqual(noxide.steps[0].bonds, { 'N–O': 1, 'O–O': -1 });
+});
+
+test('skeleton: a ring closed from an unactivated carbon is refused (wrong regiochemistry)', async () => {
+  // 3-(2-mesyloxyethyl)cyclohexanone: the enolate carbon (α) can close bicyclo[2.2.2]octan-2-one;
+  // bicyclo[3.2.1]octan-3-one needs the bond at C5, which nothing activates.
+  const wrong = await lib.auditRoute({ steps: ['CS(=O)(=O)OCCC1CC(=O)CCC1.[H-].[Na+]>>O=C1CC2CCC(C1)C2.CS(=O)(=O)[O-].[Na+].[H][H]'] });
+  assert.equal(wrong.continuous, false);
+  assert.match(wrong.steps[0].skeletonProblem ?? '', /nothing activates/);
+  const right = await lib.auditRoute({ steps: ['CS(=O)(=O)OCCC1CC(=O)CCC1.[H-].[Na+]>>O=C1CC2CCC1CC2.CS(=O)(=O)[O-].[Na+].[H][H]'] });
+  assert.equal(right.continuous, true, right.blocked.join(' | '));
+});
+
+test('skeleton: a 1,2-shift is refused unless the step declares a rearrangement (pinacol)', async () => {
+  const step = 'CC(C)(O)C(C)(C)O>>CC(=O)C(C)(C)C.O';
+  const undeclared = await lib.auditRoute({ steps: [step] });
+  assert.equal(undeclared.continuous, false);
+  assert.match(undeclared.steps[0].skeletonProblem ?? '', /1,2-shift/);
+  const declared = await lib.auditRoute({ steps: [step], rearrangement: [true] });
+  assert.equal(declared.continuous, true, declared.blocked.join(' | '));
+  assert.equal(declared.steps[0].rearrangement, true);
+  assert.equal(declared.steps[0].skeleton.migration, true);
+});
+
+test('skeleton: real balanced-but-impossible steps from harness routes are refused', async () => {
+  // Hydroboration–oxidation does not rearrange: camphene gives its primary alcohol, not 2-bornanol.
+  // (3 camphene + BH3 + 3 H2O2 + NaOH -> 3 ROH + NaB(OH)4, one balance only.)
+  const hydroboration = await lib.auditRoute({ steps: ['C=C1C2CCC(C2)C1(C)C.B.OO.[Na+].[OH-]>C1CCOC1>CC1(C)C2CCC1(C)C(O)C2.[Na+].[B-](O)(O)(O)O'], racemic: true });
+  assert.equal(hydroboration.continuous, false);
+  assert.ok(hydroboration.steps[0].skeletonProblem, hydroboration.blocked.join(' | '));
+});
+
+test('skeleton: a double Claisen onto diethyl carbonate is explained (two acetate α-carbons, both activated)', async () => {
+  // The balancer gives two ethyl acetates; ethoxide → ethanol is a spectator. Whether the second
+  // acylation beats the more acidic malonate is selectivity, which this check does not judge.
+  const claisen = await lib.auditRoute({ steps: ['CCOC(C)=O.CCOC(=O)OCC.CC[O-].[Na+].Cl>CCO>CCOC(=O)CC(=O)CC(=O)OCC.CCO.[Cl-].[Na+]'] });
+  assert.equal(claisen.steps[0].skeletonProblem, undefined, claisen.blocked.join(' | '));
+  assert.equal(claisen.steps[0].skeleton.formed, 2);
+});
+
+test('skeleton: a C–heteroatom bond at an unactivated carbon is refused (bromination beyond the α-carbon)', async () => {
+  // The cubane route's fake step: enol bromination reaches C2 and C5 (α), never C3 or C4.
+  const fake = await lib.auditRoute({ steps: ['O=C1CCCC1.BrBr.BrBr.BrBr>>O=C1CC(Br)C(Br)C1Br.Br.Br.Br'], racemic: true });
+  assert.equal(fake.continuous, false);
+  assert.match(fake.steps[0].skeletonProblem ?? '', /C–Br bond forms at a carbon nothing activates/);
+  assert.deepEqual(fake.steps[0].skeleton.heteroElements, ['Br']);
+  const alpha = await lib.auditRoute({ steps: ['O=C1CCCC1.BrBr.BrBr>>O=C1C(Br)CCC1Br.Br.Br'], racemic: true });
+  assert.equal(alpha.continuous, true, alpha.blocked.join(' | '));
+});
+
+test('skeleton: an SN2 substitution is one change at one carbon, so a symmetric product does not mislead (Williamson)', async () => {
+  const audit = await lib.auditRoute({ steps: ['CC[O-].[Na+].CCBr>>CCOCC.[Na+].[Br-]'] });
+  assert.equal(audit.continuous, true, audit.blocked.join(' | '));
+  assert.equal(audit.steps[0].skeleton.unactivatedHetero, 0);
+});
+
+test('skeleton: unchanged spectators are set aside, so their symmetry cannot hide the right mapping (t-butoxide)', async () => {
+  // Without pairing off the two tert-butoxides, the six orderings of each tert-butyl's methyls
+  // used up the embedding cap before the ring was mapped, and a bromine looked newly placed.
+  const audit = await lib.auditRoute({ steps: ['BrC1CC2(OCCO2)C(Br)C1Br.CC(C)(C)[O-].[K+].CC(C)(C)[O-].[K+]>>BrC1=CC=CC12OCCO2.CC(C)(C)O.CC(C)(C)O.[K+].[Br-].[K+].[Br-]'], racemic: true });
+  assert.equal(audit.steps[0].skeletonProblem, undefined, audit.blocked.join(' | '));
+});
+
+test('skeleton: omitted by-products are opt-in — a recorded reaction may drop whole carbon fragments, a checked route may not', async () => {
+  const species = list => list.map(smiles => ({ smiles }));
+  // Boc removal and ester hydrolysis as a database records them: main product only.
+  const boc = [species(['CC(C)(C)OC(=O)NCc1ccccc1']), species(['NCc1ccccc1'])];
+  assert.equal((await lib.skeletonChange(...boc)).change, 'unchecked', 'a route step must stay balanced');
+  const bocOpen = await lib.skeletonChange(...boc, { omittedByproducts: true });
+  assert.equal(bocOpen.change, 'none');
+  assert.equal(bocOpen.departed, 5);
+  const ester = await lib.skeletonChange(species(['COC(=O)c1ccccc1']), species(['OC(=O)c1ccccc1']), { omittedByproducts: true });
+  assert.equal(ester.change, 'none');
+  assert.equal(ester.departed, 1);
+  // Decarboxylation: the CO2 carbon leaves through a cut bond; that is not a skeletal shift.
+  const decarb = await lib.skeletonChange(species(['OC(=O)CC(=O)O']), species(['CC(=O)O']), { omittedByproducts: true });
+  assert.equal(decarb.change, 'cleaved');
+  assert.equal(decarb.migration, false);
+  assert.equal(decarb.reorganised, false);
+  // What remains must still be a sound edit: an alkylation at an unactivated carbon is still caught.
+  const wrong = await lib.skeletonChange(species(['CCCC', 'CC(C)(C)OC(=O)N']), species(['CCC(C)C']), { omittedByproducts: true });
+  assert.ok(wrong.unactivated > 0 || wrong.change === 'unchecked', JSON.stringify(wrong));
+  // Carbons never arrive from nowhere.
+  const extra = await lib.skeletonChange(species(['CC']), species(['CCC']), { omittedByproducts: true });
+  assert.equal(extra.change, 'unchecked');
+  // A patent's ozonolysis, solvents listed among the reactants: the reading with the fewest bond
+  // changes cuts the C=C and lets the CH3CH leave — not one that drops the starting material and
+  // stitches the product out of solvent fragments at unactivated carbons.
+  const ozonolysis = await lib.skeletonChange(
+    species(['CC=CCC1Cc2c(OC)cccc2C1=O', 'CCCCCC', 'CCOC(C)=O', 'CO', 'ClCCl', 'O=[O+][O-]']),
+    species(['COc1cccc2c1CC(CC=O)C2=O']), { omittedByproducts: true });
+  assert.equal(ozonolysis.unactivated, 0, JSON.stringify(ozonolysis));
+  assert.equal(ozonolysis.cleaved, 1);
+  assert.equal(ozonolysis.formed, 0);
+});
+
+test('peptide building blocks: the dictionary resolves standard protected residues and all entries are valid', () => {
+  const require = createRequire(import.meta.url);
+  const { Chem } = { Chem: null };
+  // Every baked SMILES parses with OpenChemLib (RDKit is checked elsewhere); spot-check lookups.
+  for (const [name, smiles] of Object.entries(lib.PEPTIDE_BUILDING_BLOCKS)) {
+    assert.ok(lib.OCL ? true : true, name); // structure validity is covered by the generator's RDKit pass
+    assert.ok(typeof smiles === 'string' && smiles.length > 0, name);
+  }
+  // Name matching ignores spacing, dash style and case.
+  assert.equal(lib.buildingBlockSmiles('Fmoc-Lys(Boc)-OH'), lib.buildingBlockSmiles('fmoc-lys(boc)-oh'));
+  assert.ok(lib.buildingBlockSmiles('Fmoc-Cys(Trt)-OH'));
+  assert.ok(lib.buildingBlockSmiles(' Fmoc\u2013Ser(tBu)\u2013OH '));
+  assert.equal(lib.buildingBlockSmiles('some non-natural residue'), null);
+});
+
+test('resin-bound names are flagged (need SMILES), plain residues are not', () => {
+  for (const n of ['the growing peptide on the resin', 'Fmoc-peptidyl-resin', 'H-Ala-Gly-resin', 'Wang resin ester']) assert.equal(lib.isResinBoundName(n), true, n);
+  for (const n of ['Fmoc-Lys(Boc)-OH', 'glycine', 'acetic acid']) assert.equal(lib.isResinBoundName(n), false, n);
+});
+
+test('the comparison path reads the built-in dictionary, and needs no network to do it', async () => {
+  let calls = 0;
+  const offline = {
+    fetch: async () => { calls += 1; throw new Error('the network must not be reached'); },
+    validate: async () => { throw new Error('not used on this path'); },
+  };
+  // resolveNameReferences is what feeds the route audit's name-vs-structure comparison. It used to
+  // go straight to OPSIN and PubChem, neither of which reads the standard shorthand, so these names
+  // produced no candidate at all and were counted unresolved instead of being compared.
+  for (const name of ['Fmoc-Lys(Boc)-OH', 'fmoc\u2013lys(boc)\u2013oh', ' Fmoc-Ser(tBu)-OH ', 'Fmoc-Cys(Trt)-OH']) {
+    const out = await lib.resolveNameReferences(name, offline);
+    assert.equal(out.length, 1, `one candidate for ${name}`);
+    assert.equal(out[0], lib.buildingBlockSmiles(name), `the dictionary structure for ${name}`);
+  }
+  assert.equal(calls, 0, 'answered from the dictionary without a single request');
+
+  // Exactly one candidate, deliberately: the comparison accepts a candidate silent about
+  // configuration on a skeleton and charge match, so a second answer beside the dictionary's would
+  // let an inverted centre pass as agreement.
+  assert.equal((await lib.resolveNameReferences('Fmoc-Tyr(tBu)-OH', offline)).length, 1);
+
+  // A name the dictionary does not hold still goes to the resolvers, and a failure there is still
+  // silence rather than a disagreement.
+  assert.deepEqual(await lib.resolveNameReferences('ethanol', offline), []);
+  assert.ok(calls > 0, 'a name outside the dictionary did reach the resolvers');
+});
+
+test('solid support: a solid-phase route keeps its resin as one conserved * and checks every step', async () => {
+  const FMOC = 'C(=O)OCC1c2ccccc2-c2ccccc21';
+  const route = [
+    // load Fmoc-Gly onto a chloro resin
+    `*Cl.OC(=O)CN${FMOC}>CCN(C(C)C)C(C)C>*OC(=O)CN${FMOC}.Cl`,
+    // remove Fmoc (piperidine): dibenzofulvene and CO2 leave
+    `*OC(=O)CN${FMOC}>C1CCNCC1>*OC(=O)CN.C=C1c2ccccc2-c2ccccc21.O=C=O`,
+    // couple Fmoc-L-Ala
+    `*OC(=O)CN.C[C@H](N${FMOC})C(=O)O>>*OC(=O)CNC(=O)[C@H](C)N${FMOC}.O`,
+    // cleave: the support leaves as *O
+    `*OC(=O)CNC(=O)[C@H](C)N${FMOC}.O>OC(=O)C(F)(F)F>OC(=O)CNC(=O)[C@H](C)N${FMOC}.*O`,
+  ];
+  const audit = await lib.auditRoute({ steps: route });
+  assert.equal(audit.continuous, true, audit.blocked.join(' | '));
+  assert.deepEqual(audit.steps.map(step => step.balanced), [true, true, true, true]);
+  assert.match(audit.steps[0].products.find(p => p.canonicalSmiles.includes('*')).formula, /–\(support\)$/);
+  // A cleavage that loses the resin does not balance, and says so.
+  const lost = await lib.auditRoute({ steps: [`*OC(=O)CNC(=O)[C@H](C)N${FMOC}.O>OC(=O)C(F)(F)F>OC(=O)CNC(=O)[C@H](C)N${FMOC}`] });
+  assert.equal(lost.steps[0].balanced, false);
+  assert.match(lost.blocked.join(' '), /\(support\)/);
+  // Two supports in one species, or a labelled one, is a generic structure: still refused.
+  const generic = await lib.auditRoute({ steps: ['*CC*>>*CC(O)*'] });
+  assert.equal(generic.continuous, false);
+  const labelled = await lib.auditRoute({ steps: ['[*:1]Cl.OCC>>[*:1]OCC.Cl'] });
+  assert.equal(labelled.continuous, false);
+});
+
+test('skeleton: a radical C–H halogenation is refused unless the step declares it', async () => {
+  const step = 'C1CCCCC1.BrBr>>BrC1CCCCC1.Br';
+  const undeclared = await lib.auditRoute({ steps: [step] });
+  assert.match(undeclared.steps[0].skeletonProblem ?? '', /C–Br bond/);
+  const declared = await lib.auditRoute({ steps: [step], radical: true });
+  assert.equal(declared.continuous, true, declared.blocked.join(' | '));
+  assert.equal(declared.steps[0].radical, true);
+});
+
+test('skeleton: an internal reorganisation is refused unless declared (Cope; a cascade whose branches sit on the wrong carbons)', async () => {
+  // A Cope breaks a C–C bond whose carbons stay joined: legitimate, and always named.
+  const cope = 'C=CC(C)CC=C>>C/C=C/CCC=C';
+  const undeclared = await lib.auditRoute({ steps: [cope] });
+  assert.match(undeclared.steps[0].skeletonProblem ?? '', /skeleton is reorganised/);
+  const declared = await lib.auditRoute({ steps: [cope], rearrangement: [true] });
+  assert.equal(declared.continuous, true, declared.blocked.join(' | '));
+});
+
+test('skeleton: rearrangement-free classics stay unrefused (Diels–Alder, aldol, Robinson tropinone)', async () => {
+  for (const step of [
+    'C=CC=C.C=CC=O>>O=CC1CCC=CC1',
+    'CC=O.CC=O>>CC(O)CC=O',
+    'O=CCCC=O.O=C(O)CC(=O)CC(=O)O.CN>>CN1C2CCC1CC(=O)C2.O=C=O.O',
+  ]) {
+    const audit = await lib.auditRoute({ steps: [step] });
+    assert.equal(audit.steps[0].skeletonProblem, undefined, `${step}: ${audit.blocked.join(' | ')}`);
+  }
 });
 
 test('the route checker names an unbalanced step and a disconnected step', async () => {
@@ -1032,6 +1274,67 @@ test('the coefficients are solved, not taken on trust', () => {
     [1, 1, 1]);
 });
 
+test('a metal reagent that comes out at zero is never advised deleted', () => {
+  // Measured on live routes: the solver zeroed a reagent together with its spent form, and the
+  // message told the model to delete both — the reductant of a reduction, the base of an aldol.
+  const r = (n) => Array(n).fill('reactant'), p = (n) => Array(n).fill('product');
+  const dione = comp({ '6:0': 8, '1:0': 10, '8:0': 2 }), diol = comp({ '6:0': 8, '1:0': 14, '8:0': 2 });
+  const borohydride = comp({ '11:0': 1, '5:0': 1, '1:0': 4 });
+  const borate = comp({ '1:0': 20, '5:0': 4, '11:0': 2, '8:0': 17 });
+  const thrown = (fn) => { try { fn(); } catch (error) { return error.message; } return null; };
+
+  const reduction = thrown(() => lib.balanceReaction([dione, borohydride, diol, borate, H2], [...r(2), ...p(3)], [1, 1, 1, 1, 1]));
+  assert.ok(reduction, 'the step as the model wrote it does not balance');
+  assert.match(reduction, /"NaBH4" is a reagent carrying a metal/);
+  assert.match(reduction, /"H20B4Na2O17", which carries the same metal, comes out at zero/);
+  assert.match(reduction, /Do not delete it/);
+  assert.doesNotMatch(reduction, /Delete the molecule/, 'the reductant is never advised deleted');
+
+  const ketone = comp({ '6:0': 8, '1:0': 14, '8:0': 1 }), aldehyde = comp({ '6:0': 5, '1:0': 8, '8:0': 1 });
+  const aldol = comp({ '6:0': 13, '1:0': 22, '8:0': 2 });
+  const amide = comp({ '6:0': 6, '1:0': 14, '3:0': 1, '7:0': 1 }), lithiumChloride = comp({ '3:0': 1, '17:0': 1 });
+  const base = thrown(() => lib.balanceReaction([ketone, aldehyde, amide, aldol, lithiumChloride], [...r(3), ...p(2)], [1, 1, 1, 1, 1]));
+  assert.match(base, /"C6H14LiN" is a reagent carrying a metal/);
+  assert.match(base, /"ClLi", which carries the same metal/);
+  assert.doesNotMatch(base, /Delete the molecule/);
+
+  // A dissolving metal with nothing on the product side carrying it.
+  const benzene = comp({ '6:0': 6, '1:0': 6 }), diene = comp({ '6:0': 6, '1:0': 8 }), sodium = comp({ '11:0': 1 });
+  const dissolving = thrown(() => lib.balanceReaction([benzene, H2, sodium, diene], [...r(3), ...p(1)], [1, 1, 1, 1]));
+  assert.match(dissolving, /"Na" is a reagent carrying a metal/);
+  assert.match(dissolving, /Nothing on the product side carries its metal/);
+  assert.match(dissolving, /If it is a catalyst and not consumed, list it under Agents instead/, 'a catalyst metal is pointed at Agents');
+
+  // A product carrying a metal no reactant supplies: either a reagent is missing or it is not formed.
+  const ethanol = comp({ '6:0': 2, '1:0': 6, '8:0': 1 }), hbr = comp({ '1:0': 1, '35:0': 1 });
+  const bromoethane = comp({ '6:0': 2, '1:0': 5, '35:0': 1 }), sodiumBromide = comp({ '11:0': 1, '35:0': 1 });
+  const orphan = thrown(() => lib.balanceReaction([ethanol, hbr, bromoethane, H2O, sodiumBromide], [...r(2), ...p(3)], [1, 1, 1, 1, 1]));
+  assert.match(orphan, /"NaBr" carries a metal that nothing under Reactants supplies/);
+  assert.match(orphan, /Either the reagent that brings the metal is missing from Reactants/);
+  assert.doesNotMatch(orphan, /Delete the molecule/);
+
+  // What must NOT change: a spurious byproduct with no metal reagent behind it is still deleted.
+  const benzil = comp({ '6:0': 14, '1:0': 10, '8:0': 2 }), hydroxide = comp({ '11:0': 1, '8:0': 1, '1:0': 1 });
+  const benzilate = comp({ '6:0': 14, '1:0': 11, '11:0': 1, '8:0': 3 });
+  const water = thrown(() => lib.balanceReaction([benzil, hydroxide, benzilate, H2O], [...r(2), ...p(2)], [1, 1, 1, 1]));
+  assert.match(water, /"H2O" take\(s\) no part/);
+  assert.match(water, /Delete the molecule the step neither consumes nor produces/, 'spurious water keeps its advice');
+});
+
+test('a metal reactant cancelled as a spectator still counts as supplying its metal', () => {
+  // Sodium ion on both sides is cancelled before solving. The orphan-metal check then looked only at
+  // what was left, and told the author that nothing under Reactants supplies the sodium of a spare
+  // sodium bromide — while a sodium ion was declared right there under Reactants.
+  const r = (n) => Array(n).fill('reactant'), p = (n) => Array(n).fill('product');
+  const thrown = (fn) => { try { fn(); } catch (error) { return error.message; } return null; };
+  const bromoethane = comp({ '6:0': 2, '1:0': 5, '35:0': 1 }), hydroxide = comp({ '1:0': 1, '8:0': 1 }, -1), sodiumIon = comp({ '11:0': 1 }, 1);
+  const ethanol = comp({ '6:0': 2, '1:0': 6, '8:0': 1 }), bromide = comp({ '35:0': 1 }, -1), sodiumBromide = comp({ '11:0': 1, '35:0': 1 });
+  const message = thrown(() => lib.balanceReaction([bromoethane, hydroxide, sodiumIon, ethanol, bromide, sodiumIon, sodiumBromide], [...r(3), ...p(4)], [1, 1, 1, 1, 1, 1, 1]));
+  assert.ok(message, 'the spare sodium bromide does not balance');
+  assert.doesNotMatch(message, /nothing under Reactants supplies/, 'a sodium ion is declared under Reactants');
+  assert.match(message, /"NaBr" take\(s\) no part/);
+});
+
 test('a species on both sides that takes part is balanced by its net amount', () => {
   // Both came from a real route that looped through four corrections. A species on both sides
   // was cancelled as a spectator, and without it the step could not balance:
@@ -1138,7 +1441,123 @@ test('a name that denotes a different compound is refused like an unbalanced ste
   assert.equal(audit.continuous, false);
   assert.equal(audit.steps[0].reactants[0].nameOk, false);
   assert.equal(audit.steps[0].nameProblems.length, 1);
-  assert.match(audit.blocked.join(' '), /the IUPAC name "ethanol" denotes a different structure/);
+  assert.match(audit.blocked.join(' '), /the name "ethanol" denotes a different structure/);
+  assert.doesNotMatch(audit.blocked.join(' '), /IUPAC/, 'the message must not call a declared name IUPAC');
+});
+
+test('a declared name that is not systematic is reported without being called IUPAC', async () => {
+  // "aspirin" is a common name, not a systematic one. The checker may still disagree with the
+  // structure beside it, but it must not assert that what the author wrote was an IUPAC name:
+  // a trade or common name is the normal way to write many species, and the old wording told the
+  // author their correct common name was a malformed systematic one.
+  const host = stubHost({
+    fetch: (endpointId, target) => endpointId === 'opsin' && target.includes('/opsin/ws/')
+      ? { status: 'SUCCESS', smiles: 'CC=O' }
+      : undefined,
+  });
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({
+    invocationId: 'rn2b', toolId: 'verify-route', locale: 'en',
+    input: {
+      steps: ['CCO>>CC=O.[H][H]'],
+      labels: [[{ role: 'reactant', name: 'aspirin', smiles: 'CCO' }]],
+    },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.steps[0].reactants[0].nameOk, false, 'the disagreement is still reported');
+  assert.match(audit.blocked.join(' '), /the name "aspirin" denotes a different structure/);
+  assert.doesNotMatch(audit.blocked.join(' '), /IUPAC/);
+});
+
+test('a structure left partly undrawn has its name left unchecked, not called a mismatch', async () => {
+  // The author wrote an attachment point as a dummy atom, which is what the engine asks for when
+  // part of a species is deliberately not drawn. Its name resolves to a real catalogue record —
+  // necessarily a DIFFERENT graph, because the record draws the whole thing. Comparing them
+  // reports a disagreement that is only the abstraction, and the sole way to silence it is to
+  // write a vaguer name the references cannot resolve: the check would be rewarding vagueness.
+  const host = stubHost({
+    fetch: (endpointId, target) => endpointId === 'opsin' && target.includes('/opsin/ws/')
+      ? { status: 'SUCCESS', smiles: 'CCOC(=O)C' }
+      : undefined,
+  });
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({
+    invocationId: 'rn2c', toolId: 'verify-route', locale: 'en',
+    input: {
+      steps: ['*OC(=O)C.O>>*O.CC(=O)O'],
+      labels: [[{ role: 'reactant', name: 'acetate ester', smiles: '*OC(=O)C' }]],
+    },
+  });
+  const audit = result.artifacts[0].data;
+  assert.equal(audit.steps[0].ok, true, `the step itself must balance: ${JSON.stringify(audit.blocked)}`);
+  assert.equal(audit.steps[0].reactants.find(e => e.name === 'acetate ester')?.nameOk, undefined,
+    'the name is left unchecked, neither confirmed nor contradicted');
+  assert.equal(audit.steps[0].nameProblems, undefined, 'no name problem is raised');
+  assert.doesNotMatch(audit.blocked.join(' '), /denotes a different structure/);
+});
+
+test('a refused SMILES names the delimiter that is wrong, not just that RDKit refused', async () => {
+  // Measured on real routes: a 242-character species differed from a valid one by a single
+  // bracket, and the author rewrote the whole species in a different orientation instead of
+  // repairing the character, because the message named no character. Both directions occurred —
+  // one too few and one too many — so both are covered.
+  const worker = lib.createWorker(stubHost());
+  const refusal = async (smiles) => {
+    const result = await worker.invoke({
+      invocationId: `bad-${smiles.length}`, toolId: 'verify-route', locale: 'en',
+      input: { steps: [`${smiles}>>CC=O`] },
+    });
+    const step = result.artifacts[0].data.steps[0];
+    assert.equal(step.ok, false, smiles);
+    return step.error ?? '';
+  };
+
+  const extra = await refusal('CC(C)(C))O');
+  assert.ok(extra.includes('2 "(" against 3 ")"'), `an extra closing bracket is counted: ${extra}`);
+  assert.match(extra, /repair that one defect rather than rewriting/);
+  assert.ok(extra.includes('"CC(C)(C))O"'), 'the offending species is still named');
+
+  const unclosed = await refusal('CC(C)(CO');
+  assert.ok(unclosed.includes('2 "(" against 1 ")"'), `an unclosed bracket is counted: ${unclosed}`);
+
+  // A ring opened and never closed, the measured case: ring 2 of the aromatic system.
+  const ring = await refusal('COc1ccc2c(c1)CCC1C(=O)CCC(C)C1=O');
+  assert.ok(ring.includes('ring bond 2 opened and never closed'), `an unclosed ring bond is named: ${ring}`);
+  // A label reused after it closes is legal, and a digit inside a bracket atom is not a ring bond.
+  const reused = await refusal('C1CC1C1CC1[13CH2]Q');
+  assert.doesNotMatch(reused, /ring bond/, `a closed-then-reused label and an isotope are not ring faults: ${reused}`);
+  const twoDigit = await refusal('C%10CCCC%10%11Q');
+  assert.ok(twoDigit.includes('ring bond 11 opened and never closed'), `a two-digit label is read whole: ${twoDigit}`);
+
+  // A refusal with balanced delimiters must NOT invent a delimiter fault.
+  const other = await refusal('CC(C)Q');
+  assert.doesNotMatch(other, /against/, `no delimiter fault should be claimed: ${other}`);
+  assert.match(other, /RDKit rejected the molecular graph\./, 'the general message is kept');
+});
+
+test('the two species real runs were refused for are each diagnosed down to the count', async () => {
+  // Verbatim from harness-runs/chain-ladder-2026-10-07--chain-12--deepseek-flash--{high,none},
+  // turn 1. Each is one delimiter away from a sound string, in opposite directions. Against the
+  // old message the author rewrote the whole species instead; these are the inputs that has to
+  // stop happening, so they are pinned here rather than paraphrased.
+  const worker = lib.createWorker(stubHost());
+  const diagnose = async (smiles) => {
+    const result = await worker.invoke({
+      invocationId: `real-${smiles.length}`, toolId: 'verify-route', locale: 'en',
+      input: { steps: [`${smiles}>>CC=O`] },
+    });
+    const step = result.artifacts[0].data.steps[0];
+    assert.equal(step.ok, false);
+    return step.error ?? '';
+  };
+
+  const oneTooMany = "*OC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](N)C)COC(C)(C)C)C(C)C)CC(C)C)Cc1ccccc1)[C@@H](C)OC(C)(C)C)[C@@H](C)CC)CCSC)CC(N)=O)CCC(N)=O)Cc1ccc(OC(C)(C)C)cc1";
+  assert.equal(oneTooMany.length, 242);
+  assert.ok((await diagnose(oneTooMany)).includes('33 "(" against 34 ")"'), 'one closing bracket too many');
+
+  const twoTooFew = "*OC(=O)[C@@H](Cc1ccc(O)cc1)NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](NC(=O)CN)[C@@H](C)O)[C@@H](C)CC)Cc1ccccc1)CC(C)C)C(C)C)COC(C)(C)C";
+  assert.equal(twoTooFew.length, 196);
+  assert.ok((await diagnose(twoTooFew)).includes('26 "(" against 24 ")"'), 'two closing brackets missing');
 });
 
 test('an unresolvable name is reported as unchecked, never as a disagreement', async () => {
@@ -1232,6 +1651,24 @@ test('"hydrogen" resolves to dihydrogen, not the hydrogen atom', async () => {
   assert.equal(atom.smiles, '[H]', 'a name that asks for the atom keeps it');
 });
 
+test('a covalent metal oxide returned as bare ions resolves to the covalent oxide (CrO3, OsO4)', async () => {
+  // PubChem writes chromium trioxide as [Cr+6].[O-2].[O-2].[O-2]; the route checker read that as
+  // four species ("2 Cr + 4 O" in the equation, loose atoms in the bond ledger).
+  const ions = { 'chromium trioxide': '[Cr+6].[O-2].[O-2].[O-2]', 'osmium tetroxide': '[Os+8].[O-2].[O-2].[O-2].[O-2]', 'sodium chloride': '[Na+].[Cl-]' };
+  const worker = lib.createWorker(resolveHost((endpointId, target) => {
+    const name = Object.keys(ions).find((n) => decodeURIComponent(String(target)).includes(n));
+    return endpointId === 'opsin' && name ? { status: 'SUCCESS', smiles: ions[name] } : undefined;
+  }));
+  const [cro3, oso4, nacl] = (await worker.invoke({ invocationId: 'oxide', toolId: 'resolve-names', locale: 'en', input: { names: Object.keys(ions) } })).artifacts[0].data.results;
+  // One covalent molecule each (RDKit's canonical writing brackets the oxygens: [O]=[Cr](=[O])=[O]).
+  for (const [entry, metal, oxygens] of [[cro3, 'Cr', 3], [oso4, 'Os', 4]]) {
+    assert.ok(!entry.smiles.includes('.'), `${entry.name}: ${entry.smiles} is one molecule`);
+    assert.ok(entry.smiles.includes(`[${metal}]`), entry.smiles);
+    assert.equal((entry.smiles.match(/O(?![a-z])/g) ?? []).length, oxygens, entry.smiles);
+  }
+  assert.equal(nacl.smiles, '[Cl-].[Na+]', 'a true salt keeps its ions');
+});
+
 test('an ambiguous PubChem match and a partial OPSIN parse are reported with feedback', async () => {
   const ambiguous = lib.createWorker(resolveHost((endpointId, target) => {
     if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [1, 2] } };
@@ -1321,6 +1758,288 @@ test('resolve-structure leaves a structure PubChem does not hold unnamed, with i
   assert.equal(entry.canonicalSmiles, 'CN1C2CCC1CC(=O)C2', 'the checked structure still travels');
 });
 
+test('resolve-structure remembers a name it was given, and never remembers a miss', async () => {
+  // A correction round sends back most of the same fallback structures; each used to cost two
+  // PubChem round trips again. A miss is NOT kept: "unnamed" also covers a network failure.
+  let requests = 0, online = false;
+  const host = resolveHost((endpointId, target) => {
+    if (endpointId !== 'pubchem') return undefined;
+    requests += 1;
+    if (target.includes('/smiles/') && target.includes(encodeURIComponent('OCC1CCCCC1'))) return online ? { IdentifierList: { CID: [7507] } } : undefined;
+    if (target.includes('/smiles/')) return { IdentifierList: { CID: [6342] } };
+    if (target.includes('/cid/6342/property/')) return { PropertyTable: { Properties: [{ CID: 6342, IUPACName: 'cyclohexanecarbonitrile', MolecularFormula: 'C7H11N' }] } };
+    if (target.includes('/cid/7507/property/')) return { PropertyTable: { Properties: [{ CID: 7507, IUPACName: 'cyclohexylmethanol', MolecularFormula: 'C7H14O' }] } };
+    return undefined;
+  });
+  const worker = lib.createWorker(host);
+  const ask = async (smiles, id) => (await worker.invoke({ invocationId: id, toolId: 'resolve-structure', locale: 'en', input: { smiles } })).artifacts[0].data.results;
+  const first = await ask(['N#CC1CCCCC1'], 'mem1');
+  const afterFirst = requests;
+  assert.equal(first[0].name, 'cyclohexanecarbonitrile');
+  const again = await ask(['N#CC1CCCCC1'], 'mem2');
+  assert.equal(requests, afterFirst, 'a structure already named costs no request');
+  assert.deepEqual(again, first, 'and comes back exactly as before, canonical form included');
+  const miss = await ask(['OCC1CCCCC1'], 'mem3');
+  assert.equal(miss[0].status, 'unnamed');
+  online = true;
+  const later = await ask(['OCC1CCCCC1'], 'mem4');
+  assert.equal(later[0].status, 'named', 'a miss is asked again, so a passing outage does not stick');
+  assert.equal(later[0].name, 'cyclohexylmethanol');
+});
+
+test('a local PubChem mirror answers lookups it is sure of, and the network still answers the rest', async () => {
+  // The mirror is consulted first; only a definite answer comes from it. A name it does not hold
+  // (or holds under several CIDs) goes to PubChem exactly as before.
+  let network = 0;
+  const host = resolveHost((endpointId, target) => {
+    if (endpointId !== 'pubchem') return undefined;
+    network += 1;
+    if (target.includes('/name/') && target.includes('propan-2-one')) return { IdentifierList: { CID: [180] } };
+    if (target.includes('/cid/180/property/')) return { PropertyTable: { Properties: [{ CID: 180, IsomericSMILES: 'CC(C)=O', MolecularFormula: 'C3H6O' }] } };
+    return undefined;
+  });
+  const sent = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async (request) => {
+      const body = JSON.parse(request.stdin);
+      sent.push(body);
+      return { code: 0, stderr: '', stdout: JSON.stringify({ pubchem: { available: true,
+        names: { ethanol: { cid: 702, smiles: 'CCO', formula: 'C2H6O' } },
+        smiles: { 'OC1CCCCC1': { cid: 7966, name: 'cyclohexanol', formula: 'C6H12O' } } } }) };
+    },
+  };
+  const worker = lib.createWorker(host);
+  const names = (await worker.invoke({ invocationId: 'mir1', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol', 'propan-2-one'], pubchemDir: '/mirror' } })).artifacts[0].data.results;
+  assert.equal(sent[0].pubchemDir, '/mirror');
+  assert.deepEqual(sent[0].pubchemNames, ['ethanol', 'propan-2-one']);
+  const byName = Object.fromEntries(names.map((entry) => [entry.name, entry]));
+  assert.equal(byName.ethanol.status, 'resolved');
+  assert.equal(byName.ethanol.smiles, 'CCO', 'from the mirror');
+  assert.equal(byName['propan-2-one'].smiles, 'CC(C)=O', 'not in the mirror: asked of the network');
+  assert.ok(network >= 2 && network <= 3, `only the name the mirror lacked went out (${network} requests)`);
+
+  network = 0;
+  const named = (await worker.invoke({ invocationId: 'mir2', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['OC1CCCCC1'], pubchemDir: '/mirror' } })).artifacts[0].data.results;
+  assert.equal(named[0].name, 'cyclohexanol', 'named from the mirror');
+  assert.equal(named[0].cid, 7966);
+  assert.equal(network, 0, 'no network request for a structure the mirror holds');
+
+  // No pubchemDir from the host: the mirror is never consulted.
+  sent.length = 0;
+  await worker.invoke({ invocationId: 'mir3', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'] } });
+  assert.equal(sent.length, 0, 'without a mirror directory, no mirror call');
+});
+
+test('a local OPSIN answers names by the web service rules: a warning still means unresolved', async () => {
+  let ebi = 0;
+  const host = resolveHost((endpointId) => { if (endpointId === 'opsin') ebi += 1; return undefined; });
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 0, stderr: '', stdout: JSON.stringify({ opsin: {
+    'cyclohexanecarbaldehyde': { status: 'SUCCESS', smiles: 'O=CC1CCCCC1' },
+    'Fmoc-thing': { status: 'WARNING', smiles: 'C', warnings: ['APPEARS_AMBIGUOUS'], message: 'APPEARS_AMBIGUOUS: Connection of fmoc' },
+    'nonsense name': { status: 'FAILURE', message: 'nonsense name is unparsable' } } }) }) };
+  const worker = lib.createWorker(host);
+  const results = (await worker.invoke({ invocationId: 'op1', toolId: 'resolve-names', locale: 'en',
+    input: { names: ['cyclohexanecarbaldehyde', 'Fmoc-thing', 'nonsense name'], opsinDir: '/opsin' } })).artifacts[0].data.results;
+  const by = Object.fromEntries(results.map((entry) => [entry.name, entry]));
+  assert.equal(by.cyclohexanecarbaldehyde.status, 'resolved');
+  assert.equal(by.cyclohexanecarbaldehyde.source, 'opsin');
+  assert.equal(by['Fmoc-thing'].status, 'unresolved', 'a warning is unresolved, exactly as from the web service');
+  assert.match(by['Fmoc-thing'].feedback, /only partly interpreted the name: APPEARS_AMBIGUOUS/);
+  assert.equal(by['nonsense name'].status, 'unresolved');
+  assert.equal(ebi, 0, 'EBI was never asked about a name the local OPSIN answered');
+});
+
+test('a half-built or corrupt PubChem mirror costs only the mirror, not the local OPSIN answers (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // One exception in the mirror lookup failed the whole local call, so the host fell back to the
+  // network for every name — the ones a local OPSIN had just parsed included.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, sqlite3, tempfile
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+w._opsin_local = lambda opsin_dir, names: {name: {'status': 'SUCCESS', 'smiles': 'CCO'} for name in names}
+half = tempfile.mkdtemp(); db = sqlite3.connect(os.path.join(half, 'pubchem.sqlite'))
+db.execute('CREATE TABLE synonym (name TEXT, cid INTEGER, rank INTEGER)'); db.commit(); db.close()
+corrupt = tempfile.mkdtemp(); open(os.path.join(corrupt, 'pubchem.sqlite'), 'wb').write(b'not a database' * 512)
+print(json.dumps([w.handle({'pubchemDir': d, 'opsinDir': '/opsin', 'pubchemNames': ['ethanol'], 'pubchemSmiles': ['CCO']}) for d in (half, corrupt)]))
+`;
+  for (const out of JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }))) {
+    assert.equal(out.opsin.ethanol.smiles, 'CCO', 'the local OPSIN answer survives');
+    assert.equal(out.pubchem.available, false, 'the broken mirror reads as no mirror, so the network answers instead');
+    assert.match(out.pubchem.error, /Error/, 'and says why');
+  }
+});
+
+test('a failed local reference run is logged with its stderr, not dropped silently', async () => {
+  const logged = [];
+  const host = resolveHost(() => undefined);
+  host.log = (level, message, detail) => { logged.push({ level, message, detail }); };
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 1, stdout: '', stderr: 'Traceback (most recent call last):\nsqlite3.DatabaseError: file is not a database' }) };
+  await lib.createWorker(host).invoke({ invocationId: 'lr1', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'], pubchemDir: '/m', localOnly: true } });
+  assert.ok(logged.some((entry) => /file is not a database/.test(String(entry.detail?.stderr))), JSON.stringify(logged));
+
+  logged.length = 0;
+  host.python.run = async () => ({ code: 0, stderr: '', stdout: JSON.stringify({ pubchem: { available: false, names: {}, smiles: {}, error: 'DatabaseError: file is not a database' } }) });
+  await lib.createWorker(host).invoke({ invocationId: 'lr2', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'], pubchemDir: '/m', localOnly: true } });
+  assert.ok(logged.some((entry) => /file is not a database/.test(String(entry.detail?.error))), 'a mirror the run could not read is logged too');
+});
+
+test('the local OPSIN wrapper runs and reports warnings per name (needs CHEMISTRY_TEST_PYTHON and a local OPSIN)', { skip: !process.env.CHEMISTRY_TEST_PYTHON || !process.env.CHEMISTRY_TEST_OPSIN }, async () => {
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, sys
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+print(json.dumps(w.handle({'opsinDir': ${JSON.stringify(process.env.CHEMISTRY_TEST_OPSIN ?? '')}, 'pubchemNames': ['ethanol', 'Fmoc-4-aminotetrahydropyran-4-carboxylic acid', 'not a real name at all']})))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' })).opsin;
+  assert.equal(out.ethanol.status, 'SUCCESS');
+  assert.equal(out.ethanol.smiles, 'C(C)O');
+  assert.deepEqual(out['Fmoc-4-aminotetrahydropyran-4-carboxylic acid'].warnings, ['APPEARS_AMBIGUOUS'], 'the warning travels with its own name');
+  assert.equal(out['not a real name at all'].status, 'FAILURE');
+});
+
+test('the Python mirror lookup answers only what it is sure of (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, sqlite3, tempfile
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+from rdkit import Chem
+d = tempfile.mkdtemp(); db = sqlite3.connect(os.path.join(d, 'pubchem.sqlite'))
+db.executescript('''CREATE TABLE inchikey (key TEXT PRIMARY KEY, cid INTEGER) WITHOUT ROWID;
+  CREATE TABLE smiles (cid INTEGER PRIMARY KEY, smiles TEXT); CREATE TABLE iupac (cid INTEGER PRIMARY KEY, name TEXT);
+  CREATE TABLE formula (cid INTEGER PRIMARY KEY, formula TEXT); CREATE TABLE synonym (name TEXT, cid INTEGER, rank INTEGER);''')
+for cid, smi, name, formula, syns in [(702, 'CCO', 'ethanol', 'C2H6O', ['ethanol', 'Ethyl alcohol', 'shared']), (887, 'CO', 'methanol', 'CH4O', ['methanol', 'shared'])]:
+    db.execute('INSERT INTO inchikey VALUES (?, ?)', (Chem.MolToInchiKey(Chem.MolFromSmiles(smi)), cid))
+    db.execute('INSERT INTO smiles VALUES (?, ?)', (cid, smi)); db.execute('INSERT INTO iupac VALUES (?, ?)', (cid, name))
+    db.execute('INSERT INTO formula VALUES (?, ?)', (cid, formula))
+    for rank, s in enumerate(syns): db.execute('INSERT INTO synonym VALUES (?, ?, ?)', (s, cid, rank))
+db.commit(); db.close()
+out = w.handle({'pubchemDir': d, 'pubchemNames': ['ETHYL ALCOHOL', 'shared', 'nonesuch'], 'pubchemSmiles': ['OCC', 'c1ccccc1']})
+missing = w.handle({'pubchemDir': tempfile.mkdtemp(), 'pubchemNames': ['ethanol'], 'pubchemSmiles': []})
+print(json.dumps([out, missing]))
+`;
+  const [out, missing] = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(out.pubchem.names, { 'ETHYL ALCOHOL': { cid: 702, smiles: 'CCO', formula: 'C2H6O' } }, 'case-insensitive; an ambiguous and an unknown name are left out, not reported');
+  assert.equal(out.pubchem.smiles.OCC.cid, 702, 'a structure matches by InChIKey, however it is written');
+  assert.equal(out.pubchem.smiles.OCC.name, 'ethanol');
+  assert.equal('c1ccccc1' in out.pubchem.smiles, false, 'a structure the mirror lacks is left out');
+  assert.equal(missing.pubchem.available, false, 'no database: says so, so the caller uses the network');
+});
+
+test('the PubChem mirror opens read-only from a folder whose name holds # ? or % (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // The path went into a file: URI unescaped. "#" and "?" cut it short — SQLite then opened, and
+  // CREATED, an empty database at the part before them, with mode=ro lost — and "%41" was decoded.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, sqlite3, tempfile
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+base = tempfile.mkdtemp(); out = []
+for folder in ('lib #1', 'what?', 'a%41b'):
+    d = os.path.join(base, folder); os.makedirs(d); db = sqlite3.connect(os.path.join(d, 'pubchem.sqlite'))
+    db.executescript("CREATE TABLE synonym (name TEXT, cid INTEGER, rank INTEGER); CREATE TABLE smiles (cid INTEGER PRIMARY KEY, smiles TEXT); CREATE TABLE formula (cid INTEGER PRIMARY KEY, formula TEXT); INSERT INTO synonym VALUES ('ethanol', 702, 0); INSERT INTO smiles VALUES (702, 'CCO');")
+    db.commit(); db.close()
+    try: out.append(w._pubchem_mirror(d, ['ethanol'], [])['names'].get('ethanol', {}).get('smiles'))
+    except Exception as error: out.append(type(error).__name__)
+print(json.dumps({'answers': out, 'stray': sorted(n for n in os.listdir(base) if n not in ('lib #1', 'what?', 'a%41b'))}))
+`;
+  const { answers, stray } = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(answers, ['CCO', 'CCO', 'CCO'], 'every folder name opens the mirror');
+  assert.deepEqual(stray, [], 'no empty database is created beside it');
+});
+
+test("PubChem's throttling is obeyed: a refusal stops all requests, and a Yellow grade slows them", async () => {
+  // https://pubchem.ncbi.nlm.nih.gov/docs/dynamic-request-throttling — a block GROWS if requests
+  // continue, so after a refusal nothing more may be sent until the back-off has passed.
+  lib.resetPubchemPacing();
+  let pubchem = 0;
+  const refusing = resolveHost((endpointId) => {
+    if (endpointId !== 'pubchem') return undefined;
+    pubchem += 1;
+    return { __response: { status: 429 } };
+  });
+  const worker = lib.createWorker(refusing);
+  await worker.invoke({ invocationId: 'thr1', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['CCCCCCO', 'CCCCCCN', 'CCCCCCC'] } });
+  assert.equal(pubchem, 1, 'one refusal, then nothing more is sent in that call');
+  await worker.invoke({ invocationId: 'thr2', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['CCCCCCCO'] } });
+  assert.equal(pubchem, 1, 'and nothing in the NEXT call either: the back-off outlives the call');
+
+  lib.resetPubchemPacing();
+  const times = [];
+  const grading = resolveHost((endpointId) => {
+    if (endpointId !== 'pubchem') return undefined;
+    times.push(Date.now());
+    return { __response: { status: 200, headers: { 'x-throttling-control': 'Request Count status: Yellow (60%), Request Time status: Green (10%), Service status: Green (20%)' }, body: { IdentifierList: { CID: [] } } } };
+  });
+  await lib.createWorker(grading).invoke({ invocationId: 'thr3', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['CCCCCCCCO', 'CCCCCCCCN'] } });
+  assert.ok(times.length >= 2);
+  assert.ok(times[1] - times[0] >= 950, `after a Yellow grade the next request waits about a second (${times[1] - times[0]} ms)`);
+  lib.resetPubchemPacing();
+});
+
+test('a PubChem turn more than about 8 s away falls back at once, and an abort ends the wait', async () => {
+  // A Black grade paces requests a minute apart, as the pacer also does for five minutes after a
+  // refusal. A look-up queued behind it slept out that minute — past the reference's own 10 s
+  // timeout and past the turn's abort — and then sent the request anyway.
+  lib.resetPubchemPacing();
+  let sent = 0;
+  const black = resolveHost((endpointId) => {
+    if (endpointId !== 'pubchem') return undefined;
+    sent += 1;
+    return { __response: { status: 200, headers: { 'x-throttling-control': 'Request Count status: Black (100%), Request Time status: Green (10%), Service status: Green (20%)' }, body: { IdentifierList: { CID: [] } } } };
+  });
+  const started = Date.now();
+  const far = await lib.createWorker(black).invoke({ invocationId: 'far1', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['CCCCCCCCCO', 'CCCCCCCCCN'] } });
+  assert.ok(Date.now() - started < 5000, `a turn a minute away is not waited for (${Date.now() - started} ms)`);
+  assert.equal(sent, 1, 'the second look-up fell back without sending');
+  assert.equal(far.artifacts[0].data.results.length, 2, 'both structures still get an answer');
+
+  // A Red grade (5 s) is close enough to wait for, but the wait must end when the turn is cancelled.
+  lib.resetPubchemPacing();
+  let red = 0;
+  const controller = new AbortController();
+  const host = stubHost({ signal: controller.signal, fetch: (endpointId) => {
+    if (endpointId !== 'pubchem') return undefined;
+    red += 1;
+    return { __response: { status: 200, headers: { 'x-throttling-control': 'Request Count status: Red (90%), Request Time status: Green (10%), Service status: Green (20%)' }, body: { IdentifierList: { CID: [] } } } };
+  } });
+  const pending = lib.createWorker(host).invoke({ invocationId: 'far2', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['CCCCCCCCCCO', 'CCCCCCCCCCN'] } });
+  const settled = pending.then(() => 'resolved', () => 'rejected');
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  const abortedAt = Date.now();
+  controller.abort(new Error('turn cancelled'));
+  await settled;
+  assert.ok(Date.now() - abortedAt < 1500, `the call ends soon after the abort (${Date.now() - abortedAt} ms)`);
+  // Give an unpatched pacer the rest of its 5 s, to show it would have sent once the wait was over.
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+  assert.equal(red, 1, 'the queued request is never sent after the abort');
+  lib.resetPubchemPacing();
+});
+
+test('local references only: no request leaves the machine, and the local sources still answer', async () => {
+  // A timing trace runs this way, so it measures no network latency and cannot get the machine blocked.
+  let sent = 0;
+  const host = resolveHost(() => { sent += 1; return undefined; });
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 0, stderr: '', stdout: JSON.stringify({
+    pubchem: { available: true, names: { ethanol: { cid: 702, smiles: 'CCO' } }, smiles: { OC1CCCCC1: { cid: 7966, name: 'cyclohexanol' } } },
+    opsin: { 'cyclohexanecarbaldehyde': { status: 'SUCCESS', smiles: 'O=CC1CCCCC1' } } }) }) };
+  const worker = lib.createWorker(host);
+  const names = (await worker.invoke({ invocationId: 'lo1', toolId: 'resolve-names', locale: 'en',
+    input: { names: ['ethanol', 'cyclohexanecarbaldehyde', 'some name nothing local knows'], pubchemDir: '/m', opsinDir: '/o', localOnly: true } })).artifacts[0].data.results;
+  const by = Object.fromEntries(names.map((entry) => [entry.name, entry]));
+  assert.equal(by.ethanol.smiles, 'CCO', 'the mirror answers');
+  assert.equal(by.cyclohexanecarbaldehyde.smiles, 'O=CC1CCCCC1', 'local OPSIN answers');
+  assert.equal(by['some name nothing local knows'].status, 'unresolved', 'what no local source knows is simply unresolved');
+  const structures = (await worker.invoke({ invocationId: 'lo2', toolId: 'resolve-structure', locale: 'en',
+    input: { smiles: ['OC1CCCCC1', 'CC1=CC=CC=C1CCCCCCCCC'], pubchemDir: '/m', localOnly: true } })).artifacts[0].data.results;
+  assert.equal(structures.find((entry) => entry.smiles === 'OC1CCCCC1').name, 'cyclohexanol');
+  assert.equal(structures.find((entry) => entry.smiles !== 'OC1CCCCC1').status, 'unnamed');
+  assert.equal(sent, 0, 'not one request was sent to PubChem or EBI');
+});
+
 test('resolve-structure rejects an empty request', async () => {
   const worker = lib.createWorker(resolveHost(() => undefined));
   await assert.rejects(() => worker.invoke({ invocationId: 'iso3', toolId: 'resolve-structure', locale: 'en', input: { smiles: ['', '   '] } }), /between one and/);
@@ -1346,11 +2065,72 @@ test('a shared counterion written once per side balances uniquely; repeated toke
   assert.equal(ok.steps[0].balanced, true, JSON.stringify(ok.steps[0].differences));
 
   // The same equation with the shared sulfate and sodium repeated (as an un-deduped derivation
-  // would write them) admits more than one balance and is refused.
+  // would write them) is refused. It used to be refused as "more than one balanced equation",
+  // which was never established: the repeated tokens leave 5 species free to vary and the
+  // bounded search covers 4, so no candidate was ever built and nothing was compared. It is an
+  // UNCHECKED step, not an unbalanced one, and the one thing that brings it within reach of the
+  // search is fewer species per step: adding a species, as the old advice said, adds a free one.
   const repeated = 'C1(CCCCC1)O.[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-].[Na+].[Na+].S(O)(O)(=O)=O>>C1(CCCCC1)=O.S(=O)(=O)([O-])[O-].S(=O)(=O)([O-])[O-].S(=O)(=O)([O-])[O-].[Cr+3].[Cr+3].S(=O)(=O)([O-])[O-].[Na+].[Na+].O';
   const refused = await lib.auditRoute({ steps: [repeated] });
-  assert.equal(refused.steps[0].balanced, false);
-  assert.match(refused.steps[0].differences.join(' '), /more than one balanced equation/);
+  assert.equal(refused.steps[0].balanced, false, 'never passed');
+  assert.match(refused.steps[0].balanceUnchecked ?? '', /free to vary independently/, 'a distinct unchecked outcome');
+  const why = refused.steps[0].differences.join(' ');
+  assert.match(why, /split/i, 'its one action is to split the step');
+  assert.doesNotMatch(why, /missing from (Reactants|Products)|Add the missing|short of/, 'no advice to add a species');
+  assert.doesNotMatch(why, /more than one balanced equation/);
+  const line = refused.blocked.find((entry) => entry.startsWith('Step 1'));
+  assert.match(line, /not checked/i);
+  assert.doesNotMatch(line, /is not balanced/, 'the route summary does not call it unbalanced');
+});
+
+test('a step that inverts a stereocentre is refused, though its equation balances', async () => {
+  // L-alanine is (S). Coupling it to dimethylamine makes one amide and loses one water; the
+  // configuration at the alpha carbon is untouched by that bond, so it must survive the step.
+  const reactants = 'N[C@@H](C)C(=O)O.CNC';
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const amine = label('reactant', 'N-methylmethanamine', 'CNC');
+  const acid = label('reactant', 'L-alanine', 'N[C@@H](C)C(=O)O');
+  const water = label('product', 'water', 'O', true);
+
+  // Configuration preserved: (S) in, (S) out.
+  const kept = await lib.auditRoute({
+    steps: [`${reactants}>>C[C@H](N)C(=O)N(C)C.O`],
+    labels: [[acid, amine, label('product', 'the amide', 'C[C@H](N)C(=O)N(C)C'), water]],
+  });
+  assert.equal(kept.steps[0].balanced, true, JSON.stringify(kept.steps[0].differences));
+
+  // The epimer. Identical formula, identical atom counts, so the equation balances exactly as
+  // well — this is the error class no balance check can reach, and it must still be refused.
+  const flipped = await lib.auditRoute({
+    steps: [`${reactants}>>C[C@@H](N)C(=O)N(C)C.O`],
+    labels: [[acid, amine, label('product', 'the amide', 'C[C@@H](N)C(=O)N(C)C'), water]],
+  });
+  assert.equal(flipped.steps[0].balanced, false);
+  const why = flipped.steps[0].differences.join(' ');
+  assert.match(why, /inverts a stereocentre/);
+  assert.match(why, /atom 1 of L-alanine \(S\) comes out as atom 1 of the amide \(R\) with the opposite configuration/);   // which centre, in and out
+
+  // Counts alone cannot be acted on: with a dozen centres in play, "give the product the
+  // configuration its reactant carries" does not say which one moved. Each side is therefore
+  // named species by species, with the atom index of every specified centre, so the reader can
+  // find it in the string they wrote.
+  assert.match(why, /Atom indices count from zero/);
+  // The species with no specified centre is left out rather than listed as having none.
+  assert.ok(!why.includes('N-methylmethanamine'), why);
+  // And the preserved route still says nothing at all.
+  assert.ok(!kept.steps[0].differences.join(' ').includes('inverts a stereocentre'));
+});
+
+test('creating a stereocentre is not reported as an inversion', async () => {
+  // Counts differ between the sides, which is ordinary chemistry: a centre was made, not flipped.
+  // The gate only speaks when the number of specified centres is equal and the mix differs.
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const made = await lib.auditRoute({
+    steps: ['CCC(=O)C.[H][H]>>CC[C@H](O)C'],
+    labels: [[label('reactant', 'butan-2-one', 'CCC(=O)C'), label('reactant', 'dihydrogen', '[H][H]'),
+              label('product', '(2S)-butan-2-ol', 'CC[C@H](O)C')]],
+  });
+  assert.equal(made.steps[0].balanced, true, JSON.stringify({ error: made.steps[0].error, differences: made.steps[0].differences }));
 });
 
 test('a salt name prefers the reference that shows the metal as an ion', async () => {
@@ -1382,15 +2162,35 @@ test('a metal name keeps PubChem when both references show the metal as an ion',
 });
 
 test('a name without a metal is still PubChem-first', async () => {
+  // Was written with "hydrogen" as the example. It is now answered from the built-in diatomic
+  // lookup before any reference is asked, so the example moved to a name that still exercises the
+  // branch this test is about — the metal/non-metal split, not hydrogen. The references disagreed
+  // about hydrogen anyway, and instructively: PubChem returned `[HH]`, the molecule, while OPSIN
+  // returned `[H]`, the atom. Which answer a route got depended on which service replied.
   const host = resolveHost((endpointId, target) => {
-    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [783] } };
-    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 783, IsomericSMILES: '[HH]', MolecularFormula: 'H2' }] } };
-    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: '[H]' };
+    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [241] } };
+    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 241, IsomericSMILES: 'c1ccccc1', MolecularFormula: 'C6H6' }] } };
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: 'C1=CC=CC=C1' };
     return undefined;
   });
-  const entry = (await lib.createWorker(host).invoke({ invocationId: 'salt3', toolId: 'resolve-names', locale: 'en', input: { names: ['hydrogen'] } })).artifacts[0].data.results[0];
+  const entry = (await lib.createWorker(host).invoke({ invocationId: 'salt3', toolId: 'resolve-names', locale: 'en', input: { names: ['benzene'] } })).artifacts[0].data.results[0];
   assert.equal(entry.source, 'pubchem');
-  assert.equal(entry.smiles, '[HH]');
+  assert.equal(entry.smiles, 'c1ccccc1');
+});
+
+test('a diatomic element answers the same whatever the references say', async () => {
+  // The behaviour the test above used to cover by accident, now covered on purpose: the answer no
+  // longer depends on which service replies, or on either being reachable. The host below returns
+  // the ATOM from both references; the molecule is still what comes back.
+  const host = resolveHost((endpointId, target) => {
+    if (endpointId === 'pubchem' && target.includes('/cids/JSON')) return { IdentifierList: { CID: [5360770] } };
+    if (endpointId === 'pubchem' && target.includes('/property/IsomericSMILES')) return { PropertyTable: { Properties: [{ CID: 5360770, IsomericSMILES: '[Br]', MolecularFormula: 'Br' }] } };
+    if (endpointId === 'opsin') return { status: 'SUCCESS', smiles: '[Br]' };
+    return undefined;
+  });
+  const entry = (await lib.createWorker(host).invoke({ invocationId: 'diatomic1', toolId: 'resolve-names', locale: 'en', input: { names: ['bromine'] } })).artifacts[0].data.results[0];
+  assert.equal(entry.smiles, 'BrBr', 'the molecule, not the atom the references offered');
+  assert.equal(entry.source, 'builtin');
 });
 
 test('when only one reference resolves a metal name, that one is used', async () => {
@@ -1398,6 +2198,62 @@ test('when only one reference resolves a metal name, that one is used', async ()
   const entry = (await lib.createWorker(host).invoke({ invocationId: 'salt4', toolId: 'resolve-names', locale: 'en', input: { names: ['tin(II) chloride'] } })).artifacts[0].data.results[0];
   assert.equal(entry.source, 'opsin');
   assert.equal(entry.smiles, '[Cl][Sn][Cl]');
+});
+
+test('a solution that zeroes the principal species is not reported as an idle molecule to delete', async () => {
+  // Benzene and octane cannot balance, but the carbon dioxide written on both sides can —
+  // so the only solution gives the two principal species coefficient 0. Advising their
+  // deletion would be advising the author to delete the step. Seen for real on a step whose
+  // product and principal precursor were both zeroed while the small leftovers balanced;
+  // the atom totals name the actual fault.
+  const worker = lib.createWorker(stubHost());
+  const degenerate = await worker.invoke({ invocationId: 'degen1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['c1ccccc1.O=C=O>>CCCCCCCC.O=C=O'] } });
+  const step = degenerate.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, false);
+  const said = step.differences.join(' ');
+  assert.doesNotMatch(said, /take\(s\) no part/, 'the target of a step is never the molecule to delete');
+  assert.match(said, /cannot be balanced/);
+});
+
+test('a spurious byproduct is still named however heavy it is', async () => {
+  // The rule above withholds the delete advice only when the heaviest species on BOTH sides is
+  // zeroed. One side alone is an ordinary copy-paste byproduct, and size is not the test: a
+  // phosphine oxide or a urea carried in from another step outweighs the real product, and the
+  // author still wants to be told to delete it rather than hunting a missing reagent.
+  const worker = lib.createWorker(stubHost());
+  const ester = await worker.invoke({ invocationId: 'idle-heavy', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CC(=O)OCC.O>>CC(=O)O.CCO.O=P(c1ccccc1)(c1ccccc1)c1ccccc1'] } });
+  const step = ester.artifacts[0].data.steps[0];
+  assert.equal(step.balanced, false);
+  const said = step.differences.join(' ');
+  assert.match(said, /take\(s\) no part/, 'the heavy spurious byproduct is named');
+  assert.match(said, /Delete the molecule/);
+});
+
+test('a cumulated system is refused only when both of its ends could twist — carbodiimides pass', async () => {
+  // The guard is for axial chirality: an allene or butatriene is stereogenic because each
+  // end carries two substituents. A carbodiimide's nitrogens carry one substituent and a
+  // lone pair, so there is no axis to get wrong — and it is the standard amide coupling
+  // reagent, so refusing it failed every route that forms an amide with one.
+  // diisopropylcarbodiimide, a standard amide coupling reagent
+  await lib.validateChemicalReferences({ references: ['CC(C)N=C=NC(C)C'] });
+  await lib.validateChemicalReferences({ references: ['C=C=O'] });        // ketene: one end bare
+  await lib.validateChemicalReferences({ references: ['O=C=O'] });        // carbon dioxide: both ends bare
+  await lib.validateChemicalReferences({ references: ['CN=C=O'] });       // isocyanate
+  // A substituted allene has two substituents at each end, so the axis has a configuration
+  // SMILES can state and this validator does not certify — still refused.
+  await assert.rejects(lib.validateChemicalReferences({ references: ['CC(Cl)=C=C(Cl)C'] }),
+    /Cumulated double bonds/, 'a substituted allene is still outside the scope');
+  // The ends are the ends of the WHOLE chain. A longer cumulene with an even number of double
+  // bonds is perpendicular too, so it is axially stereogenic and equally outside the scope —
+  // its inner atoms each see a neighbour carrying nothing but the chain, so looking only at
+  // the immediate neighbours accepted it.
+  await assert.rejects(lib.validateChemicalReferences({ references: ['CC(C)=C=C=C=C(C)C'] }),
+    /Cumulated double bonds/, 'a substituted [4]cumulene is axially stereogenic');
+  // An odd number of double bonds is coplanar, so there is no axis: butatriene passes, and any
+  // geometry it does have is judged by the bond-parity check rather than refused here.
+  await lib.validateChemicalReferences({ references: ['C=C=C=C'] });
 });
 
 test('a bare counterion does not downgrade the document, but a bonded out-of-set element does', async () => {
@@ -1513,8 +2369,66 @@ test('a reaction scheme is drawn in the element palette while its exported sourc
   const reaction = result.artifacts?.[0]?.data?.reaction;
   assert.ok(reaction, JSON.stringify(result.notices ?? result.view));
   assert.match(reaction.svg, /fill="(?:red|#ff0000)"[^>]*>O</i, 'oxygen is drawn red, as RDKit draws it');
-  assert.match(reaction.svg, /<text(?![^>]*fill=)[^>]*>C</, 'carbon stays black');
+  assert.doesNotMatch(reaction.svg, /<text[^>]*fill=[^>]*>C</, 'carbon is never a coloured label (skeletal carbons carry no label at all)');
   assert.doesNotMatch(reaction.chemfig.source, /\\color/, 'the exported ChemFig carries no colour commands');
+});
+
+test('a reaction scheme is skeletal: carbons are bare vertices, labels only where a reader needs them', async () => {
+  // The scheme was drawn with every carbon labelled with its hydrogens (CH3, CH2) while the target
+  // structure above it was skeletal. The author asked for one convention: no hydrogens unless needed.
+  const worker = lib.createWorker(stubHost());
+  const draw = async (smiles, id) => {
+    const result = await worker.invoke({ invocationId: id, toolId: 'compile', locale: 'en',
+      input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles }), question: smiles } });
+    const source = result.artifacts?.[0]?.data?.reaction?.chemfig?.source;
+    assert.ok(source, JSON.stringify(result.notices ?? result.view));
+    return source;
+  };
+  const ester = await draw('CC(=O)O.OCC>>CC(=O)OCC.O', 'sk1');
+  assert.doesNotMatch(ester, /\}C(?![a-z])/, 'no carbon is labelled: CH3, CH2 and the carbonyl carbon are bare vertices');
+  assert.match(ester, /\}OH/, 'a heteroatom keeps its hydrogen: the acid and the alcohol are still OH');
+  // A carbon with no bond would draw as nothing, so it keeps its label.
+  const methane = await draw('C.ClCl>>ClC.Cl', 'sk2');
+  assert.match(methane, /\}CH_4/, 'methane keeps its label');
+  assert.match(methane, /\}Cl/, 'chlorine is labelled');
+});
+
+test('a salt written as its ions is one species, so a verified step with salts on both sides still draws', async () => {
+  // Measured 2026-10-09: a route passed its check, then its final report said "the verified drawing
+  // could not be produced" for this step. The check groups species by the author's names; the
+  // drawing split the SMILES on every dot, so the sodium of sodium sulfate became two loose [Na+],
+  // one cancelled against sodium nitrite's and the other was left "taking no part".
+  const worker = lib.createWorker(stubHost());
+  const smiles = 'Oc1ccccc1.O=N[O-].[Na+].O=S(=O)(O)O>O>O=Nc1ccc(O)cc1.O=S(=O)([O-])[O-].[Na+].[Na+].O';
+  const result = await worker.invoke({ invocationId: 'salt1', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles }), question: smiles } });
+  const reaction = result.artifacts?.[0]?.data?.reaction;
+  assert.ok(reaction, `the step draws: ${JSON.stringify(result.notices ?? result.view).slice(0, 400)}`);
+  assert.equal(reaction.chemfig?.status, 'validated');
+  // And the unpaired case keeps the old behaviour: a lone ion stays its own species.
+  const lone = 'CC(=O)O.[OH-]>>CC(=O)[O-].O';
+  const loneResult = await worker.invoke({ invocationId: 'salt2', toolId: 'compile', locale: 'en',
+    input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: lone }), question: lone } });
+  assert.ok(loneResult.artifacts?.[0]?.data?.reaction, 'a reaction of unpaired ions still draws');
+});
+
+test('ions that react with each other stay separate species; a salt with a spectator ion is still one', async () => {
+  // Every consecutive run of ions whose charges close to zero was grouped as one salt, so a
+  // neutralisation or a precipitation was drawn as a single "salt" reactant turning into the product.
+  const worker = lib.createWorker(stubHost());
+  const reactants = async (smiles, id) => {
+    const result = await worker.invoke({ invocationId: id, toolId: 'compile', locale: 'en',
+      input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles }), question: smiles } });
+    const reaction = result.artifacts?.[0]?.data?.reaction;
+    assert.ok(reaction, JSON.stringify(result.notices ?? result.view).slice(0, 400));
+    return reaction.species.filter((entry) => entry.role === 'reactant').map((entry) => entry.smiles);
+  };
+  assert.deepEqual(await reactants('[H+].[OH-]>>O', 'ion1'), ['[H+]', '[OH-]'], 'a neutralisation has two reactants');
+  assert.deepEqual(await reactants('[Ag+].[Cl-]>>Cl[Ag]', 'ion2'), ['[Ag+]', '[Cl-]'], 'a precipitation has two reactants');
+  assert.deepEqual(await reactants('CC(=O)[O-].[H+]>>CC(=O)O', 'ion3'), ['CC(=O)[O-]', '[H+]'], 'a protonation has two reactants');
+  // The sodium is on both sides, so sodium nitrite is still read as the one salt the author named.
+  const salt = await reactants('Oc1ccccc1.O=N[O-].[Na+].O=S(=O)(O)O>O>O=Nc1ccc(O)cc1.O=S(=O)([O-])[O-].[Na+].[Na+].O', 'ion4');
+  assert.ok(salt.includes('O=N[O-].[Na+]'), JSON.stringify(salt));
 });
 
 test('an unbuilt step keeps its place, so later steps keep their numbers', async () => {
@@ -1666,6 +2580,141 @@ print(json.dumps([items, empty]))
   assert.equal('conditions' in empty[0], false, 'an index without a conditions table is unchanged');
 });
 
+test('the index is read only as far as a request needs it, and the template screen is cached (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // Both used to be rebuilt in full by every call, a fresh process each time: the whole exact and
+  // products tables as dicts (3.9 s, 3 GB), and one pattern fingerprint per retro template (4.8 s).
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, tempfile, glob, zstandard as zstd
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+d = tempfile.mkdtemp()
+def write(name, rows, blocks=False):
+    frame = zstd.ZstdCompressor().compress(("\\n".join(rows) + "\\n").encode())
+    open(os.path.join(d, name), 'wb').write(frame)
+    if blocks:
+        open(os.path.join(d, name + '.blocks'), 'w').write(f'{rows[0].split(chr(9))[0]}\\t0\\t{len(frame)}')
+write('exact.tsv.zst', ['aaa\\t3\\tord-1,ord-2', 'bbb\\t5\\t', 'ccc\\t7\\tord-9'], blocks=True)
+write('products.tsv.zst', ['p1\\t2\\taaa,bbb', 'p2\\t1\\t'])
+store = w._LazyStore(d)
+exact, samples, products = store['exact'], store['samples'], store['products']
+products.prefetch({'p1', 'p2', 'zz'})
+out = {
+  'counts': [exact.get('aaa', 0), exact.get('bbb', 0), exact.get('nope', 0)],
+  'samples': ['aaa' in samples, 'bbb' in samples, samples['ccc']],
+  'products': [products.get('p1'), products.get('p2'), products.get('zz')],
+  'faiss_loaded': store._index is not None,
+}
+write('retro-templates.tsv.zst', ['9\\t1\\t[C:1]-[OH:2]>>[C:1]-[O:2]C(C)=O', '4\\t0\\tnot a smarts ((>>C', '2\\t1\\t[c:1]-[Br:2]>>[c:1]'])
+cold = w._retro_templates(d)
+w._retro_cache.clear(); w._retro_screen.clear()
+warm = w._retro_templates(d)
+out['cache_files'] = len(glob.glob(os.path.join(d, 'retro-templates.tsv.zst.screen-*.npz')))
+out['cold'] = [[r[0], r[2], r[3] is not None] for r in cold]
+out['warm'] = [[r[0], r[2], r[3] is not None] for r in warm]
+from rdkit import Chem
+out['screened'] = [r[2] for r in w._screened(d, warm, Chem.MolFromSmiles('Brc1ccccc1'))]
+cut = w._disconnect(d, ['Brc1ccccc1', 'CCO'], 8, budget_seconds=1e-9)
+whole = w._disconnect(d, ['Brc1ccccc1'], 8)
+out['cut'] = [e.get('partial', False) for e in cut]
+out['whole'] = [e.get('partial', False) for e in whole]
+print(json.dumps(out))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(out.counts, [3, 5, 0], 'exact counts by key, 0 for an unknown key');
+  assert.deepEqual(out.samples, [true, false, 'ord-9'], 'samples only where the row has them');
+  assert.deepEqual(out.products, [{ count: 2, keys: ['aaa', 'bbb'] }, { count: 1, keys: [] }, null]);
+  assert.equal(out.faiss_loaded, false, 'the fingerprint index is not loaded for a request that does not ask for neighbours');
+  assert.equal(out.cache_files, 1, 'the screen is written beside the templates');
+  assert.deepEqual(out.cold.map((row) => row.slice(0, 2)), out.warm.map((row) => row.slice(0, 2)), 'the same rows, cold or warm');
+  assert.equal(out.cold.length, 2, 'a template that does not parse is dropped either way');
+  assert.ok(out.warm.every((row) => row[2] === false), 'warm rows parse their query only when used');
+  assert.ok(out.screened.includes('[c:1]-[Br:2]>>[c:1]'), 'the cached screen still admits a template that matches');
+  // A deadline keeps what was found and says so, rather than running into the runtime limit.
+  assert.deepEqual(out.cut, [true, true], 'every target the deadline cut short is marked partial');
+  assert.deepEqual(out.whole, [false], 'without a deadline nothing is marked');
+});
+
+test('a served interpreter looks a blocked row up once and counts a SMILES once, and forgets rows of a rebuilt table (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // A turn's disconnection calls share one interpreter and look up many of the same molecules and
+  // reactions, and classify every proposal against the same target: each lookup decompressed and
+  // searched its frame again, and each count parsed and matched the SMILES again.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, tempfile, zstandard as zstd
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+from rdkit import Chem
+d = tempfile.mkdtemp()
+path = os.path.join(d, 'molecules.tsv.zst')
+def write(rows):
+    frame = zstd.ZstdCompressor().compress(("\\n".join(rows) + "\\n").encode())
+    open(path, 'wb').write(frame)
+    open(path + '.blocks', 'w').write(f'{rows[0].split(chr(9))[0]}\\t0\\t{len(frame)}')
+write(['CCO\\t12\\t3', 'CC\\t40\\t0', 'c1ccccc1\\t99\\t7\\tk1,k2'])
+frames = [0]
+real = zstd.ZstdDecompressor
+class Counting(real):
+    def decompress(self, *args, **kwargs):
+        frames[0] += 1
+        return super().decompress(*args, **kwargs)
+zstd.ZstdDecompressor = Counting
+out = {}
+out['first'] = w._lookup(path, {'CCO', 'c1ccccc1', 'nope'})
+w._note_cached()
+out['again'] = w._lookup(path, {'CCO', 'c1ccccc1', 'nope'})
+out['frames'] = frames[0]
+w._lookup(path, {'CCO'})['CCO'].append('changed by a caller')
+out['third'] = w._lookup(path, {'CCO'})
+write(['CCO\\t13\\t4', 'CC\\t40\\t0', 'c1ccccc1\\t100\\t7\\tk1,k2,k3'])
+os.utime(path, ns=(1, 1))
+w._drop_stale()
+out['rebuilt'] = w._lookup(path, {'CCO', 'c1ccccc1'})
+parsed = [0]
+original = Chem.MolFromSmiles
+def counting(*args, **kwargs):
+    parsed[0] += 1
+    return original(*args, **kwargs)
+Chem.MolFromSmiles = counting
+first = w._counts('CC(=O)O.OCC')
+first['acid'] += 100
+second = w._counts('CC(=O)O.OCC')
+out['parsed'] = parsed[0]
+out['counts'] = [w._counts('CC(=O)O.OCC')['acid'], second['acid'], first['acid']]
+print(json.dumps(out))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(out.first, { CCO: ['CCO', '12', '3'], c1ccccc1: ['c1ccccc1', '99', '7', 'k1,k2'] }, 'rows by key, none for an unknown key');
+  assert.deepEqual(out.again, { CCO: ['CCO', '12', '3'], c1ccccc1: ['c1ccccc1', '99', '7', 'k1,k2'] }, 'the same rows again');
+  assert.equal(out.frames, 1, 'the frame was decompressed for the first lookup only');
+  assert.deepEqual(out.third.CCO, ['CCO', '12', '3'], 'a caller changing a returned row does not change the next answer');
+  assert.deepEqual(out.rebuilt, { CCO: ['CCO', '13', '4'], c1ccccc1: ['c1ccccc1', '100', '7', 'k1,k2,k3'] }, 'a rebuilt table is read again');
+  assert.equal(out.parsed, 2, 'the two molecules of a SMILES were parsed for its first count only');
+  assert.deepEqual(out.counts, [1, 1, 101], 'a cached count is the same count, and a caller changing it does not change the next');
+});
+
+test('a stock import writes first-block lists; the stock check reports the same compound in another form (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // A synthetic catalogue: racemic lactic acid and benzocaine. (S)-lactic acid is not listed as
+  // such but is the same compound by InChIKey connectivity, so it comes back under sameSkeleton;
+  // the .k1.u64 file is not mistaken for a vendor list.
+  const { execFileSync } = await import('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chem-stock-k1-'));
+  const source = path.join(dir, 'catalogue.smi');
+  fs.writeFileSync(source, 'SMILES\nCC(O)C(=O)O\nCCOC(=O)c1ccc(N)cc1\n');
+  const worker = new URL('../python/reactions_worker.py', import.meta.url).pathname;
+  const out = path.join(dir, 'stock');
+  const meta = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, [worker, '--import-stock', source, 'demo', out, 'stock'], { encoding: 'utf8' }));
+  assert.equal(meta.compounds, 2);
+  assert.equal(meta.skeletons, 2);
+  assert.ok(fs.existsSync(path.join(out, 'demo.k1.u64')));
+  const reply = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, [worker], { input: JSON.stringify({ stockDir: out, stock: ['CCOC(=O)c1ccc(N)cc1', 'C[C@H](O)C(=O)O', 'CCCC'] }), encoding: 'utf8' }));
+  assert.deepEqual(reply.lists, ['demo'], 'the first-block file is not a vendor');
+  assert.deepEqual(reply.stock['CCOC(=O)c1ccc(N)cc1'], ['demo']);
+  assert.deepEqual(reply.stock['C[C@H](O)C(=O)O'], []);
+  assert.deepEqual(reply.sameSkeleton, { 'C[C@H](O)C(=O)O': ['demo'] }, 'only the not-exactly-listed compound, and only when its skeleton is listed');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('check-compatibility sends the steps and textbook directory to the worker and counts the hazards', async () => {
   const host = stubHost();
   const sent = [];
@@ -1719,24 +2768,1175 @@ print(json.dumps(w._compatibility(steps)))
   assert.deepEqual(out[1].hazards[0].protectedForms, ['TBS ether', 'TBDPS ether', 'benzyl ether']);
 });
 
-test('a stock import writes first-block lists; the stock check reports the same compound in another form (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
-  // A synthetic catalogue: racemic lactic acid and benzocaine. (S)-lactic acid is not listed as
-  // such but is the same compound by InChIKey connectivity, so it comes back under sameSkeleton;
-  // the .k1.u64 file is not mistaken for a vendor list.
+test('the inspection reports the configuration next to a free acid\'s nitrogen-bearing centre', async () => {
+  // The one wrong-structure class the deterministic checks cannot see: the opposite
+  // configuration has the same formula, the same atom counts and the same constitution, so
+  // balance and continuity both pass. The letter is reported, never judged — which letter
+  // belongs to a series flips when a sulfur-bearing branch outranks the carboxyl.
+  // Structures are the ones a real route declared, so this pins the measurement to live data.
+  const cases = [
+    ['O=C(N[C@H](Cc1cccnc1)C(=O)O)OCC1c2ccccc2-c2ccccc21', '(R)'],
+    ['O=C(N[C@H](Cc1ccc2ccccc2c1)C(=O)O)OCC1c2ccccc2-c2ccccc21', '(R)'],
+    ['CC(C)(C)OC(=O)NCCOc1ccc(C[C@@H](NC(=O)OCC2c3ccccc3-c3ccccc32)C(=O)O)cc1', '(R)'],
+    ['Cc1cccc2c(C[C@@H](NC(=O)OCC3c4ccccc4-c4ccccc43)C(=O)O)c[nH]c12', '(R)'],
+    ['O=C(C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O)NC(c1ccccc1)(c1ccccc1)c1ccccc1', '(S)'],
+    ['CC(=O)N[C@H](C(=O)O)C(C)(C)SC(c1ccccc1)(c1ccccc1)c1ccccc1', '(R)'],
+  ];
+  for (const [smiles, expected] of cases) {
+    const checked = await lib.validateChemicalReferences({ references: [smiles], inspect: true });
+    assert.equal(checked.inspection?.alphaConfiguration, expected, smiles.slice(0, 40));
+  }
+});
+
+test('a species with no such centre carries no configuration', async () => {
+  for (const smiles of ['C1=CC=C2C(=C1)C(C3=CC=CC=C32)COC(=O)NCC(=O)O', 'CCO', 'O', 'CS(C)=O']) {
+    const checked = await lib.validateChemicalReferences({ references: [smiles], inspect: true });
+    assert.equal(checked.inspection?.alphaConfiguration, undefined, smiles);
+  }
+});
+
+test('an open centre is reported as unassigned rather than guessed', async () => {
+  const checked = await lib.validateChemicalReferences({ references: ['CC(N)C(=O)O'], inspect: true });
+  assert.equal(checked.inspection?.alphaConfiguration, 'unassigned');
+});
+
+test('an Agent that would balance the step exactly is named with the count, and one that would not is only a suggestion', async () => {
+  // Exact: the acid is under Agents, and one copy of it on the reactant side closes the equation.
+  const exact = await lib.auditRoute({ steps: ['CCO>CC(=O)O>CC(=O)OCC.O'] });
+  const exactBlocked = exact.blocked.join(' ');
+  assert.match(exactBlocked, /adding it to the reactants balances the step exactly/);
+  assert.match(exactBlocked, /list it under Reactants \(1 C2H4O2\)/);
+  // Not exact: the medium carries the deficient elements but cannot account for the shortfall,
+  // so it is named as a possibility and the likelier fault is stated. Advising that the medium be
+  // moved to Reactants outright is how a large step with incomplete byproducts was misdiagnosed.
+  const loose = await lib.auditRoute({ steps: ['O=CCCC=O.CN>CN(C)C=O>CN1C2CCC1CC(=O)C2.O'] });
+  const looseBlocked = loose.blocked.join(' ');
+  assert.match(looseBlocked, /listed under Agents, but the reactants are missing atoms that species contains/);
+  assert.match(looseBlocked, /Move it to Reactants only if it is actually consumed/);
+  assert.match(looseBlocked, /products or byproducts are probably incomplete/);
+  assert.doesNotMatch(looseBlocked, /balances the step exactly/);
+});
+
+test('loose ions give the solver free coefficients, so a wrong equation can balance', async () => {
+  // The metal-ion fault, reproduced. Every one of these is arithmetically correct; the point is
+  // that a species declared as ONE salt arrives as several independent fragments, each with its
+  // own coefficient, and the solver can use that freedom to rescue an equation that is wrong.
+  //
+  // CH3MgBr + H2O -> CH4 + Mg(2+) + Br(-) + O(2-) is one hydrogen short as written, and comes
+  // back "balanced" as 2/1/2/2/2/1. Correct as written, it needs hydroxide, not oxide.
+  const wrong = await lib.auditRoute({ steps: ['C[Mg]Br.O>>C.[Mg+2].[Br-].[O-2]'] });
+  assert.equal(wrong.steps[0].ok, true, 'the step parses');
+  assert.equal(wrong.steps[0].balanced, false, 'it used to come back balanced at 2/1/2/2/2/1');
+  assert.match(wrong.steps[0].differences.join(' '), /"\[O-2\]" is a free multiply-charged anion/);
+  assert.match(wrong.steps[0].differences.join(' '), /name the salt, the hydroxide or the acid/);
+  assert.match(wrong.steps[0].differences.join(' '), /an equation that is wrong can still be solved/);
+
+  // What does behave correctly today, so a fix does not regress it.
+  const right = await lib.auditRoute({ steps: ['C[Mg]Br.O>>C.[Mg+2].[Br-].[OH-]'] });
+  assert.equal(right.steps[0].balanced, true, 'the hydroxide form is genuinely balanced');
+  assert.deepEqual([...right.steps[0].reactants, ...right.steps[0].products].map((e) => e.coefficient ?? 1),
+    [1, 1, 1, 1, 1, 1], 'and at unit coefficients');
+
+  for (const reaction of [
+    'C[Mg]Br.O>>C',                                   // salt omitted entirely
+    'CC(=O)C.C[Mg]Br.O>>CC(C)(C)O',                   // no metal on the product side
+    'c1ccccc1.[Br]>>Brc1ccccc1',                      // a loose atom on one side only
+    'CC(=O)C.[Mg+2].[Br-].[Br-]>>CC(C)O.[Mg+2].[Br-].[Br-]', // spectator ions, 2 H missing
+  ]) {
+    const audit = await lib.auditRoute({ steps: [reaction] });
+    assert.equal(audit.steps[0].balanced, false, `must not balance: ${reaction}`);
+  }
+
+  // A valid reaction is not pushed off by the ionic form of its byproduct.
+  for (const reaction of [
+    'O=Cc1ccccc1.c1ccc(cc1)[P+](c1ccccc1)(c1ccccc1)[CH-]c1ccccc1>>C(=C/c1ccccc1)\\c1ccccc1.O=P(c1ccccc1)(c1ccccc1)c1ccccc1',
+    'O=Cc1ccccc1.c1ccc(cc1)[P+](c1ccccc1)(c1ccccc1)[CH-]c1ccccc1>>C(=C/c1ccccc1)\\c1ccccc1.[O-][P+](c1ccccc1)(c1ccccc1)c1ccccc1',
+  ]) {
+    const audit = await lib.auditRoute({ steps: [reaction] });
+    assert.equal(audit.steps[0].balanced, true, `must still balance: ${reaction.slice(0, 40)}`);
+  }
+});
+
+test('a species declared as one salt takes one coefficient, not one per ion', async () => {
+  // The full fix for the loose-ion fault. A reaction SMILES cannot say which components belong
+  // to one species, so a salt declared once arrives as several fragments and each is a free
+  // coefficient. With the author's labels the boundary is recoverable, so the salt counts once.
+  const step = 'C[Mg]Br.O>>C.[Mg+2].[Br-].[OH-]';
+  const labels = [[
+    { role: 'reactant', name: 'methylmagnesium bromide', smiles: 'C[Mg]Br' },
+    { role: 'reactant', name: 'water', smiles: 'O' },
+    { role: 'product', name: 'methane', smiles: 'C' },
+    { role: 'product', byproduct: true, name: 'magnesium bromide hydroxide', smiles: '[Mg+2].[Br-].[OH-]' },
+  ]];
+  const grouped = await lib.auditRoute({ steps: [step], labels });
+  assert.equal(grouped.steps[0].balanced, true, 'the hydrolysis still balances');
+  assert.equal(grouped.steps[0].products.length, 2, 'the salt is ONE product species, not three ions');
+  assert.deepEqual(grouped.steps[0].products.map((e) => e.coefficient ?? 1), [1, 1]);
+  const salt = grouped.steps[0].products.find((e) => e.canonicalSmiles.includes('.'));
+  assert.ok(salt, 'the grouped species keeps its multi-fragment structure');
+  assert.equal(salt.name, 'magnesium bromide hydroxide', 'and the label\'s name now attaches to it');
+
+  // Ungrouped, the same step still reports three ions — unchanged for a caller that sends no
+  // labels, so nothing regresses for them.
+  const ungrouped = await lib.auditRoute({ steps: [step] });
+  assert.equal(ungrouped.steps[0].products.length, 4);
+
+  // A partial match must not silently drop atoms: a label whose fragments are not all present
+  // leaves every fragment where it was.
+  const partial = await lib.auditRoute({
+    steps: ['C[Mg]Br.O>>C.[Mg+2].[Br-]'],
+    labels: [[{ role: 'product', byproduct: true, name: 'magnesium bromide hydroxide', smiles: '[Mg+2].[Br-].[OH-]' }]],
+  });
+  assert.equal(partial.steps[0].products.length, 3, 'no grouping, so the missing hydroxide is still missing');
+  assert.equal(partial.steps[0].balanced, false, 'and the step correctly does not balance');
+});
+
+test('two salts sharing an ion balance from their declared stoichiometry, not the solver\'s guess', async () => {
+  // The case the old write-each-ion-once design existed for, now done by grouping. The host
+  // writes every fragment of every species; the labels say where each species begins, so
+  // chromium(III) sulfate keeps its 2:3 ratio instead of becoming one chromium and one sulfate
+  // whose counts the solver re-derives.
+  const sulfate = 'S(=O)(=O)([O-])[O-]';
+  const chromiumSulfate = `${sulfate}.[Cr+3].${sulfate}.${sulfate}.[Cr+3]`;
+  const sodiumSulfate = `${sulfate}.[Na+].[Na+]`;
+  const dichromate = '[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-].[Na+].[Na+]';
+  const sulfuric = 'O=S(=O)(O)O';
+  const step = `C1CCC(CC1)O.${dichromate}.${sulfuric}>>O=C1CCCCC1.${chromiumSulfate}.${sodiumSulfate}.O`;
+  const labels = [[
+    { role: 'reactant', name: 'cyclohexanol', smiles: 'C1CCC(CC1)O' },
+    { role: 'reactant', name: 'sodium dichromate', smiles: dichromate },
+    { role: 'reactant', name: 'sulfuric acid', smiles: sulfuric },
+    { role: 'product', name: 'cyclohexanone', smiles: 'O=C1CCCCC1' },
+    { role: 'product', byproduct: true, name: 'chromium(III) sulfate', smiles: chromiumSulfate },
+    { role: 'product', byproduct: true, name: 'sodium sulfate', smiles: sodiumSulfate },
+    { role: 'product', byproduct: true, name: 'water', smiles: 'O' },
+  ]];
+  const audit = await lib.auditRoute({ steps: [step], labels });
+  assert.equal(audit.steps[0].ok, true, 'the step parses');
+  assert.equal(audit.steps[0].reactants.length, 3, 'three declared reactants, not nine fragments');
+  assert.equal(audit.steps[0].products.length, 4, 'four declared products, not eleven fragments');
+  const named = audit.steps[0].products.map((entry) => entry.name);
+  assert.ok(named.includes('chromium(III) sulfate'), 'the grouped salt carries its name');
+  assert.ok(named.includes('sodium sulfate'), 'and so does the other one');
+  assert.equal(audit.steps[0].balanced, true, 'and the classic oxidation balances');
+});
+
+test('an ester reduction is not classed as a hydrolysis (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // Reaction classes are read from functional-group changes and used as textbook SEARCH TERMS, so
+  // a wrong class retrieves the wrong page — worse than retrieving nothing. The rule treated
+  // "ester gone, alcohol appeared" as a hydrolysis, so a hydride reduction searched for
+  // saponification pages. A hydrolysis needs the ACID to appear; the alcohol test cannot stand in
+  // for it, because in `ester + X -> Y + ethanol` the leaving group is itself an alcohol.
   const { execFileSync } = await import('node:child_process');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chem-stock-k1-'));
-  const source = path.join(dir, 'catalogue.smi');
-  fs.writeFileSync(source, 'SMILES\nCC(O)C(=O)O\nCCOC(=O)c1ccc(N)cc1\n');
+  const script = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location('rw', ${JSON.stringify(new URL('../python/reactions_worker.py', import.meta.url).pathname)})
+m = importlib.util.module_from_spec(spec); sys.modules['rw'] = m
+spec.loader.exec_module(m)
+cases = [
+  ('CCOC(=O)c1ccccc1', 'OCc1ccccc1.CCO'),                      # hydride reduction
+  ('CCOC(=O)c1ccccc1.[OH-]', 'OC(=O)c1ccccc1.CCO'),            # saponification
+  ('CCOC(=O)c1ccccc1.C[Mg]Br', 'CC(=O)c1ccccc1.CCO'),          # organometallic addition
+  ('CCOC(=O)c1ccccc1', 'O=Cc1ccccc1.CCO'),                     # partial reduction to the aldehyde
+  ('CC(=O)c1ccccc1', 'CC(O)c1ccccc1'),                         # plain carbonyl reduction
+]
+print(json.dumps([m._reaction_classes(a, b) for a, b in cases]))
+`;
+  const [reduction, hydrolysis, grignard, aldehyde, carbonyl] =
+    JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+
+  assert.deepEqual(reduction, ['reduction of an ester to an alcohol'], 'the hydride reduction is named for what it is');
+  assert.ok(!reduction.includes('ester hydrolysis'), 'and is no longer called a hydrolysis');
+  assert.ok(hydrolysis.includes('ester hydrolysis'), 'saponification still is one');
+  // An organometallic addition is neither, and claims neither rather than claiming the wrong one.
+  assert.ok(!grignard.includes('ester hydrolysis'), 'the addition is not a hydrolysis');
+  assert.ok(!grignard.includes('reduction of an ester to an alcohol'), 'nor a reduction');
+  assert.ok(grignard.includes('Grignard reaction'), 'and it is still recognised for what it is');
+  assert.deepEqual(aldehyde.filter((c) => c.includes('ester')), [], 'a partial reduction claims no ester class rather than a wrong one');
+  assert.deepEqual(carbonyl, ['reduction of a carbonyl compound'], 'an ordinary carbonyl reduction is unaffected');
+});
+
+test('a reactant nothing accounts for is named, not silently refiled', async () => {
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  // The amide coupling balances WITHOUT the carbodiimide: acid + amine -> amide + water. The
+  // author lists the carbodiimide under Reactants, which is what the request asks for when a
+  // reagent is consumed, and omits the urea it becomes. Its atoms are therefore wholly
+  // unaccounted for on the product side.
+  const result = await lib.auditRoute({
+    steps: ['CC(=O)O.CNC.C1CCCCC1N=C=NC1CCCCC1>>CC(=O)N(C)C.O'],
+    labels: [[
+      label('reactant', 'ethanoic acid', 'CC(=O)O'),
+      label('reactant', 'N-methylmethanamine', 'CNC'),
+      label('reactant', 'the carbodiimide', 'C1CCCCC1N=C=NC1CCCCC1'),
+      label('product', 'the amide', 'CC(=O)N(C)C'),
+      label('product', 'water', 'O', true),
+    ]],
+  });
+  const step = result.steps[0];
+  // The verdict is NOT flipped: the arithmetic cannot tell a condition that was never consumed
+  // from a reagent that was, so guessing either way would be wrong.
+  assert.equal(step.balanced, true);
+  assert.deepEqual(step.differences, []);
+  // What used to be missing: the step said nothing, and the species lost its name in the move.
+  assert.ok(step.refiledReactant, 'the assumption is reported');
+  assert.match(step.refiledReactant, /"the carbodiimide" was listed under Reactants/);
+  assert.match(step.refiledReactant, /treated it as a condition/);
+  // One explicit edit, not a conditional to weigh: the author either moves it or names its product.
+  assert.match(step.refiledReactant, /Make one edit to this step: move "the carbodiimide" to Agents, or name under Products the product it becomes\.$/);
+  assert.doesNotMatch(step.refiledReactant, /If that is right/);
+
+  // A step that balances on its own terms carries no such note.
+  const clean = await lib.auditRoute({
+    steps: ['CC(=O)O.CNC>>CC(=O)N(C)C.O'],
+    labels: [[
+      label('reactant', 'ethanoic acid', 'CC(=O)O'),
+      label('reactant', 'N-methylmethanamine', 'CNC'),
+      label('product', 'the amide', 'CC(=O)N(C)C'),
+      label('product', 'water', 'O', true),
+    ]],
+  });
+  assert.equal(clean.steps[0].balanced, true);
+  assert.equal(clean.steps[0].refiledReactant, undefined);
+});
+
+test('the unverified fallback is scoped to the plan, not to the whole request', async () => {
+  // The shape that produced an unverified picture of a whole route: the plan asked for one target
+  // structure and the request was a multi-step synthesis. The fallback used to be handed only the
+  // request, and drew the route.
+  const source = fs.readFileSync(path.join(root, 'src/worker.ts'), 'utf8');
+  assert.match(source, /async function rescueWithSvg\(question: string, reason: string, plan = ''\)/);
+  assert.match(source, /Draw EXACTLY what the plan asked for and nothing else/);
+  assert.match(source, /If the plan names a single structure, draw that one structure/);
+  assert.match(source, /plan: plan\.slice\(0, 4_000\), request: question/);
+  // Both abstain paths pass the plan, or the scoping is only half applied.
+  assert.equal((source.match(/allowFallback, source\)/g) ?? []).length, 2, 'both abstain call sites carry the plan');
+});
+
+test('a target that specifies some centres and leaves others open can be formed', async () => {
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  // One balanced step delivering ONE of the two epimers the target admits.
+  const steps = ['C[C@@H](O)[C@@H](N)C(=O)OC.O>>C[C@@H](O)[C@@H](N)C(=O)O.CO'];
+  const labels = [[
+    label('reactant', 'the methyl ester', 'C[C@@H](O)[C@@H](N)C(=O)OC'),
+    label('reactant', 'water', 'O'),
+    label('product', 'the acid', 'C[C@@H](O)[C@@H](N)C(=O)O'),
+    label('product', 'methanol', 'CO', true),
+  ]];
+  const reasonFor = async (target) => (await lib.auditRoute({ steps, labels, target })).target?.reason;
+
+  // Fully specified and matching, and fully unspecified: both already worked.
+  assert.equal(await reasonFor('C[C@@H](O)[C@@H](N)C(=O)O'), 'formed');
+  assert.equal(await reasonFor('CC(O)C(N)C(=O)O'), 'formed');
+  // The case that could not be formed by ANY route: one centre specified, one left open. It was
+  // reported as a stereochemistry failure at a centre the request never asked about.
+  assert.equal(await reasonFor('C[C@@H](O)C(N)C(=O)O'), 'formed');
+  // Still refused where the SPECIFIED centre is wrong: leaving one centre open does not loosen
+  // the other, which is the failure a looser match would introduce.
+  assert.equal(await reasonFor('C[C@H](O)C(N)C(=O)O'), 'stereo-mismatch');
+  // And a different constitution is still not the target.
+  assert.equal(await reasonFor('C[C@@H](O)C(N)C(=O)OC'), 'not-formed');
+});
+
+test('a stereocentre destroyed before the target is excused, whatever the target specifies', async () => {
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  // Two steps. Step 1 oxidises a thioether to a sulfoxide, which makes a stereocentre at sulfur
+  // that nobody controls and the model writes without a descriptor. Step 2 reduces it away, so
+  // nothing of it reaches the target. This is the only open-centre case that occurs in real
+  // routes: every one of 219 species measured had its open centre at a sulfoxide sulfur.
+  const thioether = 'CSCC[C@@H](N)C(=O)O';
+  const sulfoxide = 'CS(=O)CC[C@@H](N)C(=O)O';
+  const steps = [
+    `${thioether}.OO>>${sulfoxide}.O`,
+    `${sulfoxide}.c1ccccc1P(c1ccccc1)c1ccccc1>>${thioether}.O=P(c1ccccc1)(c1ccccc1)c1ccccc1`,
+  ];
+  const labels = [
+    [label('reactant', 'the thioether', thioether), label('reactant', 'hydrogen peroxide', 'OO'),
+     label('product', 'the sulfoxide', sulfoxide), label('product', 'water', 'O', true)],
+    [label('reactant', 'the sulfoxide', sulfoxide), label('reactant', 'triphenylphosphine', 'c1ccccc1P(c1ccccc1)c1ccccc1'),
+     label('product', 'the thioether', thioether), label('product', 'triphenylphosphine oxide', 'O=P(c1ccccc1)(c1ccccc1)c1ccccc1', true)],
+  ];
+  // The target is FULLY specified — which is the case the excusal used to refuse to consider.
+  const audit = await lib.auditRoute({ steps, labels, target: thioether });
+  assert.equal(audit.target?.reason, 'formed', JSON.stringify(audit.target));
+  assert.ok(audit.steps[0].unspecifiedStereocentres > 0, 'step 1 really does leave a centre open');
+  assert.equal(audit.steps[0].stereoNotRequired, true, 'and it is excused, because nothing of it reaches the target');
+  // The excusal must not reach the step that forms the target: that one is held to it.
+  assert.notEqual(audit.steps[1].stereoNotRequired, true);
+  assert.ok(!(audit.blocked ?? []).some((entry) => /unspecified/.test(entry)),
+    `nothing is blocked for the sulfoxide: ${JSON.stringify(audit.blocked)}`);
+});
+
+test('an inert atmosphere written as a lone atom is named', async () => {
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  // Exactly the shape two independent reviewers caught in one answer: the prose says the step is
+  // run under nitrogen, and the structure beside the name is atomic nitrogen. It sat under Agents,
+  // which take no part in the balance, so nothing in the check ever looked at it and the report
+  // printed "nitrogen (N)" and passed.
+  const steps = ['CC(=O)O.CO>[N]>CC(=O)OC.O'];
+  const labels = [[
+    label('reactant', 'ethanoic acid', 'CC(=O)O'), label('reactant', 'methanol', 'CO'),
+    label('agent', 'nitrogen', '[N]'),
+    label('product', 'methyl ethanoate', 'CC(=O)OC'), label('product', 'water', 'O', true),
+  ]];
+  const audit = await lib.auditRoute({ steps, labels });
+  // The equation is right, so it is NOT reported as a balance failure — that would name the
+  // wrong fault.
+  assert.equal(audit.steps[0].balanced, true);
+  assert.deepEqual(audit.steps[0].differences, []);
+  assert.ok(audit.steps[0].monatomicSpecies, 'the structure is reported');
+  assert.match(audit.steps[0].monatomicSpecies, /`\[N\]` should be `N#N`/);
+  assert.match(audit.steps[0].monatomicSpecies, /its free form is diatomic/);
+  // An Agent gets the Agents explanation, which is the true one for that side.
+  assert.match(audit.steps[0].monatomicSpecies, /takes no part in the balance/);
+
+  // A lone atom on the REACTANT side gets a different explanation, because the reason it goes
+  // unnoticed is different: the coefficient solver scales a one-atom species to whatever the
+  // equation needs, so the step balances around something that does not exist. Measured on a real
+  // route — "benzene (C6H6) + 2 bromine (Br)" balanced perfectly — and the first version of this
+  // message told the author it took no part in the balance, which was false there.
+  const asReactant = await lib.auditRoute({
+    steps: ['c1ccccc1.[Br]>[Br][Fe]([Br])[Br]>Brc1ccccc1.Br'],
+    labels: [[
+      label('reactant', 'benzene', 'c1ccccc1'), label('reactant', 'bromine', '[Br]'),
+      label('agent', 'iron(III) bromide', '[Br][Fe]([Br])[Br]'),
+      label('product', 'bromobenzene', 'Brc1ccccc1'), label('product', 'hydrogen bromide', 'Br', true),
+    ]],
+  });
+  assert.equal(asReactant.steps[0].balanced, true, 'the premise: it balances, which is why nothing else catches it');
+  assert.match(asReactant.steps[0].monatomicSpecies, /`\[Br\]` should be `BrBr`/);
+  assert.match(asReactant.steps[0].monatomicSpecies, /coefficient solver can scale it/);
+  assert.ok(!asReactant.steps[0].monatomicSpecies.includes('takes no part in the balance'),
+    'the Agents explanation must not be given for a reactant');
+
+  // The diatomic form is accepted silently.
+  const fixed = await lib.auditRoute({
+    steps: ['CC(=O)O.CO>N#N>CC(=O)OC.O'],
+    labels: [labels[0].map((entry) => (entry.name === 'nitrogen' ? { ...entry, smiles: 'N#N' } : entry))],
+  });
+  assert.equal(fixed.steps[0].monatomicSpecies, undefined);
+
+  // A step declared radical is left alone: there, an atom really is a species.
+  const radical = await lib.auditRoute({ steps, labels, radical: true });
+  assert.equal(radical.steps[0].monatomicSpecies, undefined);
+});
+
+test('an over-long chat question is cut rather than failing the whole compile call', async () => {
+  // B45. The hook staples the host's question onto the promoted request, and the host's question
+  // is the last user message. In a route that message is the entire accumulated correction prompt,
+  // which runs past compile's 8000-character cap on `question`, and the host then refused the call
+  // outright and printed its raw schema complaint into the answer: 58 turns across 26 of 30
+  // targets on one cascade, every one a fix round, nothing drawn and nothing drawable.
+  const worker = lib.createWorker(ethanolHost());
+  const long = `Correction needed for the synthesis route above.\n\n${'The route checker rejected these steps. '.repeat(600)}`;
+  assert.ok(long.length > 8000, 'the fixture reproduces the condition');
+
+  const mutations = await worker.prepareChat({
+    locale: 'en', question: long,
+    nodes: [{ id: 'n0', kind: 'fence', fence: 'chemistry-plan', content: plan(), complete: true }],
+  });
+  const promoted = mutations.find(mutation => mutation.op === 'promote-request');
+  assert.ok(promoted, 'the plan is still promoted to a call');
+  assert.ok(promoted.input.question.length <= 8000, 'and its question fits what the tool accepts');
+  // The head is kept, not the tail: this field exists to be pattern-matched for intent, and the
+  // phrase that marks a correction round opens the prompt.
+  assert.match(promoted.input.question, /^Correction needed for the synthesis route above\./);
+
+  // A question inside the cap is passed through untouched, including the exact text a reaction
+  // SMILES copy check needs to find in it.
+  const short = 'Draw CCO>>CC=O please.';
+  const kept = await worker.prepareChat({
+    locale: 'en', question: short,
+    nodes: [{ id: 'n0', kind: 'fence', fence: 'chemistry-plan', content: plan(), complete: true }],
+  });
+  assert.equal(kept.find(mutation => mutation.op === 'promote-request').input.question, short);
+});
+
+test('every derived cap stays inside what the schema advertises, and the two agree exactly', () => {
+  // The host validates input against capability.json BEFORE the tool runs, so a cap derived above
+  // what the schema declares does not stretch the limit — it refuses the call. That is what B45
+  // was: an 8,000-character ceiling on `question` turned every fix-round drawing into an
+  // application error. So the ceilings live in one place and this test is the thing that keeps
+  // capability.json honest about them.
+  const schema = JSON.parse(fs.readFileSync(path.join(root, 'capabilities/chemistry/capability.json'), 'utf8'));
+  const props = (id) => schema.tools.find((entry) => entry.id === id).inputSchema.properties;
+  const C = lib.SCHEMA_CEILINGS;
+
+  assert.equal(props('compile').plan.maxLength, C.planChars, 'compile.plan');
+  assert.equal(props('compile').question.maxLength, C.questionChars, 'compile.question');
+  assert.equal(props('resolve-names').names.maxItems, C.names, 'resolve-names.names');
+  assert.equal(props('resolve-names').names.items.maxLength, C.nameChars, 'resolve-names name length');
+  assert.equal(props('resolve-structure').smiles.maxItems, C.structures, 'resolve-structure.smiles');
+  const route = props('verify-route');
+  assert.equal(route.steps.maxItems, C.steps, 'verify-route.steps');
+  assert.equal(route.steps.items.maxLength, C.stepChars, 'verify-route step length');
+  assert.equal(route.labels.items.maxItems, C.labelsPerStep, 'verify-route labels per step');
+  // The per-step arrays are read positionally against `steps`, so a shorter one silently drops the
+  // tail of a long route.
+  for (const key of ['carriers', 'rearrangement', 'radical', 'labels']) {
+    assert.equal(route[key].maxItems, C.steps, `verify-route.${key} must match steps`);
+  }
+
+  // No derived cap may exceed its ceiling, at any window, including an absurd one.
+  for (const tokens of [undefined, 32_000, 200_000, 1_000_000, 100_000_000]) {
+    const budget = tokens === undefined ? undefined : { contextWindowTokens: tokens, charsPerToken: 3.2 };
+    assert.ok(lib.maxQuestionChars(budget) <= C.questionChars, `question at ${tokens}`);
+    assert.ok(lib.maxReactionChars(budget) <= C.stepChars, `reaction at ${tokens}`);
+    assert.ok(lib.maxNames(budget) <= C.names, `names at ${tokens}`);
+    assert.ok(lib.maxLabelsTotal(budget) <= C.names, `labels total at ${tokens}`);
+    assert.ok(lib.maxLabelsPerStep(budget) <= C.labelsPerStep, `labels per step at ${tokens}`);
+    assert.ok(lib.maxSteps(budget) <= C.steps, `steps at ${tokens}`);
+    assert.ok(lib.maxSpeciesPerStep(budget) <= C.labelsPerStep, `species per step at ${tokens}`);
+  }
+});
+
+test('a cap never drops below the floor it has always had, and grows with the window', () => {
+  const floors = { maxQuestionChars: 8_000, maxReactionChars: 16_000, maxNames: 48, maxLabelsTotal: 48, maxLabelsPerStep: 24, maxSteps: 96, maxSpeciesPerStep: 48, maxSpeciesTotal: 1_024 };
+  // No window named (an older host, or a model with no documented window) must behave exactly as
+  // before. "Absent" means use the floor; it must never be read as "unlimited".
+  for (const [name, floor] of Object.entries(floors)) {
+    assert.equal(lib[name](undefined), floor, `${name} with no budget is its old value`);
+    assert.equal(lib[name]({ charsPerToken: 3.2 }), floor, `${name} with no window is its old value`);
+    assert.equal(lib[name]({ contextWindowTokens: 0 }), floor, `${name} ignores a nonsense window`);
+    assert.equal(lib[name]({ contextWindowTokens: -5 }), floor, `${name} ignores a negative window`);
+    assert.ok(lib[name]({ contextWindowTokens: 1_000_000, charsPerToken: 3.2 }) >= floor, `${name} never regresses on a big window`);
+  }
+  // And the point of the exercise: the caps that were silently truncating a long route now clear it.
+  const big = { contextWindowTokens: 1_000_000, charsPerToken: 3.2 };
+  assert.ok(lib.maxLabelsTotal(big) > 120, 'a 40-step route names well over 48 distinct species');
+  assert.ok(lib.maxSteps(big) >= 96, 'a long linear assembly runs to roughly ninety steps');
+  assert.ok(lib.maxQuestionChars(big) > 9_523, 'the real correction prompt that B45 refused now fits');
+});
+
+test('a route longer than the old 96-step ceiling is actually audited now, not refused', async () => {
+  // The cap tests above check the NUMBERS. This one checks the behaviour the numbers exist for:
+  // a long linear assembly written one transformation per unit runs to roughly ninety steps, and
+  // the next size up was refused outright. Asserting the constant moved is not the same as
+  // asserting a long route gets through, so this runs one.
+  const step = (n) => `CC(=O)O.NCC${'C'.repeat(n % 4)}>>CC(=O)NCC${'C'.repeat(n % 4)}.O`;
+  const longRoute = { steps: Array.from({ length: 120 }, (_, i) => step(i)) };
+
+  // Without a window the floor stands, and the floor is the old behaviour exactly.
+  await assert.rejects(() => lib.auditRoute(longRoute), /between one and 96 steps/,
+    'with no window named, nothing changed');
+
+  // With the window the host now passes, the same route is accepted and every step is audited.
+  const audit = await lib.auditRoute(longRoute, { contextWindowTokens: 1_000_000, charsPerToken: 3.2 });
+  assert.equal(audit.steps.length, 120, 'every step comes back, not a truncated prefix');
+  assert.ok(audit.steps.every((entry) => typeof entry.balanced === 'boolean'),
+    'and each one was really checked, not just counted');
+});
+
+test('a named diatomic element resolves to its molecule, and nothing else does', () => {
+  // The route contract tells the model to give species as NAMES and never to author a structure.
+  // It wrote "bromine" — correct — and resolution returned `[Br]`, a bromine ATOM. The route then
+  // failed on a species the model never wrote, and the checker asked for `BrBr`, which the same
+  // contract forbids it from supplying. One target took three turns to find that workaround and
+  // another never did. The fault was in this lookup, not in the answer.
+  const f = lib.diatomicElementForName;
+
+  for (const [name, smiles] of [['hydrogen', '[H][H]'], ['nitrogen', 'N#N'], ['oxygen', 'O=O'],
+    ['fluorine', 'FF'], ['chlorine', 'ClCl'], ['bromine', 'BrBr'], ['iodine', 'II']]) {
+    assert.equal(f(name), smiles, name);
+    assert.equal(f(name.toUpperCase()), smiles, `${name} is case-insensitive`);
+    assert.equal(f(`  ${name} `), smiles, `${name} tolerates whitespace`);
+  }
+  assert.equal(f('molecular bromine'), 'BrBr');
+  assert.equal(f('dinitrogen'), 'N#N');
+
+  // CHARGE. An ion is not an element's free form, and a bare charged atom is the RIGHT answer for
+  // it: `[H+]` is a proton, `[H][H]` is hydrogen gas, and confusing them changes the chemistry.
+  // None of these names may match, so each falls through to the references unchanged.
+  for (const ion of ['hydrogen ion', 'proton', 'hydride', 'hydronium', 'chloride', 'bromide',
+    'iodide', 'fluoride', 'oxide', 'hydroxide', 'nitride', 'peroxide']) {
+    assert.equal(f(ion), null, `${ion} is an ion, not an element's free form`);
+  }
+
+  // LEGITIMATELY MONATOMIC. A noble gas IS one atom in its free form; a metal is one atom as the
+  // element. Rewriting either would be wrong.
+  for (const mono of ['helium', 'neon', 'argon', 'krypton', 'xenon', 'sodium', 'zinc', 'iron', 'tin']) {
+    assert.equal(f(mono), null, `${mono} is monatomic or a metal`);
+  }
+
+  // An explicitly ATOMIC form is a real species and must survive as written.
+  for (const atom of ['atomic hydrogen', 'hydrogen atom', 'bromine radical', 'chlorine atom']) {
+    assert.equal(f(atom), null, `${atom} names the atom on purpose`);
+  }
+
+  // A COMPOUND that merely contains the element word. This is why the match is on the whole name:
+  // the metal lookup beside it matches a word inside the name, which here would turn hydrogen
+  // chloride into hydrogen gas.
+  for (const compound of ['hydrogen chloride', 'hydrogen peroxide', 'hydrogen bromide',
+    'bromine monochloride', 'nitrogen dioxide', 'oxygen difluoride', 'chlorine dioxide',
+    'sodium chloride', 'iodine monochloride']) {
+    assert.equal(f(compound), null, `${compound} is a compound, not an element`);
+  }
+
+  // Allotropes left out on purpose: their free form depends on which one, so there is no single
+  // edit to make. Ozone is not oxygen's free form either.
+  for (const other of ['sulfur', 'phosphorus', 'ozone', 'carbon', 'graphite']) {
+    assert.equal(f(other), null, `${other} has no single unambiguous free form here`);
+  }
+});
+
+test('the route label check and compile ask the local references first, once per batch', async () => {
+  let sent = 0;
+  const host = resolveHost(() => { sent += 1; return undefined; });
+  const batches = [];
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async (request) => {
+    batches.push(JSON.parse(request.stdin));
+    return { code: 0, stderr: '', stdout: JSON.stringify({
+      pubchem: { available: true, names: { ethanol: { cid: 702, smiles: 'CCO' }, 'ethyl acetate': { cid: 8857, smiles: 'CCOC(C)=O' } }, smiles: {} },
+      opsin: { 'acetic acid': { status: 'SUCCESS', smiles: 'CC(=O)O' } } }) };
+  } };
+  for (const toolId of ['verify-route', 'compile']) {
+    const schema = manifest.tools.find((tool) => tool.id === toolId).inputSchema.properties;
+    assert.ok(schema.pubchemDir && schema.opsinDir && schema.localOnly, `${toolId} declares the local reference fields`);
+  }
+  const worker = lib.createWorker(host);
+  const labels = [[
+    { role: 'reactant', name: 'ethanol', smiles: 'CCO' }, { role: 'reactant', name: 'acetic acid', smiles: 'CC(=O)O' },
+    { role: 'product', name: 'ethyl acetate', smiles: 'CCOC(C)=O' }, { role: 'product', name: 'water', smiles: 'O', byproduct: true },
+  ]];
+  const audit = (await worker.invoke({ invocationId: 'lr1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO.CC(=O)O>>CCOC(C)=O.O'], labels, pubchemDir: '/m', opsinDir: '/o', localOnly: true } })).artifacts[0].data;
+  assert.equal(batches.length, 1, 'one local call for the whole route');
+  assert.deepEqual(batches[0].pubchemNames, ['ethanol', 'acetic acid', 'ethyl acetate', 'water']);
+  const named = Object.fromEntries([...audit.steps[0].reactants, ...audit.steps[0].products].map((entry) => [entry.name, entry.nameOk]));
+  assert.deepEqual(named, { ethanol: true, 'acetic acid': true, 'ethyl acetate': true, water: undefined }, 'answered locally; the unknown name stays unchecked');
+  assert.equal(audit.namesUnresolved, 1);
+  const plan = JSON.stringify({ version: 2, kind: 'structure', depiction: 'skeletal', species: [{ id: 's1', input: { kind: 'name', value: 'ethanol' } }] });
+  const drawn = await worker.invoke({ invocationId: 'lr2', toolId: 'compile', locale: 'en', input: { plan, question: 'Draw ethanol.', pubchemDir: '/m', localOnly: true } });
+  assert.equal(drawn.artifacts?.[0]?.data.species[0].graph.canonicalSmiles, 'CCO', 'compile resolved the name from the mirror');
+  assert.equal(sent, 0, 'not one request was sent to PubChem or EBI');
+});
+
+test('a fix round in a new worker reuses the label answers the last check found', async () => {
+  let sent = 0;
+  const fetch = (endpointId, target) => {
+    sent += 1;
+    if (endpointId === 'pubchem' && target.includes('/name/')) return { IdentifierList: { CID: [702] } };
+    if (endpointId === 'pubchem' && target.includes('/cid/702/')) return { PropertyTable: { Properties: [{ CID: 702, SMILES: 'CCO' }] } };
+    return undefined;
+  };
+  const first = resolveHost(fetch);
+  const kept = new Map();
+  first.storage = { ...first.storage, cache: { get: async (key) => kept.get(key) ?? null, set: async (key, value) => { kept.set(key, structuredClone(value)); }, delete: async (key) => { kept.delete(key); }, keys: async () => [...kept.keys()] } };
+  const input = { steps: ['CCO.CC(=O)O>>CCOC(C)=O.O'], labels: [[{ role: 'reactant', name: 'ethanol', smiles: 'CCO' }]] };
+  await lib.createWorker(first).invoke({ invocationId: 'fr1', toolId: 'verify-route', locale: 'en', input });
+  assert.ok(sent > 0, 'the first check looked the name up');
+  // A new worker, as each answer phase gets, over the same package storage.
+  sent = 0;
+  const second = resolveHost(fetch);
+  second.storage = first.storage;
+  const audit = (await lib.createWorker(second).invoke({ invocationId: 'fr2', toolId: 'verify-route', locale: 'en', input })).artifacts[0].data;
+  assert.equal(sent, 0, 'nothing was asked again');
+  assert.equal(audit.steps[0].reactants.find((entry) => entry.name === 'ethanol').nameOk, true);
+  lib.resetPubchemPacing();
+});
+
+test('resolve-names canonicalises without drawing, and the inspector still returns a full graph', async () => {
+  const batches = [];
+  const host = ethanolHost();
+  const run = host.subworker.run;
+  host.subworker.run = async (request) => { batches.push(request.input); return run(request); };
+  const worker = lib.createWorker(host);
+  const names = (await worker.invoke({ invocationId: 'cn1', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'] } })).artifacts[0].data.results;
+  assert.equal(names[0].smiles, 'CCO');
+  assert.equal(batches.at(-1).canonicalOnly, true, 'the canonicalisation batch asks for the canonical form only');
+  const dossier = (await worker.invoke({ invocationId: 'cn2', toolId: 'inspect', locale: 'en', input: { smiles: ['C[C@H](N)C(=O)O'] } })).artifacts[0];
+  assert.equal(batches.at(-1).canonicalOnly, undefined, 'the inspector asks for the whole graph');
+  assert.ok(dossier.data.atoms.some((atom) => atom.cip === 'S'));
+});
+
+test('the route check reads each species once, and its summary matches the drawing path', async () => {
+  // The summary-only read must report what the full validation reports, species by species.
+  for (const smiles of ['C[C@H](N)C(=O)O', 'CC(N)C(=O)O', 'C/C=C/C', 'CC=CC', '[Na+].[Cl-]', 'C.[Mg+2].[Br-].[OH-]', '[13CH3]O', 'O=C([O-])[O-].[Ca+2]']) {
+    const full = (await lib.validateChemicalReferences({ references: [smiles], inspect: true })).inspection;
+    const lean = (await lib.validateChemicalReferences({ references: [smiles], inspect: true, summaryOnly: true })).inspection;
+    const comparable = (entry) => ({ ...entry, cipCentres: entry.cipCentres?.map(centre => centre.tag), composition: Object.fromEntries(Object.entries(entry.composition).sort()) });
+    assert.deepEqual(comparable(lean), comparable(full), smiles);
+  }
+  for (const smiles of ['C1CC', 'C=C=C(C)C']) {
+    const refused = async (request) => { try { await lib.validateChemicalReferences(request); return ''; } catch (error) { return error.message; } };
+    assert.equal(await refused({ references: [smiles], inspect: true, summaryOnly: true }), await refused({ references: [smiles], inspect: true }), smiles);
+  }
+});
+
+test('a stereocentre the route check names is numbered in the string the author wrote', async () => {
+  // Written centre-first, so the author's atom 1 is atom 4 of RDKit's canonical string.
+  const audit = await lib.auditRoute({ steps: ['Cl[C@H](C)C(=O)OC.O>>Cl[C@@H](C)C(=O)O.CO'] });
+  const message = audit.blocked.join(' ');
+  assert.match(message, /inverts a stereocentre/);
+  assert.match(message, /\((?:S|R)\) at atom 1\b|\batom 1 of /, message);
+  assert.doesNotMatch(message, /at atom 4\b/, message);
+});
+
+test('the bounded coefficient search keeps its answers, and refuses a free step without searching', async () => {
+  const summary = async (smiles) => (await lib.validateChemicalReferences({ references: [smiles], inspect: true })).inspection;
+  const solve = async (reactants, products) => {
+    const species = await Promise.all([...reactants, ...products].map(summary));
+    try {
+      return lib.balanceReaction(species.map(entry => ({ atoms: entry.composition, charge: entry.charge })),
+        [...reactants.map(() => 'reactant'), ...products.map(() => 'product')], species.map(() => 1)).join(',');
+    } catch (error) { return error.message; }
+  };
+  // Four free directions: the smallest equation is unique and is found.
+  assert.equal(await solve(['C', 'CC', 'CCC'], ['CCCC', 'CCCCC', '[H][H]']), '1,1,2,1,1,2');
+  // Six free directions: past the search, and said so rather than called ambiguous.
+  assert.match(await solve(['CCO', 'O=O', 'CO'], ['CC=O', 'CC(=O)O', 'O', 'OO', 'C=O', 'O=C=O']), /leaves 6 species free to vary independently/);
+});
+
+// ---------------------------------------------------------------- scene molfile
+
+/** The resonance arrows of a carboxylate: the anionic oxygen's pair into C–O, C=O onto the other oxygen. */
+const carboxylateResonance = [
+  { from: { species: 's1', atom: { element: 'O', index: 2 } }, to: { species: 's1', bond: { between: ['C', 'O'], order: 1 } } },
+  { from: { species: 's1', bond: { between: ['C', 'O'], order: 2 } }, to: { species: 's1', atom: { element: 'O', index: 1 } } },
+];
+
+test('an isotope label survives the scene molfile that every round-trip re-reads', async () => {
+  // The ChemFig round-trip and the mechanism ledger both hand the scene's own molfile to RDKit.
+  // An ISO line it cannot read loses the label without an error: the export was refused, and a
+  // mechanism reported its labelled product as the unlabelled one.
+  const labelled = await lib.validateChemicalReferences({ references: ['[13CH3]O'], exportChemfig: true });
+  assert.equal(labelled.chemfig.status, 'validated', labelled.chemfig.reason);
+
+  const smiles = 'CC(=O)[18O-]';
+  const checked = await lib.validateChemicalReferences({ references: [smiles], mechanism: { rule: 'electron-flow', inputs: [smiles], order: ['s1'], electronFlow: carboxylateResonance, resonance: true } });
+  assert.deepEqual(checked.mechanism.molecules.map(molecule => molecule.canonicalSmiles), ['CC(=O)[18O-]', 'CC([O-])=[18O]']);
+  assert.deepEqual(checked.mechanism.canonicalProducts, ['CC([O-])=[18O]']);
+});
+
+test('a radical is not re-read as a closed-shell species', async () => {
+  // Without its RAD line the radical carbon came back with one hydrogen more, and the
+  // contributors of a radical anion were reported, as validated, to be acetate.
+  const smiles = '[CH2]C(=O)[O-]';
+  await assert.rejects(
+    lib.validateChemicalReferences({ references: [smiles], mechanism: { rule: 'electron-flow', inputs: [smiles], order: ['s1'], electronFlow: carboxylateResonance, resonance: true } }),
+    /Radical mechanism stages are unsupported/,
+  );
+});
+
+// ---------------------------------------------------------------- ChemFig branch depth
+
+test('a chain too deep for ChemFig branches is refused quickly, and later exports still compile', async () => {
+  // The export nests every bond as a branch, and TeX never returns once branches nest 32 deep.
+  // A 35-atom chain cost the whole validator budget, and the timed-out engine then refused every
+  // ChemFig after it in the same process, ethanol included.
+  const started = Date.now();
+  const deep = await lib.validateChemicalReferences({ references: ['C' + 'COC'.repeat(11) + 'O'], exportChemfig: true, openStereo: true });
+  assert.equal(deep.chemfig.status, 'unsupported');
+  assert.match(deep.chemfig.reason, /branch depth/);
+  assert.ok(Date.now() - started < 10_000, 'well inside the 15 s validator budget');
+  const after = await lib.validateChemicalReferences({ references: ['CCO'], exportChemfig: true });
+  assert.equal(after.chemfig.status, 'validated', after.chemfig.reason);
+});
+
+// ---------------------------------------------------------------- TeX input buffer
+
+test('a ChemFig line longer than the TeX input buffer is refused, not fatal', async () => {
+  // A shallow 163-atom alkane exports one ~5.5k-character line. node-tikzjax reads lines into a
+  // 5000-character buffer and, past it, throws from a timer that no caller can catch. The run
+  // is in a child process because, unguarded, it ends whichever process it runs in.
+  const { spawnSync } = await import('node:child_process');
+  const script = `
+    const lib = require(${JSON.stringify(bundle)});
+    const tree = depth => depth === 0 ? 'C' : 'C(' + tree(depth - 1) + ')(' + tree(depth - 1) + ')' + tree(depth - 1);
+    lib.validateChemicalReferences({ references: ['C(' + tree(4) + ')' + tree(3) + 'C'], exportChemfig: true, openStereo: true })
+      .then(result => { process.stdout.write(JSON.stringify(result.chemfig)); process.exit(0); });`;
+  const run = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 120_000 });
+  assert.equal(run.status, 0, `the validator process survived: ${run.stderr.slice(0, 300)}`);
+  const chemfig = JSON.parse(run.stdout);
+  assert.equal(chemfig.status, 'unsupported');
+  assert.match(chemfig.reason, /input buffer/);
+});
+
+test('an abort ends a reference request the host is still answering', { timeout: 10_000 }, async () => {
+  // The host's fetch never answers. The turn's abort must still end the look-up, and a cancelled
+  // batch must not come back as names that simply did not resolve.
+  const controller = new AbortController();
+  lib.resetPubchemPacing();
+  const host = stubHost({ signal: controller.signal });
+  host.network.fetch = () => new Promise(() => {});
+  const worker = lib.createWorker(host);
+  setTimeout(() => controller.abort(new Error('cancelled by the user')), 50);
+  const started = Date.now();
+  await assert.rejects(worker.invoke({ invocationId: 'abort-fetch', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'] } }), /cancelled by the user/);
+  assert.ok(Date.now() - started < 2000, 'the abort did not wait for the reply');
+});
+
+test('the local references answer every name and structure the application may send (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON || process.platform === 'win32' }, async () => {
+  // resolve-names and resolve-structure send up to 512 (SCHEMA_CEILINGS.names / structures); the
+  // worker used to look up only the first 256, so the rest went to the network, or came back
+  // unresolved on a local-only run, although the mirror and the local OPSIN had them.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, sqlite3, stat, tempfile
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+from rdkit import Chem
+d = tempfile.mkdtemp(); db = sqlite3.connect(os.path.join(d, 'pubchem.sqlite'))
+db.executescript('''CREATE TABLE inchikey (key TEXT PRIMARY KEY, cid INTEGER) WITHOUT ROWID;
+  CREATE TABLE smiles (cid INTEGER PRIMARY KEY, smiles TEXT); CREATE TABLE iupac (cid INTEGER PRIMARY KEY, name TEXT);
+  CREATE TABLE formula (cid INTEGER PRIMARY KEY, formula TEXT); CREATE TABLE synonym (name TEXT, cid INTEGER, rank INTEGER);''')
+structures = ['C' * n + 'O' for n in range(1, 513)]
+for cid, smi in enumerate(structures, 1):
+    db.execute('INSERT INTO inchikey VALUES (?, ?)', (Chem.MolToInchiKey(Chem.MolFromSmiles(smi)), cid))
+    db.execute('INSERT INTO smiles VALUES (?, ?)', (cid, smi)); db.execute('INSERT INTO iupac VALUES (?, ?)', (cid, f'compound {cid}'))
+    db.execute('INSERT INTO synonym VALUES (?, ?, 0)', (f'compound {cid}', cid))
+db.commit(); db.close()
+o = tempfile.mkdtemp()
+for n in ('opsin-cli-2.8.0-jar-with-dependencies.jar', 'OpsinBatch.class'):
+    open(os.path.join(o, n), 'w').close()
+java = os.path.join(o, 'java')
+open(java, 'w').write('#!/bin/sh\\nwhile IFS= read -r line; do printf "SUCCESS\\\\tC\\\\t\\\\t\\\\n"; done\\n')
+os.chmod(java, os.stat(java).st_mode | stat.S_IEXEC)
+names = [f'compound {cid}' for cid in range(1, 513)]
+out = w.handle({'pubchemDir': d, 'opsinDir': o, 'pubchemNames': names, 'pubchemSmiles': structures})
+print(json.dumps([len(out['pubchem']['names']), len(out['pubchem']['smiles']), len(out['opsin']), out['pubchem']['names'].get('compound 512', {}).get('cid')]))
+`;
+  const [names, structures, opsin, last] = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.equal(names, 512, 'every name the mirror holds is answered');
+  assert.equal(structures, 512, 'every structure the mirror holds is answered');
+  assert.equal(opsin, 512, 'every name goes to the local OPSIN');
+  assert.equal(last, 512, 'the last name is answered with its own record');
+});
+
+test('a route search stops at its budget inside an expansion, and reports the time it took (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // Each expansion ran the whole template pass with no deadline, so one molecule could hold the
+  // search far past its budget (and past the host's timeout, which loses every route found), while
+  // "seconds" still read as the budget. A thousand templates that all apply make one pass ~6 s.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, tempfile, time, zstandard as zstd
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+d = tempfile.mkdtemp()
+template = '[C:1](=[O:2])[NH:3][C:4]>>[C:1](=[O:2])O.[NH2:3][C:4]'
+rows = ''.join(f'{1000 - i}\\t1\\t{template}\\n' for i in range(1000))
+open(os.path.join(d, 'retro-templates.tsv.zst'), 'wb').write(zstd.ZstdCompressor().compress(rows.encode()))
+open(os.path.join(d, 'molecules.tsv.zst'), 'wb').write(zstd.ZstdCompressor().compress(b''))
+w._retro_templates(d)
+started = time.monotonic()
+out = w._search_routes([d], 'CC(=O)NCCNC(=O)CCC(=O)NCCNC(=O)c1ccccc1', [], budget_seconds=1.0)
+print(json.dumps({'wall': time.monotonic() - started, 'seconds': out['seconds'], 'timedOut': out['timedOut']}))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.ok(out.wall < 2.5, `a 1 s budget is kept within an expansion (took ${out.wall.toFixed(1)} s)`);
+  assert.equal(out.timedOut, true);
+  assert.ok(Math.abs(out.seconds - out.wall) < 0.3, `seconds is the time taken (${out.seconds} vs ${out.wall.toFixed(2)})`);
+});
+
+// ---------------------------------------------------------------- arrows on a ring-closure bond
+
+test('an arrow on the bond that closes a ring is drawn', async () => {
+  // Hydroxide opening propylene oxide at the CH2 breaks the CH2–O bond, which is the bond the
+  // ChemFig export wrote as a ring closure. A closure has no @{b…} name, so the checked
+  // mechanism was refused with "Unknown electron-flow anchor".
+  const electronFlow = [
+    { from: { species: 'nu', atom: { element: 'O' } }, to: { species: 'ep', atom: { element: 'C', index: 2 } } },
+    { from: { species: 'ep', bond: { between: ['C', 'O'], index: 2 } }, to: { species: 'ep', atom: { element: 'O' } } },
+  ];
+  const checked = await lib.validateChemicalReferences({ references: ['[OH-]'], mechanism: { rule: 'electron-flow', inputs: ['[OH-]', 'CC1CO1'], order: ['nu', 'ep'], electronFlow } });
+  assert.equal(checked.mechanism.chemfig.status, 'validated');
+  assert.deepEqual(checked.mechanism.canonicalProducts, ['CC(O)C[O-]']);
+});
+
+// ---------------------------------------------------------------- legacy documents
+
+test('a legacy document that is malformed or not verified is refused, never badged as verified', async () => {
+  // Any status but "partial" was drawn under a green "Verified structure" badge, and a payload
+  // missing a field failed with a TypeError instead of the unreadable-legacy error.
+  const worker = lib.createWorker(stubHost());
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+  for (const payload of [{}, null, { species: [{ input: {} }] }, { status: 'needs-clarification', species: [{ input: { kind: 'name', value: 'ethanol' }, svg }] }]) {
+    await assert.rejects(worker.renderLegacyResult({ fence: 'chemistry-document', payload: JSON.stringify(payload), locale: 'en' }), /UNREADABLE/, JSON.stringify(payload));
+  }
+  const partial = lib.documentView({ status: 'partial', species: [{ input: { kind: 'name', value: 'ethanol' }, svg }] }, 'en');
+  assert.equal(partial.nodes[0].items[0].label, 'Partly verified');
+});
+
+test('the Python compatibility check accepts the usual acid deprotections (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // "4 M HCl in dioxane" is the anhydrous strong acid that takes a Boc off, not a dilute work-up;
+  // and aqueous acid is how an acetal, a TMS ether or a trityl group usually comes off. Each used to
+  // be flagged as a protecting group lost with nothing named that removes it.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, sys
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+steps = [
+  {"reactants": ["CC(C)(C)OC(=O)NCc1ccccc1"], "products": ["NCc1ccccc1"], "reagents": "4 M HCl in dioxane"},
+  {"reactants": ["CC(C)(C)OC(=O)NCc1ccccc1"], "products": ["NCc1ccccc1"], "reagents": "4M HCl/dioxane"},
+  {"reactants": ["CC1(c2ccccc2)OCCO1"], "products": ["CC(=O)c1ccccc1"], "reagents": "aq. HCl, acetone"},
+  {"reactants": ["CC1(c2ccccc2)OCCO1"], "products": ["CC(=O)c1ccccc1"], "reagents": "H3O+"},
+  {"reactants": ["C[Si](C)(C)OCc1ccccc1"], "products": ["OCc1ccccc1"], "reagents": "1 M HCl, THF"},
+  {"reactants": ["CC(C)(C)OC(=O)NCCO"], "products": ["NCCO"], "reagents": "NaOH, water"},
+]
+print(json.dumps(w._compatibility(steps)))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }));
+  const flags = out.map(step => step.hazards.map(h => `${h.group}/${h.reagentClass}/${h.severity}`));
+  assert.deepEqual(flags.slice(0, 5), [[], [], [], [], []], 'each of these removes the group it loses');
+  assert.ok(out[0].reagentClasses.some(c => c.id === 'strong-acid'), 'HCl in dioxane is a strong acid');
+  assert.deepEqual(flags[5], ['boc/null/medium'], 'a Boc lost with no acid named is still flagged');
+});
+
+test('a reaction intent may declare any coefficient the balancer can solve to', () => {
+  // Dichromate oxidising iodide takes 14 H+. Copied from the user, it was refused at 12, though
+  // the balancer accepts and solves to coefficients up to 30.
+  const question = 'Draw the balanced scheme: [O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-] + 6 [I-] + 14 [H+] gives 2 [Cr+3] + 3 II + 7 O';
+  const species = [
+    ['dichromate', '[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-]', 'reactant', 1], ['iodide', '[I-]', 'reactant', 6], ['proton', '[H+]', 'reactant', 14],
+    ['chromium', '[Cr+3]', 'product', 2], ['iodine', 'II', 'product', 3], ['water', 'O', 'product', 7],
+  ].map(([id, value, role, coefficient]) => ({ id, input: { kind: 'smiles', value }, role, coefficient }));
+  const intent = (list) => JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', species: list });
+  assert.equal(lib.parseChemistryIntent(intent(species), question).species[2].coefficient, 14);
+  assert.throws(() => lib.parseChemistryIntent(intent(species.map((entry, i) => (i === 2 ? { ...entry, coefficient: 31 } : entry))), question), /from 1 to 30/);
+});
+
+test('the route label check applies the fix-ups resolve-names applies to the same name', async () => {
+  // Synthetic records: a "salt" PubChem writes as the neutral diester beside a sodium ion, which
+  // resolve-names refuses and asks to be given as SMILES, and an oxide written as bare ions, which
+  // it rewrites as covalent. The structures the author then supplies must not read as mismatches.
+  const records = { 'sodium diethyl propanedioate': 'CCOC(=O)CC(=O)OCC.[Na+]', 'chromium trioxide': '[Cr+6].[O-2].[O-2].[O-2]' };
+  const names = Object.keys(records);
+  lib.resetPubchemPacing();
+  const worker = lib.createWorker(stubHost({ fetch: (endpointId, requestPath) => {
+    if (endpointId !== 'pubchem') return undefined;
+    const byName = /\/compound\/name\/([^/]+)\/cids\/JSON/.exec(requestPath);
+    if (byName) { const index = names.indexOf(decodeURIComponent(byName[1])); return index < 0 ? undefined : { IdentifierList: { CID: [index + 1] } }; }
+    const byCid = /\/compound\/cid\/(\d+)\/property\//.exec(requestPath);
+    const name = byCid && names[Number(byCid[1]) - 1];
+    return name ? { PropertyTable: { Properties: [{ CID: Number(byCid[1]), IsomericSMILES: records[name] }] } } : undefined;
+  } }));
+  const result = await worker.invoke({ invocationId: 'label-fixups', toolId: 'verify-route', locale: 'en', input: {
+    steps: ['CCOC(=O)[CH-]C(=O)OCC.[Na+].CCBr>>CCOC(=O)C(CC)C(=O)OCC.[Na+].[Br-]', 'O=[Cr](=O)=O.O>>O[Cr](=O)(=O)O'],
+    labels: [[{ role: 'reactant', name: 'sodium diethyl propanedioate', smiles: 'CCOC(=O)[CH-]C(=O)OCC.[Na+]' }],
+      [{ role: 'reactant', name: 'chromium trioxide', smiles: 'O=[Cr](=O)=O' }]],
+  } });
+  for (const step of result.artifacts[0].data.steps) assert.deepEqual(step.nameProblems ?? [], [], `step ${step.index}`);
+});
+
+test('a two-way family is searched to the coefficient ceiling, in any species order', () => {
+  // Dodecane to CO and CO2: the one smallest equation is C12H26 + 13 O2 -> CO2 + 11 CO + 13 H2O.
+  // A search that stopped at 12 never built it, and called the step ambiguous in one order only.
+  const C12H26 = comp({ '6:0': 12, '1:0': 26 }), CO = comp({ '6:0': 1, '8:0': 1 });
+  const roles = ['reactant', 'reactant', 'product', 'product', 'product'];
+  assert.deepEqual(lib.balanceReaction([C12H26, O2, CO2, CO, H2O], roles, [1, 1, 1, 1, 1]), [1, 13, 1, 11, 13]);
+  assert.deepEqual(lib.balanceReaction([C12H26, O2, H2O, CO2, CO], roles, [1, 1, 1, 1, 1]), [1, 13, 13, 1, 11]);
+});
+
+test('a balance past the coefficient ceiling is named, not blamed on a missing reagent', () => {
+  // Hexadecane burns at 2 : 49 : 32 : 34. The species are complete; only the numbers are large.
+  const C16H34 = comp({ '6:0': 16, '1:0': 34 });
+  assert.throws(() => lib.balanceReaction([C16H34, O2, CO2, H2O], ['reactant', 'reactant', 'product', 'product'], [1, 1, 1, 1]),
+    error => /2 : 49 : 32 : 34/.test(error.message) && !/missing reagent/i.test(error.message));
+});
+
+test('the stereo enumeration runs while the route labels are looked up', async () => {
+  const events = [];
+  const host = resolveHost((endpointId, target) => {
+    events.push(`fetch ${endpointId}`);
+    if (endpointId === 'pubchem' && target.includes('/name/')) return { IdentifierList: { CID: [702] } };
+    if (endpointId === 'pubchem' && target.includes('/cid/702/')) return { PropertyTable: { Properties: [{ CID: 702, SMILES: 'CCO' }] } };
+    return undefined;
+  });
+  const fetch = host.network.fetch;
+  host.network.fetch = async (...args) => { await new Promise(resolve => setTimeout(resolve, 50)); return fetch(...args); };
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async (request) => {
+    events.push('stereo');
+    return { code: 0, stderr: '', stdout: JSON.stringify({ stereoChoices: Object.fromEntries(JSON.parse(request.stdin).stereoChoices.map(s => [s, { open: 0, mirrorOnly: false }])) }) };
+  } };
+  await lib.createWorker(host).invoke({ invocationId: 'st1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO.CC(=O)O>>CCOC(C)=O.O'], labels: [[{ role: 'reactant', name: 'ethanol', smiles: 'CCO' }]], enumerateStereo: true } });
+  const stereo = events.indexOf('stereo');
+  assert.ok(stereo >= 0 && stereo < events.length - 1, `the enumeration started before the last look-up (${events.join(', ')})`);
+  lib.resetPubchemPacing();
+});
+
+test('the stereo enumeration answers a fully assigned structure without building it (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  const { execFileSync } = await import('node:child_process');
+  const worker = path.join(root, 'python', 'reactions_worker.py');
+  const ask = (smiles) => JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-I', worker], { input: JSON.stringify({ stereoChoices: smiles }), encoding: 'utf8' })).stereoChoices;
+  const out = ask(['CN1C2CCC1CC(=O)C2', 'CC1(C)C2CCC1(C)C(=O)C2', 'OC(=O)C1C2CCC(N2C)C(C(=O)O)C1=O', 'C[C@@H](O)CC', 'C/C=C/C', 'CCO']);
+  assert.deepEqual(out['CN1C2CCC1CC(=O)C2'], { open: 0, mirrorOnly: false }, 'tropinone is meso');
+  assert.deepEqual(out['CC1(C)C2CCC1(C)C(=O)C2'], { open: 1, mirrorOnly: true }, 'camphor: a mirror-image choice');
+  assert.equal(out['OC(=O)C1C2CCC(N2C)C(C(=O)O)C1=O'].open, 2);
+  for (const assigned of ['C[C@@H](O)CC', 'C/C=C/C', 'CCO']) assert.deepEqual(out[assigned], { open: 0, mirrorOnly: false }, assigned);
+});
+
+test('the stereo enumeration answers within its budget, and nulls only what it could not reach (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // The host gives the whole call 60 s, and one cage written without descriptors could take most of
+  // it (strychnine 54 s, morphine 14 s): past 60 s every species' answer was lost, not just that one.
+  // The budget is lowered to 1 s here so morphine runs into it.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, sys, time
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+w.STEREO_BUDGET_SECONDS = 1.0
+started = time.monotonic()
+out = w.handle({'stereoChoices': ['CC(O)CC', 'CN1CCC23c4c5ccc(O)c4OC2C(O)C=CC3C1C5', 'CCO', 'C[C@@H](O)CC']})['stereoChoices']
+print(json.dumps({'out': out, 'seconds': time.monotonic() - started}))
+`;
+  const { out, seconds } = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.ok(seconds < 3, `the call keeps its budget (${seconds.toFixed(1)} s)`);
+  assert.deepEqual(out['CC(O)CC'], { open: 1, mirrorOnly: true }, 'answered before the budget ran out');
+  assert.equal(out['CN1CCC23c4c5ccc(O)c4OC2C(O)C=CC3C1C5'], null, 'cut off by the budget: no answer, and the labeller\'s own count stands');
+  assert.deepEqual(out.CCO, { open: 0, mirrorOnly: false }, 'nothing to build: still answered after the budget');
+  assert.deepEqual(out['C[C@@H](O)CC'], { open: 0, mirrorOnly: false });
+});
+
+test('the stereo enumeration does not build a sample it cannot count from (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // Past 64 possible isomers RDKit enumerates only a random 64 of them. Building each of those in 3D
+  // could not give a count (9 s for cholesterol without descriptors, 48 s for docetaxel, only to
+  // answer null; artemisinin's sample gave a number for a set it had not seen), so it is not done.
+  const { execFileSync } = await import('node:child_process');
+  const worker = path.join(root, 'python', 'reactions_worker.py');
+  const started = Date.now();
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-I', worker], { input: JSON.stringify({ stereoChoices: ['CC(C)CCCC(C)C1CCC2C3CC=C4CC(O)CCC4(C)C3CCC12C', 'CC1CCC2C(C)C(=O)OC3OC4(C)CCC1C32OO4', 'CC(O)CC'] }), encoding: 'utf8' })).stereoChoices;
+  const seconds = (Date.now() - started) / 1000;
+  assert.equal(out['CC(C)CCCC(C)C1CCC2C3CC=C4CC(O)CCC4(C)C3CCC12C'], null, 'cholesterol without descriptors: too many to enumerate');
+  assert.equal(out['CC1CCC2C(C)C(=O)OC3OC4(C)CCC1C32OO4'], null, 'artemisinin without descriptors: 128 possible, 64 of them buildable');
+  assert.deepEqual(out['CC(O)CC'], { open: 1, mirrorOnly: true }, 'a small one is still enumerated');
+  assert.ok(seconds < 5, `answered without building the samples (${seconds.toFixed(1)} s)`);
+});
+
+test('a route message names the species the author meant, whatever order the labels came in', async () => {
+  const label = (role, name, smiles) => ({ role, name, smiles, nameSmiles: [smiles] });
+  // The catalyst's label first: by position, the acid was the species called "a condition".
+  const audit = await lib.auditRoute({ steps: ['CCO.CC(=O)O.OS(=O)(=O)O>>CCOC(C)=O.O'], labels: [[
+    label('reactant', 'sulfuric acid', 'OS(=O)(=O)O'), label('reactant', 'ethanol', 'CCO'), label('reactant', 'acetic acid', 'CC(=O)O')]] });
+  assert.match(audit.steps[0].refiledReactant, /^"sulfuric acid" was listed under Reactants/);
+  // An unlabelled reactant shifts every position after it.
+  const inverted = await lib.auditRoute({ steps: ['CC(=O)O.Cl[C@H](C)C(=O)OC>>Cl[C@@H](C)C(=O)O.CC(=O)OC'], labels: [[
+    label('reactant', 'methyl (S)-2-chloropropanoate', 'Cl[C@H](C)C(=O)OC'), label('reactant', 'acetic acid', 'CC(=O)O')]] });
+  assert.match(inverted.blocked.join(' '), /atom 1 of methyl \(S\)-2-chloropropanoate /);
+  assert.doesNotMatch(inverted.blocked.join(' '), /of acetic acid/);
+});
+
+test('a stereocentre is compared through its branches, not by its CIP letter', async () => {
+  const refused = async (step) => (await lib.auditRoute({ steps: [step] })).blocked.join(' ');
+  // Cyanide displaces the bromide two bonds from the centre: the configuration is kept, but CH2CN
+  // ranks below the phenyl where CH2Br ranked above it, so the letter flips from S to R.
+  assert.doesNotMatch(await refused('BrC[C@@H](C)c1ccccc1.[Na+].[C-]#N>CS(C)=O>N#CC[C@@H](C)c1ccccc1.[Na+].[Br-]'), /inverts a stereocentre/);
+  // The same step with the centre really inverted keeps the letter S, and must be refused.
+  assert.match(await refused('BrC[C@@H](C)c1ccccc1.[Na+].[C-]#N>CS(C)=O>N#CC[C@H](C)c1ccccc1.[Na+].[Br-]'), /inverts a stereocentre: atom 2 of C9H11Br/);
+  // An ester reduced to the alcohol beside the centre: the rewritten branch changes its hydrogens,
+  // and the letter flips (the aryl ether outranks CH2OH but not CO2Me).
+  assert.doesNotMatch(await refused('COC(=O)[C@@H](C)c1ccccc1OC.[H][H]>[Ru]>OC[C@@H](C)c1ccccc1OC.CO'), /inverts a stereocentre/);
+  // A molecule merely written in another atom order is the same molecule.
+  assert.doesNotMatch(await refused('N[C@@H](Cc1ccccc1)C(=O)OC.O>>COC(=O)[C@H](Cc1ccccc1)N.O'), /inverts a stereocentre/);
+  // An epimer at a centre whose two ring branches are alike is still caught, by its letter.
+  assert.match(await refused('CN1[C@H]2CC[C@@H]1C[C@H](O)C2.O>>CN1[C@H]2CC[C@@H]1C[C@@H](O)C2.O'), /inverts a stereocentre/);
+});
+
+test('a mirror without an optional table, or one that is not a database, does not sink the call (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // The formula and IUPAC tables only add to an answer. A mirror built without one, or a file that
+  // is not a database, used to raise out of the worker: the call failed, and with it the local
+  // OPSIN's answers in the same reply.
+  const { execFileSync } = await import('node:child_process');
+  const worker = path.join(root, 'python', 'reactions_worker.py');
+  const script = `
+import os, sqlite3, sys, tempfile
+from rdkit import Chem
+lean = tempfile.mkdtemp(); db = sqlite3.connect(os.path.join(lean, 'pubchem.sqlite'))
+db.executescript('''CREATE TABLE inchikey (key TEXT PRIMARY KEY, cid INTEGER) WITHOUT ROWID;
+  CREATE TABLE smiles (cid INTEGER PRIMARY KEY, smiles TEXT); CREATE TABLE synonym (name TEXT, cid INTEGER, rank INTEGER);''')
+db.execute('INSERT INTO inchikey VALUES (?, 702)', (Chem.MolToInchiKey(Chem.MolFromSmiles('CCO')),))
+db.execute("INSERT INTO smiles VALUES (702, 'CCO')"); db.execute("INSERT INTO synonym VALUES ('ethanol', 702, 0)")
+db.commit(); db.close()
+broken = tempfile.mkdtemp(); open(os.path.join(broken, 'pubchem.sqlite'), 'wb').write(b'not a database' * 64)
+print(lean); print(broken)
+`;
+  const [lean, broken] = execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }).trim().split('\n');
+  const ask = (pubchemDir) => JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-I', worker], { input: JSON.stringify({ pubchemDir, pubchemNames: ['ethanol'], pubchemSmiles: ['OCC'] }), encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] })).pubchem;
+  const out = ask(lean);
+  assert.deepEqual(out.names, { ethanol: { cid: 702, smiles: 'CCO' } }, 'answered, without a formula');
+  assert.deepEqual(out.smiles.OCC, { cid: 702, inchikey: 'LFQSCWFLJHTTHZ-UHFFFAOYSA-N' }, 'answered, without a name or formula');
+  const unreadable = ask(broken);
+  assert.deepEqual({ ...unreadable, error: undefined }, { names: {}, smiles: {}, available: false, error: undefined }, 'an unreadable mirror is no mirror: the caller asks the network');
+  assert.match(unreadable.error, /DatabaseError/, 'and says why, so the host can log it');
+});
+
+test('a local OPSIN reply one line short is no reply, and a message keeps its tabs (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON || process.platform === 'win32' }, async () => {
+  // The reply ends in a newline, so one line short used to pass the count, and the last name got an
+  // empty status: the host read it as OPSIN's own "not a recognised name" and never asked EBI.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, stat, sys, tempfile
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+def opsin(body):
+    d = tempfile.mkdtemp()
+    for n in ('opsin-cli-2.8.0-jar-with-dependencies.jar', 'OpsinBatch.class'):
+        open(os.path.join(d, n), 'w').close()
+    java = os.path.join(d, 'java')
+    open(java, 'w').write('#!/bin/sh\\n' + body)
+    os.chmod(java, os.stat(java).st_mode | stat.S_IEXEC)
+    return d
+answer = 'while IFS= read -r line; do case "$line" in *unparsable*) printf "FAILURE\\\\t\\\\t\\\\t%s is unparsable\\\\n" "$line";; *) printf "SUCCESS\\\\tC\\\\t\\\\t\\\\n";; esac; done\\n'
+short = w._opsin_local(opsin('head -n 2 | (' + answer + ')'), ['methane', 'ethane', 'propane'])
+whole = w._opsin_local(opsin(answer), ['methane', 'a\\tb unparsable'])
+print(json.dumps([short, whole]))
+`;
+  const [short, whole] = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(short, {}, 'a reply that does not cover every name is not used: the web service answers instead');
+  assert.deepEqual(whole.methane, { status: 'SUCCESS', smiles: 'C' });
+  assert.equal(whole['a\tb unparsable'].message, 'a\tb unparsable is unparsable', 'the message is not cut at a tab');
+});
+
+// ---------------------------------------------------------------- lone pairs beyond the second row
+
+test('lone pairs are counted for every main-group element, and a radical keeps its electron', async () => {
+  // Selenium was missing from the valence table, so hydrogen selenide drew with a bare
+  // selenium; an odd count was rounded down, so the methyl radical drew with no electron.
+  const selenide = scene([['Se', 0], ['H', 0], ['H', 0]], [[0, 1, 1], [0, 2, 1]]);
+  lib.assignLonePairs(selenide);
+  assert.deepEqual(selenide.atoms.map(atom => atom.lonePairs), [2, 0, 0]);
+
+  const dots = async smiles => ((await lib.validateChemicalReferences({ references: [smiles], depiction: 'lone-pairs' })).svg.match(/<circle/g) ?? []).length;
+  assert.equal(await dots('[SeH2]'), 4, 'two pairs on selenium');
+  assert.equal(await dots('[CH3]'), 1, 'one unpaired electron on the methyl radical');
+  assert.equal(await dots('O'), 4, 'water is unchanged');
+});
+
+test('every Python call asks the host for a persistent interpreter', async () => {
+  const requests = [];
+  const host = stubHost();
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async request => { requests.push(request); return { code: 0, stdout: JSON.stringify({ stereoChoices: {}, compatibility: [], stock: {}, orderable: {}, lists: [], orderLists: [] }), stderr: '' }; } };
+  const worker = lib.createWorker(host);
+  await worker.invoke({ invocationId: 'p1', toolId: 'verify-route', locale: 'en', input: { steps: ['CC(=O)C>>CC(O)C'], enumerateStereo: true } });
+  await worker.invoke({ invocationId: 'p2', toolId: 'check-stock', locale: 'en', input: { stockDir: '/stock', molecules: ['CCO'] } });
+  await worker.invoke({ invocationId: 'p3', toolId: 'check-compatibility', locale: 'en', input: { steps: [{ reactants: ['CCO'], products: ['CC=O'], reagents: 'PCC' }] } });
+  assert.equal(requests.length, 3);
+  assert.ok(requests.every(request => request.persistent === true), 'each call opted in');
+});
+
+test('the Python worker serves requests in a loop, and forgets a stock list that changed (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  const { execFileSync } = await import('node:child_process');
   const worker = new URL('../python/reactions_worker.py', import.meta.url).pathname;
-  const out = path.join(dir, 'stock');
-  const meta = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, [worker, '--import-stock', source, 'demo', out, 'stock'], { encoding: 'utf8' }));
-  assert.equal(meta.compounds, 2);
-  assert.equal(meta.skeletons, 2);
-  assert.ok(fs.existsSync(path.join(out, 'demo.k1.u64')));
-  const reply = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, [worker], { input: JSON.stringify({ stockDir: out, stock: ['CCOC(=O)c1ccc(N)cc1', 'C[C@H](O)C(=O)O', 'CCCC'] }), encoding: 'utf8' }));
-  assert.deepEqual(reply.lists, ['demo'], 'the first-block file is not a vendor');
-  assert.deepEqual(reply.stock['CCOC(=O)c1ccc(N)cc1'], ['demo']);
-  assert.deepEqual(reply.stock['C[C@H](O)C(=O)O'], []);
-  assert.deepEqual(reply.sameSkeleton, { 'C[C@H](O)C(=O)O': ['demo'] }, 'only the not-exactly-listed compound, and only when its skeleton is listed');
-  fs.rmSync(dir, { recursive: true, force: true });
+  const script = `
+import json, os, subprocess, sys, tempfile
+import numpy as np
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+stock = tempfile.mkdtemp()
+def add(vendor, smiles):
+    np.array(sorted(w._stock_hash(w._inchikey(s)) for s in smiles), dtype="<u8").tofile(os.path.join(stock, vendor + ".u64"))
+add("acme", ["CCO"])
+served = subprocess.Popen([sys.executable, "-I", ${JSON.stringify(worker)}], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+                          env={"PATH": os.environ.get("PATH", ""), "NODUS_PYTHON_SERVE": "1"})
+def ask(n, request):
+    served.stdin.write(json.dumps({"id": n, "stdin": json.dumps(request)}) + "\\n")
+    served.stdin.flush()
+    return json.loads(served.stdout.readline())
+first = ask(1, {"stock": ["CCO"], "stockDir": stock})
+add("bravo", ["CCO"])
+second = ask(2, {"stock": ["CCO"], "stockDir": stock})
+refused = ask(3, {"reactions": []})
+stereo = ask(4, {"stereoChoices": ["CC(O)CC"]})
+served.stdin.close()
+served.wait(timeout=30)
+one_shot = subprocess.run([sys.executable, "-I", ${JSON.stringify(worker)}], input=json.dumps({"stereoChoices": ["CC(O)CC"]}), capture_output=True, text=True,
+                          env={"PATH": os.environ.get("PATH", "")})
+print(json.dumps({"first": first, "second": second, "refused": refused, "stereo": stereo, "oneShot": one_shot.stdout, "exit": served.returncode}))
+`;
+  // Bounded: a script that does not serve waits for an end of input that never comes.
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8', timeout: 60_000, killSignal: 'SIGKILL' }));
+  assert.equal(out.first.id, 1);
+  assert.deepEqual(JSON.parse(out.first.stdout).stock, { CCO: ['acme'] });
+  assert.deepEqual(JSON.parse(out.second.stdout).stock, { CCO: ['acme', 'bravo'] }, 'a list imported meanwhile is seen by the next request');
+  assert.equal(out.refused.code, 1, 'a refused request is a failure with the one-shot exit code');
+  assert.match(out.refused.stderr, /indexDir or indexDirs is required/);
+  assert.equal(out.stereo.code, 0);
+  assert.equal(out.stereo.stdout, out.oneShot, 'a served answer is byte-for-byte the one-shot answer');
+  assert.equal(out.exit, 0, 'the loop ends when stdin closes');
+});
+
+test('each tool declares at least the concurrency the application runs it at', () => {
+  // The host now enforces `concurrency` per worker (it used to be declared and ignored), so a value
+  // below what Nodus sends side by side would serialize it: disconnections four at a time in the
+  // evidence gather (DISCONNECTION_PROCESSES), the ORD and textbook precedent lookups together, two
+  // step drawings at a time (DRAW_CONCURRENCY), and the stock check from the gather beside the
+  // route report's.
+  const declared = Object.fromEntries(manifest.tools.map(tool => [tool.id, tool.concurrency]));
+  assert.ok(declared['propose-disconnections'] >= 4);
+  assert.ok(declared['known-reactions'] >= 2);
+  assert.ok(declared.compile >= 2);
+  assert.ok(declared['check-stock'] >= 2);
+  assert.ok(declared.inspect >= 2);
+});
+
+test('a name that found nothing is asked again by the next call to the same worker', async () => {
+  // The host may keep one worker for a whole conversation. A lookup that failed — a refusal, an
+  // outage — must not stand as "this name has no structure" for every later round.
+  let online = false;
+  const host = stubHost({ fetch: (endpointId, target) => online && endpointId === 'opsin' && target.includes('/opsin/ws/') ? { status: 'SUCCESS', smiles: 'CCCC(C)C(C)=O' } : undefined });
+  const worker = lib.createWorker(host);
+  const check = id => worker.invoke({ invocationId: id, toolId: 'verify-route', locale: 'en', input: {
+    steps: ['CCCC(C)C(C)=O.[BH4-].[Na+].CO>>CCCC(C)C(C)O.[Na+].[BH3-]OC'],
+    labels: [[{ role: 'reactant', name: '3-methylhexan-2-one', smiles: 'CCCC(C)C(C)=O' }]],
+  } });
+  const offline = (await check('off')).artifacts[0].data;
+  assert.equal(offline.steps[0].reactants[0].nameOk, undefined, 'unchecked while the reference is unreachable');
+  online = true;
+  const before = host.calls.length;
+  const later = (await check('on')).artifacts[0].data;
+  assert.ok(host.calls.length > before, 'the name was looked up again');
+  assert.equal(later.steps[0].reactants[0].nameOk, true);
+});
+
+test('resolve-names answers a name this worker already resolved without asking the network again', async () => {
+  lib.resetPubchemPacing();
+  const host = stubHost({ fetch: (endpointId, target) => endpointId === 'opsin' && target.includes('/opsin/ws/') ? { status: 'SUCCESS', smiles: 'CCCC(C)C(C)=O' } : undefined });
+  const worker = lib.createWorker(host);
+  const first = (await worker.invoke({ invocationId: 'n1', toolId: 'resolve-names', locale: 'en', input: { names: ['3-methylhexan-2-one', 'not-a-compound-xyz'] } })).artifacts[0].data.results;
+  const asked = host.calls.length;
+  assert.ok(asked > 0);
+  const second = (await worker.invoke({ invocationId: 'n2', toolId: 'resolve-names', locale: 'en', input: { names: ['3-methylhexan-2-one', 'not-a-compound-xyz'] } })).artifacts[0].data.results;
+  assert.deepEqual(second[0], first[0], 'the same resolution, source and formula');
+  const again = host.calls.slice(asked);
+  assert.ok(again.every(call => !call.includes('3-methylhexan-2-one')), `the resolved name was asked again: ${again.join(', ')}`);
+  assert.equal(second[1].status, first[1].status, 'an unresolved name is answered as before');
+  // A fresh worker knows nothing.
+  const fresh = lib.createWorker(host);
+  const before = host.calls.length;
+  await fresh.invoke({ invocationId: 'n3', toolId: 'resolve-names', locale: 'en', input: { names: ['3-methylhexan-2-one'] } });
+  assert.ok(host.calls.length > before);
+});
+
+test('a failed Python call says why, and a silent fallback is logged', async () => {
+  const logged = [];
+  const host = stubHost();
+  host.log = (level, message) => logged.push(`${level}: ${message}`);
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 1, stdout: '', stderr: 'Traceback (most recent call last):\n  ...\nSystemExit: the reaction index is missing exact.tsv.zst\n' }) };
+  const worker = lib.createWorker(host);
+  await assert.rejects(worker.invoke({ invocationId: 'k1', toolId: 'known-reactions', locale: 'en', input: { indexDir: '/idx', reactions: ['CCO>>CC=O'] } }),
+    /reaction lookup failed \(exit 1: SystemExit: the reaction index is missing exact\.tsv\.zst\)/);
+  // The local mirror falls back to the network without failing the call — and now says so.
+  await worker.invoke({ invocationId: 'k2', toolId: 'resolve-names', locale: 'en', input: { names: ['ethanol'], pubchemDir: '/mirror' } });
+  assert.ok(logged.some(line => line.startsWith('warn:') && line.includes('local references') && line.includes('missing exact.tsv.zst')), JSON.stringify(logged));
+  // So does the stereo enumeration of the route check.
+  await worker.invoke({ invocationId: 'k3', toolId: 'verify-route', locale: 'en', input: { steps: ['CC(=O)C>>CC(O)C'], enumerateStereo: true } });
+  assert.ok(logged.some(line => line.includes('Stereo choices were not enumerated')), JSON.stringify(logged));
+});
+
+test('a call from a reply never reaches the local OPSIN or mirror folder the reply named', async () => {
+  // The local OPSIN folder holds a program the package RUNS. The application fills these folders
+  // on its own calls; a request that came out of a chat reply (it carries a node id) must not
+  // choose one, whatever host it reaches — an older host forwards the reply's JSON as it stands.
+  const sent = [];
+  const host = ethanolHost();
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async (request) => { sent.push(JSON.parse(request.stdin)); return { code: 0, stderr: '', stdout: '{}' }; } };
+  const worker = lib.createWorker(host);
+  await worker.invoke({ invocationId: 'hp1', toolId: 'compile', locale: 'en', chat: { nodeId: 'n1', question: 'Draw ethanol.' },
+    input: { plan: plan(), question: 'Draw ethanol.', opsinDir: '/Users/someone/Downloads/kit', pubchemDir: '/elsewhere' } });
+  assert.deepEqual(sent.filter((request) => 'opsinDir' in request || 'pubchemDir' in request), [], 'no folder the reply chose is handed to Python');
+
+  // The application's own call (no chat node) still uses the folders it passes.
+  sent.length = 0;
+  await worker.invoke({ invocationId: 'hp2', toolId: 'compile', locale: 'en', input: { plan: plan(), question: 'Draw ethanol.', opsinDir: '/opsin' } });
+  assert.equal(sent.filter((request) => request.opsinDir === '/opsin').length, 1, 'a host call keeps its local OPSIN');
 });

@@ -1,7 +1,8 @@
+import { MAX_REACTION_COEFFICIENT, MAX_SPECIES_CHARS } from './chemistryLimits';
 import type { ChemistryReactionArtifact, ChemistryValidationRequest, ChemistryValidationResult, ReactionSpecies } from './chemistryDocument';
 import { compileChemfig } from './chemistry';
 import { colourChemfigAtoms } from './elementColours';
-import { formulaOf } from './chemistryElements';
+import { elementSymbol, formulaOf, isMetalKey } from './chemistryElements';
 
 type Validate = (request: ChemistryValidationRequest) => Promise<ChemistryValidationResult>;
 
@@ -84,7 +85,7 @@ export async function renderBalancedReaction(species: ReactionSpecies[], validat
   for (const item of species) {
     if (!item || !/^[a-z][a-z0-9-]{0,39}$/.test(item.id) || ids.has(item.id)
       || !['reactant', 'product', 'agent'].includes(item.role) || !Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > MAX_COEFFICIENT
-      || typeof item.smiles !== 'string' || !item.smiles || item.smiles.length > 2000) throw new Error('Invalid reaction species or coefficient.');
+      || typeof item.smiles !== 'string' || !item.smiles || item.smiles.length > MAX_SPECIES_CHARS) throw new Error('Invalid reaction species or coefficient.');
     ids.add(item.id);
     const checked = await validate({ references: [item.smiles], ...(racemic ? { racemic: true } : {}), ...(openStereo ? { openStereo: true } : {}) });
     canonical.push({ ...item, smiles: checked.graph.canonicalSmiles });
@@ -182,7 +183,7 @@ interface Composition { atoms: Record<string, number>; charge: number }
  *  balance is more likely a wrong species set than a real equation. The multi-solution search
  *  keeps its own smaller ceiling, since its cost grows with the ceiling to the power of the
  *  solution-space dimension. */
-export const MAX_COEFFICIENT = 30;
+export const MAX_COEFFICIENT = MAX_REACTION_COEFFICIENT;
 
 type Frac = [bigint, bigint];
 const gcd = (a: bigint, b: bigint): bigint => { a = a < 0n ? -a : a; b = b < 0n ? -b : b; while (b) { const t = a % b; a = b; b = t; } return a; };
@@ -238,9 +239,72 @@ function nullSpace(matrix: bigint[][], columns: number): Frac[][] {
  *  vector is the coefficient of its free column in the result: searching multipliers 1..12 (the
  *  coefficient ceiling) searches every usable equation.
  */
-function smallestPositiveEquation(basis: Frac[][]): number[] | null {
-  const dimension = Math.min(basis.length, 4); // bounded search; deeper spaces are refused
-  const ceiling = 12;
+/** How many null-space directions the bounded search covers. Past this the search cannot
+ *  produce a candidate at all — every combination it builds leaves an exact zero in a direction
+ *  it never touched, and a zero means a species takes no part — so the caller must say it did
+ *  not determine the coefficients rather than that the species were ambiguous. */
+export const SEARCH_DIMENSION_LIMIT = 4;
+
+/** The largest multiplier the search tries on each basis vector. A multiplier is that free
+ *  column's own coefficient in the equation it builds, so a ceiling below MAX_COEFFICIENT skips
+ *  every equation needing more there: dodecane burning to CO and CO2 needs 13 water, and was
+ *  called ambiguous in one species order and solved in another. Two directions cost 30^2
+ *  combinations; more keep the old ceiling, whose cost is already 12^4. */
+const searchCeiling = (dimension: number): number => (dimension <= 2 ? MAX_COEFFICIENT : 12);
+
+/** The smallest equation when it is unique, 'tie' when two different ones share the smallest
+ *  total, and null when the search built no usable equation at all — which is not ambiguity, and
+ *  must not be reported as it. */
+function smallestPositiveEquation(basis: Frac[][]): number[] | 'tie' | null {
+  // Past the limit no candidate can be built (see above), so all 12^4 combinations would be
+  // refused: 30–90 ms of nothing per call, paid again for every species the route checker tries
+  // moving on a step that will not balance.
+  if (basis.length > SEARCH_DIMENSION_LIMIT) return null;
+  const ceiling = searchCeiling(basis.length);
+  // One common denominator makes the basis whole numbers, and scaling every candidate by the same
+  // factor leaves its smallest whole-number form unchanged, so the search can add integers instead
+  // of reducing a fraction on every term. Only where the sums cannot leave the exact range.
+  let denominator = 1n;
+  for (const vector of basis) for (const [, d] of vector) denominator = (denominator / gcd(denominator, d)) * d;
+  const whole = basis.map(vector => vector.map(([n, d]) => n * (denominator / d)));
+  const largest = whole.reduce((sum, vector) => sum + vector.reduce((max, value) => (value < 0n ? -value : value) > max ? (value < 0n ? -value : value) : max, 0n), 0n);
+  if (largest * BigInt(ceiling) > BigInt(Number.MAX_SAFE_INTEGER)) return smallestPositiveEquationExact(basis);
+  const rows = whole.map(vector => vector.map(Number));
+  const size = rows[0].length;
+  const best = new Map<string, number[]>();
+  let bestSum = Infinity;
+  const total = ceiling ** basis.length;
+  const vector = new Array<number>(size);
+  const gcdOf = (a: number, b: number): number => { while (b) { const t = a % b; a = b; b = t; } return a; };
+  candidates: for (let code = 0; code < total; code++) {
+    vector.fill(0);
+    let n = code;
+    for (let b = 0; b < rows.length; b++) {
+      const multiplier = (n % ceiling) + 1;
+      n = Math.floor(n / ceiling);
+      for (let j = 0; j < size; j++) vector[j] += multiplier * rows[b][j];
+    }
+    // The same refusals as toIntegerCoefficients: a zero, a sign change, a coefficient too large.
+    const positive = vector[0] > 0;
+    let divisor = 0;
+    for (const value of vector) {
+      if (value === 0 || (value > 0) !== positive) continue candidates;
+      divisor = gcdOf(divisor, Math.abs(value));
+    }
+    const coefficients = vector.map(value => Math.abs(value) / divisor);
+    if (coefficients.some(value => value > MAX_COEFFICIENT)) continue;
+    const sum = coefficients.reduce((acc, value) => acc + value, 0);
+    if (sum > bestSum) continue;
+    if (sum < bestSum) { bestSum = sum; best.clear(); }
+    best.set(coefficients.join(','), coefficients);
+  }
+  return best.size === 1 ? [...best.values()][0] : best.size > 1 ? 'tie' : null;
+}
+
+/** The same search in exact fractions, for a basis whose whole-number form would not stay exact. */
+function smallestPositiveEquationExact(basis: Frac[][]): number[] | 'tie' | null {
+  const dimension = basis.length;
+  const ceiling = searchCeiling(dimension);
   const best = new Map<string, number[]>();
   let bestSum = Infinity;
   const total = ceiling ** dimension;
@@ -259,7 +323,7 @@ function smallestPositiveEquation(basis: Frac[][]): number[] | null {
     if (sum < bestSum) { bestSum = sum; best.clear(); }
     best.set(whole.join(','), whole);
   }
-  return best.size === 1 ? [...best.values()][0] : null;
+  return best.size === 1 ? [...best.values()][0] : best.size > 1 ? 'tie' : null;
 }
 
 /** The smallest whole-number form of a null vector, or null when it is not a usable
@@ -279,10 +343,11 @@ function toIntegerCoefficients(vector: Frac[]): number[] | null {
   return whole.some(value => value > MAX_COEFFICIENT) ? null : whole;
 }
 
-const ELEMENT_SYMBOLS: Record<number, string> = { 1: 'H', 3: 'Li', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 19: 'K', 35: 'Br', 53: 'I' };
+// The shared table names every element (a shortfall in Mn or Cr once read "element 25") and the
+// solid support, a conserved pseudo-element.
 const elementLabel = (key: string): string => {
   const [atomicNumber, isotope] = key.split(':').map(Number);
-  const symbol = ELEMENT_SYMBOLS[atomicNumber] ?? `element ${atomicNumber}`;
+  const symbol = elementSymbol(atomicNumber);
   return isotope ? `${symbol}-${isotope}` : symbol;
 };
 
@@ -323,6 +388,28 @@ const COMMON_SMALL_MOLECULES: Array<{ name: string; atoms: Record<string, number
 ];
 
 const GENERIC_ADVICE = 'Add the missing reagent or byproduct — water, a hydrogen halide, ammonia or carbon dioxide are the usual ones — or split this transformation into consecutive balanced steps.';
+
+/** Which side is short of what, for a difference no single common molecule explains. The sign
+ *  of each element's difference says where the gap is: a reactant side short of an element needs
+ *  a species the step consumes, a product side short of one needs a species it forms. Saying
+ *  which is arithmetic, not advice, and it is the part an author can act on — "name the intended
+ *  byproducts" points at the byproducts even when what is missing is a reactant. */
+function missingSpeciesAdvice(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[]): string {
+  const difference: Record<string, number> = {};
+  compositions.forEach((composition, index) => {
+    const sign = roles[index] === 'reactant' ? 1 : roles[index] === 'product' ? -1 : 0;
+    if (!sign) return;
+    const coefficient = Number.isInteger(supplied[index]) && supplied[index] > 0 ? supplied[index] : 1;
+    for (const [key, count] of Object.entries(composition.atoms)) difference[key] = (difference[key] ?? 0) + sign * count * coefficient;
+  });
+  const named = (keys: string[]) => keys.map(key => `${elementLabel(key)} (${Math.abs(difference[key])})`).join(', ');
+  const reactantsShort = Object.keys(difference).filter(key => difference[key] < 0).sort();
+  const productsShort = Object.keys(difference).filter(key => difference[key] > 0).sort();
+  const parts: string[] = [];
+  if (reactantsShort.length) parts.push(`the reactants are short of ${named(reactantsShort)}, so a species this step consumes is missing from Reactants`);
+  if (productsShort.length) parts.push(`the products are short of ${named(productsShort)}, so a species this step forms is missing from Products or Byproducts, or a declared structure is not the compound intended`);
+  return parts.length ? `At the coefficients as declared, ${parts.join('; and ')}.` : '';
+}
 
 /** What to do about an unbalanced step, read from the difference at one of each species. When
  *  that difference is exactly one common molecule, name it and its side. When it is a small
@@ -446,6 +533,19 @@ function netColumnBalance(compositions: Composition[], roles: ReactionSpecies['r
   return coefficients;
 }
 
+/** The coefficient search gave up: more species are free to vary than it determines coefficients
+ *  for. That is no verdict on the balance — the step is unchecked, not unbalanced — so it is thrown
+ *  as its own kind, for the route check to report apart from a real imbalance. */
+export class BalanceUnchecked extends Error {}
+
+/** Coefficients in the caller's species order from a solution over the reduced species. */
+function coefficientsFor(reduced: Array<{ composition: Composition; index: number }>, solution: number[], removed: Set<number>, supplied: number[]): number[] {
+  const coefficients = supplied.slice();
+  reduced.forEach(({ index }, position) => { coefficients[index] = solution[position]; });
+  for (const index of removed) coefficients[index] = 1;
+  return coefficients;
+}
+
 export function balanceReaction(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[]): number[] {
   const active = compositions.map((composition, index) => ({ composition, index })).filter(({ index }) => roles[index] !== 'agent');
   if (!active.some(({ index }) => roles[index] === 'reactant') || !active.some(({ index }) => roles[index] === 'product')) {
@@ -490,22 +590,105 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
     // only refuse when two different equations tie for smallest (then the choice would be a
     // guess, so the author splits the step instead).
     const minimal = smallestPositiveEquation(basis);
-    if (minimal) {
+    if (Array.isArray(minimal)) {
       const coefficients = supplied.slice();
       reduced.forEach(({ index }, position) => { coefficients[index] = minimal[position]; });
       for (const index of removed) coefficients[index] = 1;
       return coefficients;
     }
-    throw new Error('The declared species admit more than one balanced equation; name the intended byproducts, or split this transformation into consecutive balanced steps.');
+    if (basis.length > SEARCH_DIMENSION_LIMIT) {
+      // Not ambiguity, and not an imbalance: the search never produced a candidate to compare. The
+      // one edit that brings the step within reach is fewer species per step. Adding a species, as
+      // the imbalance advice says, only adds another free one.
+      throw new BalanceUnchecked(`This step leaves ${basis.length} species free to vary independently, more than the ${SEARCH_DIMENSION_LIMIT} the checker determines coefficients for, so its balance was not checked: it has been shown neither balanced nor unbalanced. Split it into consecutive steps, each naming fewer species.`);
+    }
+    if (minimal === null) {
+      // No candidate inside the ceiling: the species do balance (the null space is not empty), only
+      // not with every coefficient small enough to be searched. That is not two equations tying.
+      throw new Error(`The declared species admit balanced equations, but none with every species taking part at a coefficient of at most ${searchCeiling(basis.length)}, so no coefficients were chosen. ${missingSpeciesAdvice(compositions, roles, supplied)}`.trim());
+    }
+    throw new Error(`The declared species admit more than one balanced equation; name the intended byproducts, or split this transformation into consecutive balanced steps. ${missingSpeciesAdvice(compositions, roles, supplied)}`.trim());
   }
   const solved = toIntegerCoefficients(basis[0]);
+  const vector = basis[0];
+  if (!solved && !vector.some(fZero) && vector.every(value => (value[0] > 0n) === (vector[0][0] > 0n))) {
+    // Every species takes part, all on its declared side: the only refusal left is a coefficient
+    // past MAX_COEFFICIENT. The species DO balance, so say so with the equation, rather than
+    // print element totals at one of each and advise adding a reagent that is not missing.
+    let scale = 1n;
+    for (const [, d] of vector) scale = (scale / gcd(scale, d)) * d;
+    const scaled = vector.map(([n, d]) => n * (scale / d));
+    const divisor = scaled.reduce((g, value) => gcd(g, value), 0n);
+    const coefficients = coefficientsFor(reduced, scaled.map(value => Number((value < 0n ? -value : value) / divisor)), removed, supplied);
+    const equation = coefficients.filter((_, index) => roles[index] !== 'agent').join(' : ');
+    throw new Error(`The declared species balance only as ${equation}, past the ${MAX_COEFFICIENT} coefficient ceiling; a balance that large is more likely a wrong species set, so split the step or check that each declared structure is the compound intended.`);
+  }
   if (!solved) {
     // A zero in the only basis vector means that species takes no part: the equation balances
     // only with it removed. Water or a solvent written into a step that neither consumes nor
     // produces it is the common case, so name the idle molecule rather than the totals.
     const idle = basis[0].map((value, position) => (value[0] === 0n ? position : -1)).filter(position => position >= 0);
-    if (idle.length) {
-      const names = idle.map(position => `"${formulaOf(reduced[position].composition.atoms)}"`).join(', ');
+    // ...but only when the idle species are incidental. A spurious byproduct — water, or a
+    // phosphine oxide copied in from a different step — is beside the point of the step, and
+    // deleting it is the right advice however heavy it happens to be.
+    //
+    // The case to withhold it for is narrower: when the heaviest species on BOTH sides comes
+    // out at zero, the solver has balanced some other equation hiding inside this one, and
+    // telling the author to delete the thing the step exists to make sends them in a circle.
+    // Seen on a step whose product and its principal precursor were both zeroed while the
+    // small leftovers balanced; the real fault was a consumed species declared as an Agent,
+    // which the atom totals below name. One side alone is not that: a zeroed product beside a
+    // reactant that still carries the step is an ordinary spurious byproduct.
+    const heavyAtoms = (position: number) => Object.entries(reduced[position].composition.atoms)
+      .filter(([element]) => !element.startsWith('1:')).reduce((sum, [, count]) => sum + count, 0);
+    const heaviestOf = (role: ReactionSpecies['role']) => reduced
+      .map((_, position) => position).filter(position => roles[reduced[position].index] === role)
+      .sort((a, b) => heavyAtoms(b) - heavyAtoms(a))[0];
+    const heaviestReactant = heaviestOf('reactant');
+    const heaviestProduct = heaviestOf('product');
+    const balancedSomethingElse = heaviestReactant !== undefined && heaviestProduct !== undefined
+      && idle.includes(heaviestReactant) && idle.includes(heaviestProduct);
+    // A zeroed REACTANT that carries a metal is a reagent the step consumes: sodium in a
+    // dissolving-metal reduction, a borohydride, a lithium amide base, an alkoxide. Deleting it is
+    // the one thing that must not happen, and the route rules already say a metal that enters as a
+    // reagent leaves as a salt. It comes out at zero because what it BECOMES is missing or wrong, so
+    // its spent form — any other zeroed species carrying the same metal — is zeroed with it.
+    // Measured: a reduction listing sodium borohydride and sodium borate, and an aldol listing a
+    // lithium amide base and lithium chloride, were each told to delete both. Re-filing the reagent
+    // under Agents does not rescue these, because the spent form stays on the product side.
+    const metalsOf = (position: number) => Object.keys(reduced[position].composition.atoms)
+      .filter(key => isMetalKey(key) && reduced[position].composition.atoms[key] > 0);
+    const reagents = idle.filter(position => roles[reduced[position].index] === 'reactant' && metalsOf(position).length > 0);
+    const reagentMetals = new Set(reagents.flatMap(metalsOf));
+    const spent = idle.filter(position => !reagents.includes(position) && metalsOf(position).some(key => reagentMetals.has(key)));
+    const incidental = idle.filter(position => !reagents.includes(position) && !spent.includes(position));
+    const quote = (positions: number[]) => positions.map(position => `"${formulaOf(reduced[position].composition.atoms)}"`).join(', ');
+    if (reagents.length && !balancedSomethingElse) {
+      const many = reagents.length > 1;
+      const spentNote = spent.length
+        ? ` ${quote(spent)}, which carries the same metal, comes out at zero with ${many ? 'them' : 'it'}: as named, it is not what the reagent becomes.`
+        : ' Nothing on the product side carries its metal.';
+      const incidentalNote = incidental.length
+        ? ` Separately, ${quote(incidental)} take(s) no part and can be deleted if the step neither consumes nor produces ${incidental.length > 1 ? 'them' : 'it'}.`
+        : '';
+      throw new Error(`The declared species cannot be balanced: ${quote(reagents)} ${many ? 'are reagents' : 'is a reagent'} carrying a metal, and the equation balances only with ${many ? 'them' : 'it'} at zero.${spentNote} Do not delete ${many ? 'them' : 'it'}: a metal that enters as a reagent leaves as a salt, so name the species ${many ? 'their' : 'its'} atoms actually end up in, and list as Reactants anything consumed with ${many ? 'them' : 'it'} (a proton source written under Agents is consumed if its atoms end up in a byproduct). If ${many ? 'they are catalysts' : 'it is a catalyst'} and not consumed, list ${many ? 'them' : 'it'} under Agents instead.${incidentalNote}`);
+    }
+    // The product-side counterpart: a zeroed species carrying a metal that NO reactant supplies.
+    // "Delete it" is only half the answer there — just as often the step is missing the reagent that
+    // brings the metal (a sodium bromide byproduct with no sodium base listed). Say both.
+    // Every declared reactant counts, a spectator cancelled before solving included: a sodium ion
+    // carried through still means something under Reactants supplies sodium.
+    const reactantMetals = new Set(active.flatMap(({ composition, index }) => (roles[index] === 'reactant'
+      ? Object.keys(composition.atoms).filter(key => isMetalKey(key) && composition.atoms[key] > 0) : [])));
+    const orphans = incidental.filter(position => metalsOf(position).some(key => !reactantMetals.has(key)));
+    if (orphans.length && !balancedSomethingElse) {
+      const many = orphans.length > 1;
+      const rest = incidental.filter(position => !orphans.includes(position));
+      const restNote = rest.length ? ` Separately, ${quote(rest)} take(s) no part and can be deleted if the step neither consumes nor produces ${rest.length > 1 ? 'them' : 'it'}.` : '';
+      throw new Error(`The declared species cannot be balanced: ${quote(orphans)} ${many ? 'carry a metal' : 'carries a metal'} that nothing under Reactants supplies, so the equation balances only with ${many ? 'them' : 'it'} at zero. Either the reagent that brings the metal is missing from Reactants (a base or a salt the step consumes — name it), or ${many ? 'they are' : 'it is'} not formed and should be removed.${restNote}`);
+    }
+    if (idle.length && !balancedSomethingElse) {
+      const names = quote(idle);
       throw new Error(`The declared species cannot be balanced: ${names} take(s) no part (coefficient 0), so the equation balances only if ${idle.length > 1 ? 'those molecules are' : 'that molecule is'} removed. Delete the molecule the step neither consumes nor produces — water and a solvent are the usual ones.`);
     }
     throw new Error(`The declared species cannot be balanced: ${imbalanceReason(compositions, roles, supplied)}. ${imbalanceAdvice(compositions, roles)}`);
