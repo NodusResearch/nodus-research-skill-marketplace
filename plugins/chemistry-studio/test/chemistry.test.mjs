@@ -3222,3 +3222,35 @@ test('a named diatomic element resolves to its molecule, and nothing else does',
     assert.equal(f(other), null, `${other} has no single unambiguous free form here`);
   }
 });
+
+test('the route label check and compile ask the local references first, once per batch', async () => {
+  let sent = 0;
+  const host = resolveHost(() => { sent += 1; return undefined; });
+  const batches = [];
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async (request) => {
+    batches.push(JSON.parse(request.stdin));
+    return { code: 0, stderr: '', stdout: JSON.stringify({
+      pubchem: { available: true, names: { ethanol: { cid: 702, smiles: 'CCO' }, 'ethyl acetate': { cid: 8857, smiles: 'CCOC(C)=O' } }, smiles: {} },
+      opsin: { 'acetic acid': { status: 'SUCCESS', smiles: 'CC(=O)O' } } }) };
+  } };
+  for (const toolId of ['verify-route', 'compile']) {
+    const schema = manifest.tools.find((tool) => tool.id === toolId).inputSchema.properties;
+    assert.ok(schema.pubchemDir && schema.opsinDir && schema.localOnly, `${toolId} declares the local reference fields`);
+  }
+  const worker = lib.createWorker(host);
+  const labels = [[
+    { role: 'reactant', name: 'ethanol', smiles: 'CCO' }, { role: 'reactant', name: 'acetic acid', smiles: 'CC(=O)O' },
+    { role: 'product', name: 'ethyl acetate', smiles: 'CCOC(C)=O' }, { role: 'product', name: 'water', smiles: 'O', byproduct: true },
+  ]];
+  const audit = (await worker.invoke({ invocationId: 'lr1', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['CCO.CC(=O)O>>CCOC(C)=O.O'], labels, pubchemDir: '/m', opsinDir: '/o', localOnly: true } })).artifacts[0].data;
+  assert.equal(batches.length, 1, 'one local call for the whole route');
+  assert.deepEqual(batches[0].pubchemNames, ['ethanol', 'acetic acid', 'ethyl acetate', 'water']);
+  const named = Object.fromEntries([...audit.steps[0].reactants, ...audit.steps[0].products].map((entry) => [entry.name, entry.nameOk]));
+  assert.deepEqual(named, { ethanol: true, 'acetic acid': true, 'ethyl acetate': true, water: undefined }, 'answered locally; the unknown name stays unchecked');
+  assert.equal(audit.namesUnresolved, 1);
+  const plan = JSON.stringify({ version: 2, kind: 'structure', depiction: 'skeletal', species: [{ id: 's1', input: { kind: 'name', value: 'ethanol' } }] });
+  const drawn = await worker.invoke({ invocationId: 'lr2', toolId: 'compile', locale: 'en', input: { plan, question: 'Draw ethanol.', pubchemDir: '/m', localOnly: true } });
+  assert.equal(drawn.artifacts?.[0]?.data.species[0].graph.canonicalSmiles, 'CCO', 'compile resolved the name from the mirror');
+  assert.equal(sent, 0, 'not one request was sent to PubChem or EBI');
+});

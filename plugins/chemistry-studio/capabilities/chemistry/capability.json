@@ -14,7 +14,10 @@
         "type": "object",
         "properties": {
           "plan": { "type": "string", "minLength": 2, "maxLength": 64000 },
-          "question": { "type": "string", "maxLength": 64000 }
+          "question": { "type": "string", "maxLength": 64000 },
+          "pubchemDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "opsinDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "localOnly": { "type": "boolean" }
         },
         "required": ["plan"],
         "additionalProperties": false
@@ -101,6 +104,9 @@
           "radical": { "type": "array", "items": { "type": "boolean" }, "maxItems": 512 },
           "target": { "type": "string", "minLength": 1, "maxLength": 2000 },
           "enumerateStereo": { "type": "boolean" },
+          "pubchemDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "opsinDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "localOnly": { "type": "boolean" },
           "labels": {
             "type": "array",
             "maxItems": 512,

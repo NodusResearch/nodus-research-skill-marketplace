@@ -110,7 +110,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       return mutations;
     },
 
-    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; rearrangement?: boolean | Array<boolean | null>; radical?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[]; indexDirs?: string[]; maxSteps?: number; budgetSeconds?: number }; locale: string; chat?: { question?: string; nodeId?: string; budget?: ChemistryCapBudget } }) {
+    async invoke({ toolId, input, locale, chat }: { toolId: string; input: { plan?: string; question?: string; smiles?: string[]; names?: string[]; steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; rearrangement?: boolean | Array<boolean | null>; radical?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; indexDir?: string; reactions?: string[]; products?: string[]; similar?: string[]; targets?: string[]; startingMaterials?: string[]; limit?: number; stockDir?: string; molecules?: string[]; indexDirs?: string[]; maxSteps?: number; budgetSeconds?: number; pubchemDir?: string; opsinDir?: string; localOnly?: boolean }; locale: string; chat?: { question?: string; nodeId?: string; budget?: ChemistryCapBudget } }) {
       // Sized against what this turn's model can hold; absent on an older host, which falls back
       // to the floors each cap has always had.
       const budget = chat?.budget;
@@ -127,7 +127,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
-      const deps = chemistryDependencies();
+      const deps = await referenceDependencies(input, planNames(input.plan), []);
       // The model-SVG fallback is a chat feature: it draws something for the reply when the
       // verified lane abstains. A direct application call (a route-step scheme, no chat node)
       // reports the refusal instead of paying for a drawing the application will not use.
@@ -583,6 +583,27 @@ async function localReferencesFor(input: { pubchemDir?: unknown; opsinDir?: unkn
   }
 }
 
+/** What every tool that resolves a name is given: the local mirror and a local OPSIN first, asked
+ *  once for the whole batch, and the network only through the PubChem pacer — or not at all on a
+ *  local-only run. `compile` and the route's label check used to take the bare dependencies, so
+ *  they asked the network for names the mirror held, without the pace PubChem asks for. */
+async function referenceDependencies(input: { pubchemDir?: unknown; opsinDir?: unknown; localOnly?: unknown }, names: string[], smiles: string[]) {
+  const base = chemistryDependencies();
+  const local = await localReferencesFor(input, names, smiles);
+  return { ...base, fetch: input?.localOnly === true ? localOnlyFetch : breakerFetch(base.fetch), ...local };
+}
+
+/** The names a drawing plan asks to resolve, for the batched local look-up. An unreadable plan
+ *  has none; `compile` reports what is wrong with it. */
+function planNames(plan?: string): string[] {
+  try {
+    const species = (JSON.parse(plan ?? '') as { species?: Array<{ input?: { kind?: unknown; value?: unknown } }> })?.species;
+    return Array.isArray(species)
+      ? [...new Set(species.flatMap((entry) => entry?.input?.kind === 'name' && typeof entry.input.value === 'string' ? [entry.input.value] : []))]
+      : [];
+  } catch { return []; }
+}
+
 async function resolveNames(input: { names?: string[]; pubchemDir?: string; opsinDir?: string; localOnly?: boolean }, cache: ReferenceCache, budget?: ChemistryCapBudget) {
   const limit = maxNames(budget);
   const list = Array.isArray(input?.names) ? input.names : [];
@@ -593,9 +614,7 @@ async function resolveNames(input: { names?: string[]; pubchemDir?: string; opsi
     // NAME is unknown when the fault was the cut.
     .map((entry) => entry.trim().slice(0, MAX_CHEMICAL_NAME)))].slice(0, limit);
   if (!cleaned.length) throw new Error(`Provide between one and ${limit} chemical names.`);
-  const base = chemistryDependencies();
-  const local = await localReferencesFor(input, cleaned, []);
-  const deps = { ...base, fetch: input?.localOnly === true ? localOnlyFetch : breakerFetch(base.fetch), ...local };
+  const deps = await referenceDependencies(input, cleaned, []);
   const signal = host().signal;
   const results: Array<SpeciesNameResolution | undefined> = new Array(cleaned.length);
   let cursor = 0;
@@ -637,10 +656,8 @@ async function nameStructures(input: { smiles?: string[]; pubchemDir?: string; l
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     .map((entry) => entry.trim().slice(0, 2000)))].slice(0, limit);
   if (!cleaned.length) throw new Error(`Provide between one and ${limit} structures.`);
-  const base = chemistryDependencies();
   const uncached = cleaned.filter((smiles) => !namedStructures.has(smiles));
-  const local = await localReferencesFor({ pubchemDir: input?.pubchemDir }, [], uncached);
-  const deps = { ...base, fetch: input?.localOnly === true ? localOnlyFetch : breakerFetch(base.fetch), ...local };
+  const deps = await referenceDependencies({ pubchemDir: input?.pubchemDir, localOnly: input?.localOnly }, [], uncached);
   const signal = host().signal;
   const results: Array<SpeciesStructureName | undefined> = new Array(cleaned.length);
   const todo: number[] = [];
@@ -705,6 +722,7 @@ async function resolveRouteLabels(
   raw: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null> | undefined,
   stepCount: number,
   cache: ReferenceCache,
+  references: { pubchemDir?: unknown; opsinDir?: unknown; localOnly?: unknown },
   signal?: AbortSignal,
   budget?: ChemistryCapBudget,
 ): Promise<RouteLabelInput[][]> {
@@ -712,8 +730,7 @@ async function resolveRouteLabels(
   const total = maxLabelsTotal(budget);
   const out: RouteLabelInput[][] = Array.from({ length: stepCount }, () => []);
   if (!Array.isArray(raw)) return out;
-  const deps = chemistryDependencies();
-  let resolved = 0;
+  const entries: Array<{ index: number; label: RouteLabelInput }> = [];
   for (let index = 0; index < Math.min(stepCount, raw.length); index += 1) {
     const list = Array.isArray(raw[index]) ? raw[index]! : [];
     for (const entry of list.slice(0, perStep)) {
@@ -722,17 +739,32 @@ async function resolveRouteLabels(
       const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, MAX_LABEL_NAME_CHARS) : '';
       const smiles = typeof entry.smiles === 'string' ? entry.smiles.trim() : '';
       if (!role || !name || !smiles) continue;
-      // A name the resolve pass already looked up is reused here: the reference is the same
-      // network answer, and the label check only needs to compare canonical graphs.
-      let nameSmiles = cache.get(name);
-      if (nameSmiles === undefined) {
-        nameSmiles = resolved < total ? await resolveNameReferences(name, deps, signal) : [];
-        resolved += 1;
-        cache.set(name, nameSmiles);
-      }
-      out[index].push({ role, byproduct: entry.byproduct === true, name, smiles, nameSmiles });
+      entries.push({ index, label: { role, byproduct: entry.byproduct === true, name, smiles } });
     }
   }
+  // A name the resolve pass already looked up is reused: the reference is the same answer, and the
+  // label check only compares canonical graphs. The rest — the first `total` distinct names, in
+  // route order — are looked up together: one local call for the whole batch, then the network
+  // for what it could not answer, a few at a time and through the pacer. One at a time, a 20-step
+  // route's 31 names took 93 sequential round trips (29 s at 300 ms each).
+  const pending = [...new Set(entries.map(({ label }) => label.name).filter((name) => !cache.has(name)))];
+  const lookedUp = pending.slice(0, total);
+  for (const name of pending.slice(total)) cache.set(name, []);
+  if (lookedUp.length) {
+    const deps = await referenceDependencies(references, lookedUp, []);
+    let cursor = 0;
+    const run = async () => {
+      for (;;) {
+        const next = cursor;
+        cursor += 1;
+        if (next >= lookedUp.length) return;
+        signal?.throwIfAborted();
+        cache.set(lookedUp[next], await resolveNameReferences(lookedUp[next], deps, signal));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, lookedUp.length) }, run));
+  }
+  for (const { index, label } of entries) out[index].push({ ...label, nameSmiles: cache.get(label.name) ?? [] });
   return out;
 }
 
@@ -759,7 +791,7 @@ async function productStereoChoices(steps: string[]): Promise<Record<string, { o
   }
 }
 
-async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; rearrangement?: boolean | Array<boolean | null>; radical?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; enumerateStereo?: boolean }, cache: ReferenceCache, budget?: ChemistryCapBudget) {
+async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<string | null>; racemic?: boolean | Array<boolean | null>; rearrangement?: boolean | Array<boolean | null>; radical?: boolean | Array<boolean | null>; target?: string; labels?: Array<Array<{ role?: string; byproduct?: boolean; name?: string; smiles?: string } | null> | null>; enumerateStereo?: boolean; pubchemDir?: string; opsinDir?: string; localOnly?: boolean }, cache: ReferenceCache, budget?: ChemistryCapBudget) {
   // An empty entry is a step the application could not build. It is kept, not dropped, so the
   // labels, carriers, racemic, rearrangement and radical flags — all indexed by step — stay aligned with the steps.
   // Not cut here: the route audit refuses a route over its step limit by name, where a silent
@@ -778,7 +810,7 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
     ? input.radical
     : Array.isArray(input?.radical) ? input.radical.slice(0, steps.length) : undefined;
   const target = typeof input?.target === 'string' && input.target.trim() ? input.target.trim().slice(0, 2000) : undefined;
-  const labels = await resolveRouteLabels(input?.labels, steps.length, cache, host().signal, budget);
+  const labels = await resolveRouteLabels(input?.labels, steps.length, cache, input, host().signal, budget);
   // The enumeration needs the shared Python runtime; the application asks for it only where that
   // runtime is already installed (the reaction index is), so a route check never installs it.
   const stereoChoices = input?.enumerateStereo === true ? await productStereoChoices(steps) : {};

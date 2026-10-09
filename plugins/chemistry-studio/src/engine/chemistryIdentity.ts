@@ -238,20 +238,40 @@ async function references(input: ChemistryIntent['species'][number]['input'], de
   const found: ChemistryReference[] = [];
   if (input.kind === 'name') {
     const url = `https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(input.value)}.json`;
-    const record = await readJSON(url, deps, signal);
+    // An OPSIN that cannot be reached is no answer, as in resolveSpeciesName: it used to throw past
+    // the PubChem look-up below, so an EBI outage — or a local-only run — left every name unchecked.
+    let record: any = null;
+    try { record = await opsinRecord(input.value, deps, signal); } catch (error) { if (signal?.aborted) throw error; }
     if (record?.status === 'WARNING' || record?.warnings?.length) throw new Error('OPSIN reports an ambiguous or partially interpreted name; provide an exact identifier.');
     if (record?.status === 'SUCCESS' && typeof record.smiles === 'string') found.push({ provider: 'opsin', query: input.value, smiles: record.smiles, retrievedAt, url });
   }
+  // For a name, a PubChem that cannot be reached leaves what OPSIN found, as in resolveSpeciesName;
+  // the breaker and a local-only run refuse a request by throwing, which discarded OPSIN's answer.
+  // A CID asked for by number has no other source, so its failure still stands.
+  const unreachable = (error: unknown): ChemistryReference[] => {
+    if (signal?.aborted || input.kind !== 'name') throw error;
+    return found;
+  };
   let cid = input.value;
   if (input.kind === 'name') {
-    const matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(input.value)}/cids/JSON?name_type=complete`, deps, signal);
+    // The mirror holds only names with exactly one CID, so its answer is the one the two requests
+    // below would have reached.
+    const local = deps.pubchemMirror?.names.get(input.value);
+    if (local) {
+      found.push({ provider: 'pubchem', query: input.value, smiles: local.smiles, retrievedAt, url: `https://pubchem.ncbi.nlm.nih.gov/compound/${local.cid}` });
+      return found;
+    }
+    let matches: any;
+    try { matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(input.value)}/cids/JSON?name_type=complete`, deps, signal); }
+    catch (error) { return unreachable(error); }
     const cids = matches?.IdentifierList?.CID;
     if (cids && (!Array.isArray(cids) || cids.length !== 1 || !Number.isSafeInteger(cids[0]) || cids[0] <= 0)) throw new Error('PubChem returned an ambiguous identity; provide a specific CID or isomeric SMILES.');
     if (!cids) return found;
     cid = String(cids[0]);
   }
   const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/IsomericSMILES/JSON`;
-  const record = await readJSON(url, deps, signal);
+  let record: any;
+  try { record = await readJSON(url, deps, signal); } catch (error) { return unreachable(error); }
   const rows = record?.PropertyTable?.Properties;
   if (!Array.isArray(rows) || rows.length !== 1 || String(rows[0].CID) !== cid) {
     if (input.kind === 'pubchem-cid' || record) throw new Error('The PubChem identity could not be resolved exactly.');
@@ -388,13 +408,18 @@ async function pubchemByName(value: string, deps: ChemistryIdentityDependencies,
   };
 }
 
-async function opsinByName(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
-  // A local answer is turned into the record the web service would have sent (it reports a parse
-  // with warnings as SUCCESS + warnings), so everything below treats the two identically.
+/** OPSIN's record for one name: a local answer is turned into the record the web service would
+ *  have sent (it reports a parse with warnings as SUCCESS + warnings), so every caller treats the
+ *  two identically. */
+async function opsinRecord(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<any | null> {
   const local = deps.opsinLocal?.get(value);
-  const record = local
+  return local
     ? { status: local.status === 'FAILURE' ? 'FAILURE' : 'SUCCESS', smiles: local.smiles, warnings: local.warnings ?? [], message: local.message }
-    : await readJSON(`https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(value)}.json`, deps, signal);
+    : readJSON(`https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(value)}.json`, deps, signal);
+}
+
+async function opsinByName(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
+  const record = await opsinRecord(value, deps, signal);
   if (record?.status === 'SUCCESS' && typeof record.smiles === 'string' && record.smiles) {
     if (Array.isArray(record.warnings) && record.warnings.length) {
       return { name: value, status: 'unresolved', source: 'opsin', feedback: `OPSIN only partly interpreted the name: ${record.warnings.join(' ').slice(0, 200)}` };
