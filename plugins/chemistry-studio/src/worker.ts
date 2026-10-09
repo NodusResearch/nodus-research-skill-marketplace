@@ -747,6 +747,7 @@ async function resolveRouteLabels(
   // route order — are looked up together: one local call for the whole batch, then the network
   // for what it could not answer, a few at a time and through the pacer. One at a time, a 20-step
   // route's 31 names took 93 sequential round trips (29 s at 300 ms each).
+  await adoptStoredReferences(cache, entries.map(({ label }) => label.name));
   const pending = [...new Set(entries.map(({ label }) => label.name).filter((name) => !cache.has(name)))];
   const lookedUp = pending.slice(0, total);
   for (const name of pending.slice(total)) cache.set(name, []);
@@ -763,9 +764,52 @@ async function resolveRouteLabels(
       }
     };
     await Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, lookedUp.length) }, run));
+    await storeReferences(lookedUp.map((name) => [name, cache.get(name) ?? []]));
   }
   for (const { index, label } of entries) out[index].push({ ...label, nameSmiles: cache.get(label.name) ?? [] });
   return out;
+}
+
+/** Label answers kept in the package's cache storage, which outlives the worker. A fix round runs in
+ *  a new worker, so the in-worker cache above starts empty and every name of a route was looked up
+ *  again: 13.2 s of a 13.5 s re-check on a 20-step route at 300 ms a round trip, against 0.7 s when
+ *  the answers were at hand. Only answers that found a structure are kept, and only for a day, so a
+ *  failed look-up is retried and a corrected reference is picked up. Best effort: storage that
+ *  cannot be read or written costs only the time it would have saved. */
+const STORED_REFERENCES_KEY = 'route-label-references-v1';
+const STORED_REFERENCE_MS = 24 * 60 * 60_000;
+const STORED_REFERENCES_CAP = 2000;
+type StoredReferences = Record<string, { smiles: string[]; at: number }>;
+
+async function readStoredReferences(): Promise<StoredReferences> {
+  try {
+    const value = await host().storage.cache.get(STORED_REFERENCES_KEY);
+    return value && typeof value === 'object' ? value as StoredReferences : {};
+  } catch { return {}; }
+}
+
+async function adoptStoredReferences(cache: ReferenceCache, names: string[]): Promise<void> {
+  if (names.every((name) => cache.has(name))) return;
+  const stored = await readStoredReferences();
+  const now = Date.now();
+  for (const name of names) {
+    const entry = stored[name];
+    if (!cache.has(name) && entry && now - entry.at < STORED_REFERENCE_MS && Array.isArray(entry.smiles) && entry.smiles.every((value) => typeof value === 'string')) cache.set(name, entry.smiles);
+  }
+}
+
+async function storeReferences(found: Array<[string, string[]]>): Promise<void> {
+  const fresh = found.filter(([, smiles]) => smiles.length > 0);
+  if (!fresh.length) return;
+  try {
+    const stored = await readStoredReferences();
+    const now = Date.now();
+    for (const [name, smiles] of fresh) stored[name] = { smiles, at: now };
+    // Oldest first out, so the entry stays inside the package's cache quota.
+    const kept = Object.entries(stored).filter(([, entry]) => now - entry.at < STORED_REFERENCE_MS)
+      .sort(([, a], [, b]) => b.at - a.at).slice(0, STORED_REFERENCES_CAP);
+    await host().storage.cache.set(STORED_REFERENCES_KEY, Object.fromEntries(kept));
+  } catch { /* the in-worker cache still holds them for this turn */ }
 }
 
 /** Verify a whole synthesis route without drawing it: every step parsed, every equation

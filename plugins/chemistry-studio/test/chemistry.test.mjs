@@ -3254,3 +3254,27 @@ test('the route label check and compile ask the local references first, once per
   assert.equal(drawn.artifacts?.[0]?.data.species[0].graph.canonicalSmiles, 'CCO', 'compile resolved the name from the mirror');
   assert.equal(sent, 0, 'not one request was sent to PubChem or EBI');
 });
+
+test('a fix round in a new worker reuses the label answers the last check found', async () => {
+  let sent = 0;
+  const fetch = (endpointId, target) => {
+    sent += 1;
+    if (endpointId === 'pubchem' && target.includes('/name/')) return { IdentifierList: { CID: [702] } };
+    if (endpointId === 'pubchem' && target.includes('/cid/702/')) return { PropertyTable: { Properties: [{ CID: 702, SMILES: 'CCO' }] } };
+    return undefined;
+  };
+  const first = resolveHost(fetch);
+  const kept = new Map();
+  first.storage = { ...first.storage, cache: { get: async (key) => kept.get(key) ?? null, set: async (key, value) => { kept.set(key, structuredClone(value)); }, delete: async (key) => { kept.delete(key); }, keys: async () => [...kept.keys()] } };
+  const input = { steps: ['CCO.CC(=O)O>>CCOC(C)=O.O'], labels: [[{ role: 'reactant', name: 'ethanol', smiles: 'CCO' }]] };
+  await lib.createWorker(first).invoke({ invocationId: 'fr1', toolId: 'verify-route', locale: 'en', input });
+  assert.ok(sent > 0, 'the first check looked the name up');
+  // A new worker, as each answer phase gets, over the same package storage.
+  sent = 0;
+  const second = resolveHost(fetch);
+  second.storage = first.storage;
+  const audit = (await lib.createWorker(second).invoke({ invocationId: 'fr2', toolId: 'verify-route', locale: 'en', input })).artifacts[0].data;
+  assert.equal(sent, 0, 'nothing was asked again');
+  assert.equal(audit.steps[0].reactants.find((entry) => entry.name === 'ethanol').nameOk, true);
+  lib.resetPubchemPacing();
+});
