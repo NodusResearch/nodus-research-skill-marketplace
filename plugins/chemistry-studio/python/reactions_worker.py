@@ -920,7 +920,8 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
 
     if isinstance(index_dirs, str):
         index_dirs = [index_dirs]
-    deadline = time.monotonic() + max(1.0, float(budget_seconds))
+    started = time.monotonic()
+    deadline = started + max(1.0, float(budget_seconds))
     labels = {d: _index_label(d) for d in index_dirs}
     target = _canon(target)
     starts = {c for c in (_canon(s) for s in starting) if c}
@@ -941,7 +942,10 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
                 if time.monotonic() >= deadline:
                     break
                 try:
-                    entries.append((labels[d], _disconnect(d, [m], branch * 3, sorted(starts), stock_dir)[0]))
+                    # The template pass gets what is left of the budget: one large molecule must not
+                    # hold the search past it (and past the host's timeout, which loses every route).
+                    entries.append((labels[d], _disconnect(d, [m], branch * 3, sorted(starts), stock_dir,
+                                                           budget_seconds=max(0.5, deadline - time.monotonic()))[0]))
                 except Exception:
                     continue
             cache[m] = entries
@@ -1057,7 +1061,7 @@ def _search_routes(index_dirs, target, starting, max_steps=4, expansions=60, bra
         leaves = sorted({p for step in route["steps"] for p in step["precursors"] if p not in made})
         route["startingMaterials"] = [{"smiles": p, "given": p in starts, "inStock": purchasable(p)} for p in leaves]
     return {"target": target, "routes": done, "expanded": expanded, "indexes": list(labels.values()),
-            "timedOut": timed_out, "seconds": round(budget_seconds - max(0.0, deadline - time.monotonic()), 1)}
+            "timedOut": timed_out, "seconds": round(time.monotonic() - started, 1)}
 
 
 def _stereo_choices(smiles, max_isomers=64):

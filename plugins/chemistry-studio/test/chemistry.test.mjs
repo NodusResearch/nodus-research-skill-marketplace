@@ -3446,3 +3446,28 @@ print(json.dumps([len(out['pubchem']['names']), len(out['pubchem']['smiles']), l
   assert.equal(opsin, 512, 'every name goes to the local OPSIN');
   assert.equal(last, 512, 'the last name is answered with its own record');
 });
+
+test('a route search stops at its budget inside an expansion, and reports the time it took (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // Each expansion ran the whole template pass with no deadline, so one molecule could hold the
+  // search far past its budget (and past the host's timeout, which loses every route found), while
+  // "seconds" still read as the budget. A thousand templates that all apply make one pass ~6 s.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, tempfile, time, zstandard as zstd
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+d = tempfile.mkdtemp()
+template = '[C:1](=[O:2])[NH:3][C:4]>>[C:1](=[O:2])O.[NH2:3][C:4]'
+rows = ''.join(f'{1000 - i}\\t1\\t{template}\\n' for i in range(1000))
+open(os.path.join(d, 'retro-templates.tsv.zst'), 'wb').write(zstd.ZstdCompressor().compress(rows.encode()))
+open(os.path.join(d, 'molecules.tsv.zst'), 'wb').write(zstd.ZstdCompressor().compress(b''))
+w._retro_templates(d)
+started = time.monotonic()
+out = w._search_routes([d], 'CC(=O)NCCNC(=O)CCC(=O)NCCNC(=O)c1ccccc1', [], budget_seconds=1.0)
+print(json.dumps({'wall': time.monotonic() - started, 'seconds': out['seconds'], 'timedOut': out['timedOut']}))
+`;
+  const out = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.ok(out.wall < 2.5, `a 1 s budget is kept within an expansion (took ${out.wall.toFixed(1)} s)`);
+  assert.equal(out.timedOut, true);
+  assert.ok(Math.abs(out.seconds - out.wall) < 0.3, `seconds is the time taken (${out.seconds} vs ${out.wall.toFixed(2)})`);
+});
