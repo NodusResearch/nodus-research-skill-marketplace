@@ -168,7 +168,10 @@ export function exportSceneChemfig(scene: ChemicalScene): string {
   const edges = scene.bonds.map((b, i) => ({ b, i })).sort((x, y) => Number(!!y.b.stereo && !y.b.plain) - Number(!!x.b.stereo && !x.b.plain));
   for (const { b, i } of edges) if (root(b.a) !== root(b.b)) { parents[root(b.a)] = root(b.b); tree.add(i); }
   if (tree.size !== scene.atoms.length - 1) throw new Error('Disconnected ChemFig scenes are unsupported.');
-  const render = (a: number): string => {
+  // node-tikzjax's TeX never returns once branches nest 32 deep (a 33-atom chain), and a
+  // timed-out engine refuses every later compilation: refuse the export here instead.
+  const render = (a: number, depth = 0): string => {
+    if (depth > 30) throw new Error('ChemFig export exceeds the supported branch depth.');
     emitted.add(a);
     let text = `@{${scene.atoms[a].id}}${scene.atoms[a].label}`;
     scene.bonds.forEach((b, i) => { if (!tree.has(i) && (b.a === a || b.b === a)) {
@@ -181,7 +184,7 @@ export function exportSceneChemfig(scene: ChemicalScene): string {
       const dx = scene.atoms[c].x - scene.atoms[a].x, dy = scene.atoms[c].y - scene.atoms[a].y;
       let symbol = b.order === 2 ? '=' : b.order === 3 ? '~' : '-';
       if (b.stereo && !b.plain) symbol = `${b.a === a ? '<' : '>'}${b.stereo === 6 ? ':' : ''}`;
-      text += `(${symbol}[@{${b.id}}:${(Math.atan2(dy, dx) * 180 / Math.PI).toFixed(6)},${Math.hypot(dx, dy).toFixed(6)}]${render(c)})`;
+      text += `(${symbol}[@{${b.id}}:${(Math.atan2(dy, dx) * 180 / Math.PI).toFixed(6)},${Math.hypot(dx, dy).toFixed(6)}]${render(c, depth + 1)})`;
     });
     return text;
   };

@@ -3361,3 +3361,18 @@ test('a radical is not re-read as a closed-shell species', async () => {
     /Radical mechanism stages are unsupported/,
   );
 });
+
+// ---------------------------------------------------------------- ChemFig branch depth
+
+test('a chain too deep for ChemFig branches is refused quickly, and later exports still compile', async () => {
+  // The export nests every bond as a branch, and TeX never returns once branches nest 32 deep.
+  // A 35-atom chain cost the whole validator budget, and the timed-out engine then refused every
+  // ChemFig after it in the same process, ethanol included.
+  const started = Date.now();
+  const deep = await lib.validateChemicalReferences({ references: ['C' + 'COC'.repeat(11) + 'O'], exportChemfig: true, openStereo: true });
+  assert.equal(deep.chemfig.status, 'unsupported');
+  assert.match(deep.chemfig.reason, /branch depth/);
+  assert.ok(Date.now() - started < 10_000, 'well inside the 15 s validator budget');
+  const after = await lib.validateChemicalReferences({ references: ['CCO'], exportChemfig: true });
+  assert.equal(after.chemfig.status, 'validated', after.chemfig.reason);
+});
