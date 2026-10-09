@@ -1488,12 +1488,15 @@ def _pubchem_mirror(mirror_dir, names, smiles):
     whose standard InChIKey has a CID. Everything else is left out and the caller asks the network
     as before — the bulk synonym list is filtered, so the live service can know a synonym (and so a
     second match) the mirror does not. Nothing here ever reports "unresolved"."""
+    import pathlib
     import sqlite3
 
     path = os.path.join(mirror_dir, "pubchem.sqlite")
     if not os.path.isfile(path):
         return {"names": {}, "smiles": {}, "available": False}
-    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    # as_uri() percent-escapes the path: written raw, a "#" or "?" in a folder name cut the URI short
+    # (SQLite then created an empty database there, read-write) and a "%" was decoded.
+    db = sqlite3.connect(f"{pathlib.Path(path).resolve().as_uri()}?mode=ro", uri=True)
     out = {"names": {}, "smiles": {}, "available": True}
     try:
         for name in names[:256]:

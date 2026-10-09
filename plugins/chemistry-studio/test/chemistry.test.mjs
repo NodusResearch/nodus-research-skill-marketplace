@@ -1929,6 +1929,28 @@ print(json.dumps([out, missing]))
   assert.equal(missing.pubchem.available, false, 'no database: says so, so the caller uses the network');
 });
 
+test('the PubChem mirror opens read-only from a folder whose name holds # ? or % (needs CHEMISTRY_TEST_PYTHON)', { skip: !process.env.CHEMISTRY_TEST_PYTHON }, async () => {
+  // The path went into a file: URI unescaped. "#" and "?" cut it short — SQLite then opened, and
+  // CREATED, an empty database at the part before them, with mode=ro lost — and "%41" was decoded.
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+import json, os, sys, sqlite3, tempfile
+sys.path.insert(0, ${JSON.stringify(new URL('../python', import.meta.url).pathname)})
+import reactions_worker as w
+base = tempfile.mkdtemp(); out = []
+for folder in ('lib #1', 'what?', 'a%41b'):
+    d = os.path.join(base, folder); os.makedirs(d); db = sqlite3.connect(os.path.join(d, 'pubchem.sqlite'))
+    db.executescript("CREATE TABLE synonym (name TEXT, cid INTEGER, rank INTEGER); CREATE TABLE smiles (cid INTEGER PRIMARY KEY, smiles TEXT); CREATE TABLE formula (cid INTEGER PRIMARY KEY, formula TEXT); INSERT INTO synonym VALUES ('ethanol', 702, 0); INSERT INTO smiles VALUES (702, 'CCO');")
+    db.commit(); db.close()
+    try: out.append(w._pubchem_mirror(d, ['ethanol'], [])['names'].get('ethanol', {}).get('smiles'))
+    except Exception as error: out.append(type(error).__name__)
+print(json.dumps({'answers': out, 'stray': sorted(n for n in os.listdir(base) if n not in ('lib #1', 'what?', 'a%41b'))}))
+`;
+  const { answers, stray } = JSON.parse(execFileSync(process.env.CHEMISTRY_TEST_PYTHON, ['-c', script], { encoding: 'utf8' }));
+  assert.deepEqual(answers, ['CCO', 'CCO', 'CCO'], 'every folder name opens the mirror');
+  assert.deepEqual(stray, [], 'no empty database is created beside it');
+});
+
 test("PubChem's throttling is obeyed: a refusal stops all requests, and a Yellow grade slows them", async () => {
   // https://pubchem.ncbi.nlm.nih.gov/docs/dynamic-request-throttling — a block GROWS if requests
   // continue, so after a refusal nothing more may be sent until the back-off has passed.
