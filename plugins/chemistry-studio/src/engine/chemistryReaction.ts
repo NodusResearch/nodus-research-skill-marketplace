@@ -476,6 +476,11 @@ function netColumnBalance(compositions: Composition[], roles: ReactionSpecies['r
   return coefficients;
 }
 
+/** The coefficient search gave up: more species are free to vary than it determines coefficients
+ *  for. That is no verdict on the balance — the step is unchecked, not unbalanced — so it is thrown
+ *  as its own kind, for the route check to report apart from a real imbalance. */
+export class BalanceUnchecked extends Error {}
+
 export function balanceReaction(compositions: Composition[], roles: ReactionSpecies['role'][], supplied: number[]): number[] {
   const active = compositions.map((composition, index) => ({ composition, index })).filter(({ index }) => roles[index] !== 'agent');
   if (!active.some(({ index }) => roles[index] === 'reactant') || !active.some(({ index }) => roles[index] === 'product')) {
@@ -527,10 +532,10 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
       return coefficients;
     }
     if (basis.length > SEARCH_DIMENSION_LIMIT) {
-      // Not ambiguity: the search never produced a candidate to compare. Say so, and give the
-      // element totals at the declared coefficients, which is the one thing always computable.
-      const detail = missingSpeciesAdvice(compositions, roles, supplied);
-      throw new Error(`This step leaves ${basis.length} species free to vary independently, more than the checker determines coefficients for, so it has NOT been shown to be unbalanced — no coefficients were found. ${detail} ${imbalanceAdvice(compositions, roles)}`.replace(/\s+/g, ' ').trim());
+      // Not ambiguity, and not an imbalance: the search never produced a candidate to compare. The
+      // one edit that brings the step within reach is fewer species per step. Adding a species, as
+      // the imbalance advice says, only adds another free one.
+      throw new BalanceUnchecked(`This step leaves ${basis.length} species free to vary independently, more than the ${SEARCH_DIMENSION_LIMIT} the checker determines coefficients for, so its balance was not checked: it has been shown neither balanced nor unbalanced. Split it into consecutive steps, each naming fewer species.`);
     }
     throw new Error(`The declared species admit more than one balanced equation; name the intended byproducts, or split this transformation into consecutive balanced steps. ${missingSpeciesAdvice(compositions, roles, supplied)}`.trim());
   }

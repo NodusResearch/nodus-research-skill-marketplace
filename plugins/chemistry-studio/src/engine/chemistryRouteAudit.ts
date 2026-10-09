@@ -1,7 +1,7 @@
 import { MAX_REACTION_CHARS } from './chemistryLimits';
 import { MAX_CHEMICAL_NAME } from './chemistryIdentity';
 import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit, RouteTargetAudit } from './chemistryDocument';
-import { balanceReaction } from './chemistryReaction';
+import { BalanceUnchecked, balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
 import { deliveredAtOpenCentres, productMatchesTarget, validateChemicalReferences } from './chemistryValidationCore';
 import { bondLedger, skeletonChange, type SkeletonReport } from './chemistrySkeleton';
@@ -186,7 +186,7 @@ function invertedConfiguration(reactants: RouteSpeciesSummary[], products: Route
 /** Whether the declared species admit a balanced equation, solved exactly as the drawing
  *  path solves it. Coefficients cannot be written inside a reaction SMILES, so a species
  *  list that balances only at 2:3:2:2 is balanced, not refused. Agents take no part. */
-function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): { balanced: boolean; chargeBalanced: boolean; differences: string[]; coefficients: number[] | null } {
+function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): { balanced: boolean; unchecked?: boolean; chargeBalanced: boolean; differences: string[]; coefficients: number[] | null } {
   const chargeBalanced = sumSide(reactants).charge === sumSide(products).charge;
   const ordered = [...reactants, ...agents, ...products];
   const roles = [
@@ -199,6 +199,8 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
     const coefficients = balanceReaction(compositions, roles, ordered.map(() => 1));
     return { balanced: true, chargeBalanced, differences: [], coefficients };
   } catch (error) {
+    // Unchecked keeps its single action: no hint about an Agent that would add a species.
+    if (error instanceof BalanceUnchecked) return { balanced: false, unchecked: true, chargeBalanced, differences: [error.message], coefficients: null };
     const message = error instanceof Error ? error.message : 'The species cannot be balanced.';
     return { balanced: false, chargeBalanced, differences: [message + agentMisplacementHint(reactants, agents, products)], coefficients: null };
   }
@@ -658,7 +660,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // Still refused: when moving one species to the other side makes the step balance (water
       // written as a reactant in an oxidation that forms it), say so — the totals alone did not
       // tell the author which species or which way.
-      if (!balance.balanced) {
+      if (!balance.balanced && !balance.unchecked) {
         const flip = agentRoleThatBalances(reactants, agents, products) || sideFlipThatBalances(reactants, agents, products);
         if (flip) balance.differences = balance.differences.map(entry => `${entry} ${flip}`);
       }
@@ -672,6 +674,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       step.agents = agents;
       step.products = products;
       step.balanced = balance.balanced;
+      if (balance.unchecked) step.balanceUnchecked = balance.differences.join(' ');
       step.chargeBalanced = balance.chargeBalanced;
       step.differences = balance.differences;
       // Only the species the step makes are the route's responsibility to specify. A purchased
@@ -966,7 +969,12 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
   for (const step of audited) {
     if (!step.ok) { blocked.push(`Step ${step.index + 1}: ${step.error ?? 'could not be parsed.'}`); continue; }
     for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${sentence(problem)}`);
-    if (!step.balanced) { blocked.push(`Step ${step.index + 1} is not balanced: ${sentence(step.differences.join('; '))}`); continue; }
+    if (!step.balanced) {
+      blocked.push(step.balanceUnchecked
+        ? `Step ${step.index + 1} was not checked for balance: ${sentence(step.balanceUnchecked)}`
+        : `Step ${step.index + 1} is not balanced: ${sentence(step.differences.join('; '))}`);
+      continue;
+    }
     const packing = checkPerMoleculePacking(step);
     if (packing !== 'n/a' && 'unchecked' in packing) {
       step.assemblyUnchecked = packing.unchecked;

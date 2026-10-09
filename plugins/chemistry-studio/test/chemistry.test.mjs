@@ -2067,18 +2067,20 @@ test('a shared counterion written once per side balances uniquely; repeated toke
   // The same equation with the shared sulfate and sodium repeated (as an un-deduped derivation
   // would write them) is refused. It used to be refused as "more than one balanced equation",
   // which was never established: the repeated tokens leave 5 species free to vary and the
-  // bounded search covers 4, so no candidate was ever built and nothing was compared. The
-  // message now says it did not determine the coefficients, and gives the element totals at the
-  // coefficients as declared, which is the part an author can act on.
+  // bounded search covers 4, so no candidate was ever built and nothing was compared. It is an
+  // UNCHECKED step, not an unbalanced one, and the one thing that brings it within reach of the
+  // search is fewer species per step: adding a species, as the old advice said, adds a free one.
   const repeated = 'C1(CCCCC1)O.[O-][Cr](=O)(=O)O[Cr](=O)(=O)[O-].[Na+].[Na+].S(O)(O)(=O)=O>>C1(CCCCC1)=O.S(=O)(=O)([O-])[O-].S(=O)(=O)([O-])[O-].S(=O)(=O)([O-])[O-].[Cr+3].[Cr+3].S(=O)(=O)([O-])[O-].[Na+].[Na+].O';
   const refused = await lib.auditRoute({ steps: [repeated] });
-  assert.equal(refused.steps[0].balanced, false);
+  assert.equal(refused.steps[0].balanced, false, 'never passed');
+  assert.match(refused.steps[0].balanceUnchecked ?? '', /free to vary independently/, 'a distinct unchecked outcome');
   const why = refused.steps[0].differences.join(' ');
-  assert.match(why, /free to vary independently/);
-  assert.match(why, /NOT been shown to be unbalanced/);
-  // Four extra sulfurs declared on the product side is the actual fault, and it is now named.
-  assert.match(why, /reactants are short of .*S \(3\)/);
+  assert.match(why, /split/i, 'its one action is to split the step');
+  assert.doesNotMatch(why, /missing from (Reactants|Products)|Add the missing|short of/, 'no advice to add a species');
   assert.doesNotMatch(why, /more than one balanced equation/);
+  const line = refused.blocked.find((entry) => entry.startsWith('Step 1'));
+  assert.match(line, /not checked/i);
+  assert.doesNotMatch(line, /is not balanced/, 'the route summary does not call it unbalanced');
 });
 
 test('a step that inverts a stereocentre is refused, though its equation balances', async () => {
