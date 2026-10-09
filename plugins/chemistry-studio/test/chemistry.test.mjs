@@ -3292,3 +3292,26 @@ test('resolve-names canonicalises without drawing, and the inspector still retur
   assert.equal(batches.at(-1).canonicalOnly, undefined, 'the inspector asks for the whole graph');
   assert.ok(dossier.data.atoms.some((atom) => atom.cip === 'S'));
 });
+
+test('the route check reads each species once, and its summary matches the drawing path', async () => {
+  // The summary-only read must report what the full validation reports, species by species.
+  for (const smiles of ['C[C@H](N)C(=O)O', 'CC(N)C(=O)O', 'C/C=C/C', 'CC=CC', '[Na+].[Cl-]', 'C.[Mg+2].[Br-].[OH-]', '[13CH3]O', 'O=C([O-])[O-].[Ca+2]']) {
+    const full = (await lib.validateChemicalReferences({ references: [smiles], inspect: true })).inspection;
+    const lean = (await lib.validateChemicalReferences({ references: [smiles], inspect: true, summaryOnly: true })).inspection;
+    const comparable = (entry) => ({ ...entry, cipCentres: entry.cipCentres?.map(centre => centre.tag), composition: Object.fromEntries(Object.entries(entry.composition).sort()) });
+    assert.deepEqual(comparable(lean), comparable(full), smiles);
+  }
+  for (const smiles of ['C1CC', 'C=C=C(C)C']) {
+    const refused = async (request) => { try { await lib.validateChemicalReferences(request); return ''; } catch (error) { return error.message; } };
+    assert.equal(await refused({ references: [smiles], inspect: true, summaryOnly: true }), await refused({ references: [smiles], inspect: true }), smiles);
+  }
+});
+
+test('a stereocentre the route check names is numbered in the string the author wrote', async () => {
+  // Written centre-first, so the author's atom 1 is atom 4 of RDKit's canonical string.
+  const audit = await lib.auditRoute({ steps: ['Cl[C@H](C)C(=O)OC.O>>Cl[C@@H](C)C(=O)O.CO'] });
+  const message = audit.blocked.join(' ');
+  assert.match(message, /inverts a stereocentre/);
+  assert.match(message, /\((?:S|R)\) at atom 1\b|\batom 1 of /, message);
+  assert.doesNotMatch(message, /at atom 4\b/, message);
+});

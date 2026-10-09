@@ -170,6 +170,10 @@ export interface ChemistryValidationRequest {
   /** Set by the read-only inspector: return the graph even when a stereocentre is
    *  unspecified, so an intermediate is reported with a caveat instead of rejected. */
   inspect?: boolean;
+  /** With `inspect`: the route checker's read, which uses only the inspection summary. The layout
+   *  round trip is still required, but no second layout, scene or SVG is made, and the centres in
+   *  `cipCentres` are numbered in the SMILES as written rather than in a layout's atom order. */
+  summaryOnly?: boolean;
   /** The step is a declared racemate: draw it with its open centres unspecified rather
    *  than refusing the unspecified stereocentre. Used by the route-fix drawing path. */
   racemic?: boolean;

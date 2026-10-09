@@ -291,6 +291,44 @@ export async function productMatchesTarget(target: string, product: string): Pro
   }
 }
 
+/** The inspection summary read straight from the parsed reference, for the route checker. The
+ *  numbers are the ones the full path reports — the same canonical graph, composition and stereo
+ *  counts — and the centres are numbered in the string the author wrote, which is the handle the
+ *  report gives them. Throws exactly where the full path's layout check would. */
+function summaryOnlyResult(kit: RDKitModule, reference: JSMol, canonicalSmiles: string, unspecifiedBonds: number, oclMolfile: () => string, parse: (source: string) => JSMol): ChemistryValidationResult {
+  const roundTrips = (molfile: () => string): boolean => {
+    try { return parse(molfile()).get_smiles() === canonicalSmiles; } catch { return false; }
+  };
+  if (!roundTrips(oclMolfile) && !roundTrips(() => reference.get_new_coords(true))) throw new Error('No available layout reproduced the reference graph and stereochemistry.');
+  const stereo = JSON.parse(reference.get_stereo_tags()) as { CIP_atoms: Array<[number, string]>; CIP_bonds: Array<[number, number, string]> };
+  const json = JSON.parse(reference.get_json());
+  if (json.molecules.length !== 1) throw new Error('Only one molecular graph per species is supported.');
+  const raw = json.molecules[0];
+  const atoms = raw.atoms.map((a: Record<string, number>, i: number) => {
+    const value = { ...json.defaults.atom, ...a };
+    return { id: `a${i}`, atomicNumber: value.z, charge: value.chg, isotope: value.isotope, hydrogens: value.impHs };
+  });
+  const bonds = (raw.bonds ?? []).map((b: { atoms: [number, number]; bo?: number }, i: number) => ({ id: `b${i}`, atoms: b.atoms.map(a => `a${a}`) as [string, string], order: b.bo ?? json.defaults.bond.bo }));
+  const unspecifiedAtoms = stereo.CIP_atoms.filter(([index, tag]) => tag === '(?)' && ORGANIC_CIP_ELEMENTS.has(atoms[index].atomicNumber)).length;
+  const { composition, charge, heavyAtoms } = compositionOf(atoms);
+  let skeletonSmiles = canonicalSmiles;
+  try { skeletonSmiles = parse(canonicalSmiles.replace(/@/g, '').replace(/[\\/]/g, '')).get_smiles(); } catch { /* keep the canonical form */ }
+  const specified = stereo.CIP_atoms.filter(([, tag]) => tag !== '(?)');
+  const alphaConfiguration = alphaConfigurationOf(kit, reference, stereo.CIP_atoms);
+  return {
+    graph: { canonicalSmiles, molfile: '', atoms, bonds }, svg: '', engineVersion: kit.version(),
+    inspection: {
+      canonicalSmiles, skeletonSmiles, formula: formulaOf(composition), charge, heavyAtoms,
+      stereocentres: specified.length + stereo.CIP_bonds.length,
+      cipTags: specified.map(([, tag]) => tag).sort(),
+      cipCentres: specified.map(([atom, tag]) => ({ atom, tag })),
+      unspecifiedStereocentres: unspecifiedAtoms + unspecifiedBonds,
+      composition,
+      ...(alphaConfiguration ? { alphaConfiguration } : {}),
+    },
+  };
+}
+
 export async function validateChemicalReferences(request: ChemistryValidationRequest): Promise<ChemistryValidationResult> {
   if (!Array.isArray(request.references) || request.references.length < 1 || request.references.length > 3
     || request.references.some(s => typeof s !== 'string' || !s || s.length > MAX_SPECIES_CHARS || /\s|\|/.test(s) || !supportAllowed(s))) {
@@ -423,6 +461,10 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
       }
       if (ocl.isBINAPChiralityBond(b)) throw new Error('Axial stereochemistry is outside the validated scope.');
     }
+    // The route checker's read. A species with no layout that round-trips is refused exactly as
+    // below, but the better of two layouts, the scene and the SVG are drawing work: on a 53-atom
+    // intermediate they were three quarters of each species' time, paid on every step that named it.
+    if (request.inspect && request.summaryOnly) return summaryOnlyResult(kit, reference, canonicalSmiles, unspecifiedBonds, () => ocl.toMolfile(), parse);
     // Two independent layout engines. A drawing is only usable if its coordinates
     // round-trip back to the same graph, so when OpenChemLib's coordinate inventor
     // rewrites geometry — it flips long conjugated polyenes inside macrolactones —

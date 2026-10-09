@@ -27,9 +27,25 @@ const MAX_SPECIES_PER_STEP_FLOOR = 48;
 const MAX_SPECIES_TOTAL_FLOOR = 1024;
 
 
-async function summarize(input: string): Promise<RouteSpeciesSummary> {
+/** Every species one audit has summarised, by the SMILES as written. A route names an intermediate
+ *  on the step that makes it and the step that uses it, a reagent on many steps, and every label
+ *  again for its name check: 289 summaries for 32 distinct species on a 20-step route, each a full
+ *  RDKit pass. Each caller gets its own copy, because the audit writes coefficients and names onto
+ *  the summary it is handed. */
+type SummaryCache = Map<string, Promise<RouteSpeciesSummary>>;
+
+async function summarize(input: string, cache?: SummaryCache): Promise<RouteSpeciesSummary> {
+  let pending = cache?.get(input);
+  if (!pending) {
+    pending = summarizeOnce(input);
+    cache?.set(input, pending);
+  }
+  return { ...(await pending) };
+}
+
+async function summarizeOnce(input: string): Promise<RouteSpeciesSummary> {
   try {
-    const checked = await validateChemicalReferences({ references: [input], inspect: true });
+    const checked = await validateChemicalReferences({ references: [input], inspect: true, summaryOnly: true });
     if (!checked.inspection) throw new Error('RDKit produced no inspection summary.');
     return { input, ...checked.inspection };
   } catch (error) {
@@ -54,9 +70,9 @@ const canCarry = (species: RouteSpeciesSummary): boolean =>
 
 const splitField = (field: string): string[] => field.split('.').map(entry => entry.trim()).filter(Boolean);
 
-async function summarizeField(field: string): Promise<RouteSpeciesSummary[]> {
+async function summarizeField(field: string, cache?: SummaryCache): Promise<RouteSpeciesSummary[]> {
   const out: RouteSpeciesSummary[] = [];
-  for (const smiles of splitField(field)) out.push(await summarize(smiles));
+  for (const smiles of splitField(field)) out.push(await summarize(smiles, cache));
   return out;
 }
 
@@ -75,9 +91,9 @@ async function summarizeField(field: string): Promise<RouteSpeciesSummary[]> {
  *  with its own SMILES. So each label claims its fragments from the side's pool and becomes ONE
  *  species with ONE coefficient. A fragment no label claims stays a species of its own, which is
  *  what happens for every route that sends no labels, so nothing changes for them. */
-async function summarizeFieldGrouped(field: string, declared: string[]): Promise<RouteSpeciesSummary[]> {
+async function summarizeFieldGrouped(field: string, declared: string[], cache?: SummaryCache): Promise<RouteSpeciesSummary[]> {
   const tokens = splitField(field);
-  if (!declared.length) return summarizeField(field);
+  if (!declared.length) return summarizeField(field, cache);
   const unclaimed = tokens.map((token) => ({ token, taken: false }));
   const claim = (fragment: string): boolean => {
     const slot = unclaimed.find((entry) => !entry.taken && entry.token === fragment);
@@ -97,7 +113,7 @@ async function summarizeFieldGrouped(field: string, declared: string[]): Promise
     if (fragments.every((fragment) => claim(fragment))) grouped.push({ position: first, smiles });
     else unclaimed.forEach((entry, index) => { entry.taken = snapshot[index]; });
   }
-  if (!grouped.length) return summarizeField(field);
+  if (!grouped.length) return summarizeField(field, cache);
   // Keep document order: a grouped species sits where its first fragment was.
   const entries = [
     ...grouped.map((entry) => ({ position: entry.position, smiles: entry.smiles })),
@@ -105,7 +121,7 @@ async function summarizeFieldGrouped(field: string, declared: string[]): Promise
       .filter((entry): entry is { position: number; smiles: string } => entry !== null),
   ].sort((a, b) => a.position - b.position);
   const out: RouteSpeciesSummary[] = [];
-  for (const entry of entries) out.push(await summarize(entry.smiles));
+  for (const entry of entries) out.push(await summarize(entry.smiles, cache));
   return out;
 }
 
@@ -560,6 +576,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
     ? Boolean(radicalInput[index])
     : radicalInput === true;
   const audited: RouteStepAudit[] = [];
+  const cache: SummaryCache = new Map();
   let totalSpecies = 0;
   const labelInput: Array<Array<RouteLabelInput | null | undefined> | null | undefined> =
     Array.isArray(input?.labels) ? input.labels : [];
@@ -579,9 +596,9 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // Group each side's fragments back into the species the author declared, so a salt counts
       // once and takes one coefficient. Without labels this is exactly the old behaviour.
       const stepLabels = Array.isArray(labelInput[index]) ? labelInput[index]!.filter(Boolean) : [];
-      const reactants = await summarizeFieldGrouped(reactantField, declaredFor(stepLabels, 'reactant'));
-      const agents = await summarizeFieldGrouped(agentField, declaredFor(stepLabels, 'agent'));
-      const products = await summarizeFieldGrouped(productField, declaredFor(stepLabels, 'product'));
+      const reactants = await summarizeFieldGrouped(reactantField, declaredFor(stepLabels, 'reactant'), cache);
+      const agents = await summarizeFieldGrouped(agentField, declaredFor(stepLabels, 'agent'), cache);
+      const products = await summarizeFieldGrouped(productField, declaredFor(stepLabels, 'product'), cache);
       if (!reactants.length || !products.length) throw new Error('A step needs at least one reactant and one product.');
       const count = reactants.length + agents.length + products.length;
       if (count > maxPerStep) throw new Error(`A step may name at most ${maxPerStep} species.`);
@@ -717,7 +734,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       if (!raw || typeof raw.name !== 'string' || !raw.name.trim() || typeof raw.smiles !== 'string' || !raw.smiles.trim()) continue;
       if (raw.role !== 'reactant' && raw.role !== 'product' && raw.role !== 'agent') continue;
       let declared: RouteSpeciesSummary;
-      try { declared = await summarize(raw.smiles); } catch { continue; }
+      try { declared = await summarize(raw.smiles, cache); } catch { continue; }
       const candidates = (Array.isArray(raw.nameSmiles) ? raw.nameSmiles : [])
         .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
       // A structure carrying a dummy atom is an ABSTRACTION: the author has deliberately left
@@ -736,7 +753,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
         nameOk = false;
         for (const candidate of candidates) {
           try {
-            const resolved = await summarize(candidate);
+            const resolved = await summarize(candidate, cache);
             if (resolved.canonicalSmiles === declared.canonicalSmiles) { nameOk = true; break; }
             if (resolved.skeletonSmiles === declared.skeletonSmiles && resolved.charge === declared.charge) {
               // Same constitution: a name that is silent about stereochemistry is not a
@@ -836,7 +853,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
     const declared = typeof carriers[step.index] === 'string' && carriers[step.index] ? carriers[step.index]!.trim() : '';
     if (!declared) continue;
     let canonical: string | null = null;
-    try { canonical = (await summarize(declared)).canonicalSmiles; } catch { canonical = null; }
+    try { canonical = (await summarize(declared, cache)).canonicalSmiles; } catch { canonical = null; }
     const inReactant = canonical ? step.reactants.some(entry => entry.canonicalSmiles === canonical) : false;
     const earlier = canonical ? (producers.get(canonical) ?? []).filter(index => index < step.index) : [];
     const entry = [...linkByKey.values()].find(item => item.to === step.index && item.from < step.index)
@@ -865,7 +882,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
   if (requested) {
     target = { input: requested, canonicalSmiles: null, formula: null, formedAt: null, reason: 'unparsed' };
     try {
-      const wanted = await summarize(requested);
+      const wanted = await summarize(requested, cache);
       const formedBy = (match: (product: RouteSpeciesSummary) => boolean): number[] =>
         audited.filter(step => step.ok && step.products.some(match)).map(step => step.index);
       const exact = formedBy(product => product.canonicalSmiles === wanted.canonicalSmiles);
