@@ -335,3 +335,82 @@ test('a device with no credential store loses the key, not the migration', async
   assert.match(result.notes, /has to be entered again/);
   assert.equal(await host.storage.state.get('terms'), TERMS_VERSION, 'and everything else is still carried over');
 });
+
+// ------------------------------------------------ the adapter, as the host feeds it
+
+// The host's python.run writes the stored key as the first line of the interpreter's stdin
+// and the worker's own `stdin` after it (nodus electron/capabilities/pythonRuntime.ts:
+// `child.stdin.write(`${request.secret}\n`)`, then `request.stdin`). The adapter has to read
+// exactly that. Here it is run for real, against a stand-in SDK that records the key it was
+// given and answers with a well-formed prediction.
+test('the adapter reads the key the host writes ahead of the request, and answers', async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const python = ['python3', 'python'].find(name => spawnSync(name, ['-c', 'import numpy'], { encoding: 'utf8' }).status === 0);
+  if (!python) { t.skip('no Python interpreter with numpy on this machine'); return; }
+
+  const sdk = fs.mkdtempSync(path.join(os.tmpdir(), 'alphagenome-sdk-'));
+  t.after(() => fs.rmSync(sdk, { recursive: true, force: true }));
+  const write = (relative, body) => {
+    fs.mkdirSync(path.dirname(path.join(sdk, relative)), { recursive: true });
+    fs.writeFileSync(path.join(sdk, relative), body);
+  };
+  write('alphagenome/__init__.py', '');
+  write('alphagenome/data/__init__.py', '');
+  write('alphagenome/data/genome.py', [
+    'class Interval:',
+    '    def __init__(self, chromosome, start, end): self.chromosome, self.start, self.end = chromosome, start, end',
+    '    def __eq__(self, other): return (self.chromosome, self.start, self.end) == (other.chromosome, other.start, other.end)',
+    'class Variant:',
+    '    def __init__(self, **fields): self.__dict__.update(fields)',
+  ].join('\n'));
+  write('alphagenome/models/__init__.py', '');
+  write('alphagenome/models/dna_client.py', [
+    'import numpy as np',
+    'class ModelVersion: ALL_FOLDS = "ALL_FOLDS"',
+    'class Organism: HOMO_SAPIENS = "HOMO_SAPIENS"',
+    'class OutputType: RNA_SEQ = "RNA_SEQ"; ATAC = "ATAC"; DNASE = "DNASE"; CAGE = "CAGE"',
+    'class Row(dict): pass',
+    'class Metadata:',
+    '    def __init__(self, rows): self.rows = rows',
+    '    def equals(self, other): return self.rows == other.rows',
+    '    @property',
+    '    def iloc(self): return self.rows',
+    'class Track:',
+    '    def __init__(self, interval, values): self.interval, self.values, self.resolution = interval, values, 64',
+    '    @property',
+    '    def metadata(self): return Metadata([Row(name="Synthetic track", strand="+")])',
+    'class Output:',
+    '    def __init__(self, ref, alt): self.reference, self.alternate = ref, alt',
+    'class Side:',
+    '    def __init__(self, track): self.rna_seq = track',
+    'class Model:',
+    '    def predict_variant(self, interval, variant, organism, ontology_terms, requested_outputs):',
+    '        values = np.linspace(0, 1, 256).reshape(256, 1)',
+    '        return Output(Side(Track(interval, values)), Side(Track(interval, values * 2)))',
+    'def create(api_key, model_version, timeout):',
+    '    if api_key != "AIzaSyFakeKeyForTheAdapterTest0000000":',
+    '        raise PermissionError("wrong key")',
+    '    return Model()',
+  ].join('\n'));
+
+  const host = configured();
+  host.python.run = async request => {
+    // What the host does, minus the pinned environment: the stand-in SDK is on the path
+    // instead of installed, so the isolation flag that would hide it is dropped.
+    // The worker names the adapter where the published archive puts it; in this source tree
+    // it sits one directory higher.
+    const adapter = fileURLToPath(new URL('../python/alphagenome_worker.py', import.meta.url));
+    const args = request.args.filter(arg => arg !== '-I').map(arg => arg.endsWith('alphagenome_worker.py') ? adapter : arg);
+    const stdin = `${request.secretId ? 'AIzaSyFakeKeyForTheAdapterTest0000000\n' : ''}${request.stdin ?? ''}`;
+    const run = spawnSync(python, args, { input: stdin, encoding: 'utf8', env: { ...process.env, PYTHONPATH: sdk } });
+    return { code: run.status ?? 1, stdout: run.stdout, stderr: run.stderr };
+  };
+  const result = await createWorker(host).invoke({ invocationId: 'i9', toolId: 'predict', locale: 'en', input: PLAN });
+  const data = result.artifacts[0].data;
+  assert.equal(data.tracks.length, 1);
+  assert.equal(data.tracks[0].reference.length, 256);
+  assert.equal(data.interval.start, 36201698 - 1 - 8192);
+});
