@@ -2342,6 +2342,25 @@ test('a salt written as its ions is one species, so a verified step with salts o
   assert.ok(loneResult.artifacts?.[0]?.data?.reaction, 'a reaction of unpaired ions still draws');
 });
 
+test('ions that react with each other stay separate species; a salt with a spectator ion is still one', async () => {
+  // Every consecutive run of ions whose charges close to zero was grouped as one salt, so a
+  // neutralisation or a precipitation was drawn as a single "salt" reactant turning into the product.
+  const worker = lib.createWorker(stubHost());
+  const reactants = async (smiles, id) => {
+    const result = await worker.invoke({ invocationId: id, toolId: 'compile', locale: 'en',
+      input: { plan: JSON.stringify({ version: 2, kind: 'reaction', depiction: 'skeletal', reactionSmiles: smiles }), question: smiles } });
+    const reaction = result.artifacts?.[0]?.data?.reaction;
+    assert.ok(reaction, JSON.stringify(result.notices ?? result.view).slice(0, 400));
+    return reaction.species.filter((entry) => entry.role === 'reactant').map((entry) => entry.smiles);
+  };
+  assert.deepEqual(await reactants('[H+].[OH-]>>O', 'ion1'), ['[H+]', '[OH-]'], 'a neutralisation has two reactants');
+  assert.deepEqual(await reactants('[Ag+].[Cl-]>>Cl[Ag]', 'ion2'), ['[Ag+]', '[Cl-]'], 'a precipitation has two reactants');
+  assert.deepEqual(await reactants('CC(=O)[O-].[H+]>>CC(=O)O', 'ion3'), ['CC(=O)[O-]', '[H+]'], 'a protonation has two reactants');
+  // The sodium is on both sides, so sodium nitrite is still read as the one salt the author named.
+  const salt = await reactants('Oc1ccccc1.O=N[O-].[Na+].O=S(=O)(O)O>O>O=Nc1ccc(O)cc1.O=S(=O)([O-])[O-].[Na+].[Na+].O', 'ion4');
+  assert.ok(salt.includes('O=N[O-].[Na+]'), JSON.stringify(salt));
+});
+
 test('an unbuilt step keeps its place, so later steps keep their numbers', async () => {
   const worker = lib.createWorker(stubHost());
   const result = await worker.invoke({ invocationId: 'gap1', toolId: 'verify-route', locale: 'en', input: { steps: ['CCO>>CC=O.[H][H]', '', 'CC=O.O>>CC(O)O'] } });
