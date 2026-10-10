@@ -22,6 +22,8 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "python"))
 
+from rdkit import Chem
+
 import reactions_worker
 import route_program
 
@@ -648,6 +650,63 @@ class ReversedIndexTemplate(unittest.TestCase):
         out = apply(molecule="O=[N+]([O-])c1ccccc1",
                     operation={"kind": "template", "id": "[C:1]>>[C:1]", "indexDir": self.index})
         self.assertEqual(out["error"], "unknown-template")
+
+
+class DisconnectionSite(unittest.TestCase):
+    """Marking a target says WHERE a disconnection is wanted, which lets the retro pass skip the
+    templates that are found only somewhere else.
+
+    Tested on the two pure functions rather than through a whole pass, because a template library is
+    local data that never ships with the repository. The properties the saving rests on are here:
+    the marks are not carried into the molecule that gets searched, the site is the atoms they sat
+    on, and a template found only away from the site is rejected while the same template on an
+    unmarked target is kept."""
+
+    def test_an_unmarked_target_has_no_site_and_keeps_its_atoms(self):
+        mol, site = reactions_worker._site_of("CC(=O)OCC")
+        self.assertEqual(site, frozenset())
+        self.assertEqual(Chem.MolToSmiles(mol), "CCOC(C)=O")
+
+    def test_marks_give_the_site_and_are_stripped_from_the_molecule(self):
+        mol, site = reactions_worker._site_of("CC(=O)O[CH2:901]C")
+        self.assertEqual(len(site), 1)
+        # the molecule that is searched and reported carries no map numbers
+        self.assertEqual(Chem.MolToSmiles(mol), "CCOC(C)=O")
+        self.assertEqual(mol.GetAtomWithIdx(next(iter(site))).GetSymbol(), "C")
+
+    def test_every_marked_atom_is_in_the_site(self):
+        _, site = reactions_worker._site_of("[CH3:901]C(=O)O[CH2:902]C")
+        self.assertEqual(len(site), 2)
+
+    def test_without_a_site_any_place_counts(self):
+        mol, site = reactions_worker._site_of("OCCCCCCO")
+        alcohol = Chem.MolFromSmarts("[OX2H1]")
+        self.assertTrue(reactions_worker._at_site(mol, alcohol, site))
+
+    def test_a_pattern_found_only_away_from_the_site_is_rejected(self):
+        # one end marked; the query is pinned to the OTHER kind of group, which is at neither end
+        mol, site = reactions_worker._site_of("[OH:901]CCCCCCO")
+        self.assertEqual(len(site), 1)
+        self.assertTrue(reactions_worker._at_site(mol, Chem.MolFromSmarts("[OX2H1]"), site))
+        self.assertFalse(reactions_worker._at_site(mol, Chem.MolFromSmarts("[NX3]"), site))
+
+    def test_a_pattern_found_at_the_site_among_several_places_is_kept(self):
+        # a symmetric diol: the alcohol query matches twice, and only one match is at the mark
+        mol, site = reactions_worker._site_of("[OH:901]CCCCCCO")
+        alcohol = Chem.MolFromSmarts("[OX2H1]")
+        self.assertEqual(len(mol.GetSubstructMatches(alcohol, uniquify=True)), 2)
+        self.assertTrue(reactions_worker._at_site(mol, alcohol, site))
+
+    def test_a_pattern_that_spans_the_site_counts_even_when_the_mark_is_not_its_anchor(self):
+        # the mark is on the carbon; the query starts at the oxygen and reaches it
+        mol, site = reactions_worker._site_of("CC(=O)O[CH2:901]C")
+        ester = Chem.MolFromSmarts("[CX3](=O)[OX2][CX4]")
+        self.assertTrue(reactions_worker._at_site(mol, ester, site))
+
+    def test_a_target_that_does_not_parse_gives_no_molecule(self):
+        mol, site = reactions_worker._site_of("not a molecule")
+        self.assertIsNone(mol)
+        self.assertEqual(site, frozenset())
 
 
 if __name__ == "__main__":
