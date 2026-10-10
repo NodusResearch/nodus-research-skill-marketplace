@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "notes": [
+    "Forward reaction SMARTS only. Reactant template 0 is always the carried molecule; the",
+    "remaining templates are filled from the request's `reagents`, in order, or from the slot's",
+    "`default` when the caller leaves it out (water and the like are not worth making the model",
+    "name). Every SMARTS here was applied to a real substrate with RDKit and its product asserted",
+    "in test/test_route_program.py; nothing is carried on inspection alone. A displacement is written for",
+    "Cl, Br and I only: C-F does not go, so an alkyl fluoride resolves its site and then fails to",
+    "react, which is the honest answer rather than a product nobody could make."
+  ],
+  "sites": {
+    "carboxylic acid": "[CX3](=O)[OX2H1]",
+    "ester": "[#6][CX3](=O)[OX2][#6;!$([#6]=O)]",
+    "amide": "[CX3](=O)[NX3]",
+    "ketone": "[#6][CX3](=O)[#6]",
+    "aldehyde": "[CX3H1](=O)[#6]",
+    "primary alcohol": "[#6][CX4H2][OX2H1]",
+    "secondary alcohol": "[#6][CX4H1]([#6])[OX2H1]",
+    "phenol": "c[OX2H1]",
+    "free amine": "[NX3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+])]",
+    "primary amine": "[NX3;H2;!$(N[C,S]=O);!$(N=*);!$([N+])]",
+    "nitro group": "[N+](=O)[O-]",
+    "nitrile": "[#6][CX2]#[NX1]",
+    "alkene": "[CX3]=[CX3]",
+    "terminal alkyne": "[CX2H1]#[CX2]",
+    "aryl bromide": "cBr",
+    "alkyl halide": "[CX4][F,Cl,Br,I]",
+    "benzylic position": "[cX3][CX4;H1,H2,H3]",
+    "ether": "[#6;!$([#6]=O)][OX2][#6;!$([#6]=O)]"
+  },
+  "transforms": [
+    {
+      "id": "ester-hydrolysis",
+      "summary": "Hydrolyse an ester to the carboxylic acid, releasing the alcohol.",
+      "site": "ester",
+      "smarts": "[#6:1][C:2](=[O:3])[O;X2:4][#6;!$([#6]=O):5].[OH2:6]>>[#6:1][C:2](=[O:3])[OH:6].[OH:4][#6:5]",
+      "reagents": [{"role": "water", "default": "O"}]
+    },
+    {
+      "id": "ester-formation",
+      "summary": "Esterify a carboxylic acid with an alcohol, releasing water.",
+      "site": "carboxylic acid",
+      "smarts": "[#6:1][C:2](=[O:3])[OX2H1:4].[O;H1;X2:5][#6;X4:6]>>[#6:1][C:2](=[O:3])[O:5][#6:6].[OH2:4]",
+      "reagents": [{"role": "alcohol", "default": null}]
+    },
+    {
+      "id": "amide-formation",
+      "summary": "Couple a carboxylic acid with an amine to the amide (a coupling agent or the acyl chloride), releasing water.",
+      "site": "carboxylic acid",
+      "smarts": "[#6:1][C:2](=[O:3])[OX2H1:4].[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):5]>>[#6:1][C:2](=[O:3])[N:5].[OH2:4]",
+      "reagents": [{"role": "amine", "default": null}]
+    },
+    {
+      "id": "amide-hydrolysis",
+      "summary": "Hydrolyse an amide to the carboxylic acid, releasing the amine.",
+      "site": "amide",
+      "smarts": "[#6:1][C:2](=[O:3])[N;X3:4].[OH2:5]>>[#6:1][C:2](=[O:3])[OH:5].[N:4]",
+      "reagents": [{"role": "water", "default": "O"}]
+    },
+    {
+      "id": "n-acylation",
+      "summary": "Acylate a free amine with an acyl chloride, releasing HCl.",
+      "site": "free amine",
+      "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[#6:2][C:3](=[O:4])[Cl:5]>>[N:1][C:3](=[O:4])[#6:2].[ClH:5]",
+      "reagents": [{"role": "acyl chloride", "default": null}]
+    },
+    {
+      "id": "ketone-reduction",
+      "summary": "Reduce a ketone to the secondary alcohol (NaBH4 or LiAlH4).",
+      "site": "ketone",
+      "smarts": "[#6:1][C:2](=[O:3])[#6:4]>>[#6:1][CH1:2]([OH:3])[#6:4]",
+      "reagents": []
+    },
+    {
+      "id": "aldehyde-reduction",
+      "summary": "Reduce an aldehyde to the primary alcohol (NaBH4).",
+      "site": "aldehyde",
+      "smarts": "[#6:1][CH1:2]=[O:3]>>[#6:1][CH2:2][OH:3]",
+      "reagents": []
+    },
+    {
+      "id": "secondary-alcohol-oxidation",
+      "summary": "Oxidise a secondary alcohol to the ketone (PCC, Swern or Dess-Martin).",
+      "site": "secondary alcohol",
+      "smarts": "[#6:1][CH1:2]([OH:3])[#6:4]>>[#6:1][C:2](=[O:3])[#6:4]",
+      "reagents": []
+    },
+    {
+      "id": "primary-alcohol-oxidation",
+      "summary": "Oxidise a primary alcohol to the aldehyde (PCC, Swern or Dess-Martin).",
+      "site": "primary alcohol",
+      "smarts": "[#6;!$([#6]=O):1][CH2:2][OH:3]>>[#6:1][CH1:2]=[O:3]",
+      "reagents": []
+    },
+    {
+      "id": "aldehyde-oxidation",
+      "summary": "Oxidise an aldehyde to the carboxylic acid (KMnO4 or Ag2O).",
+      "site": "aldehyde",
+      "smarts": "[#6:1][CH1:2]=[O:3]>>[#6:1][CH0:2](=[O:3])[OH]",
+      "reagents": []
+    },
+    {
+      "id": "nitro-reduction",
+      "summary": "Reduce a nitro group to the primary amine (H2/Pd or Fe/HCl).",
+      "site": "nitro group",
+      "smarts": "[#6:1][N+:2](=[O:3])[O-:4]>>[#6:1][NH2;+0:2]",
+      "reagents": []
+    },
+    {
+      "id": "nitrile-hydrolysis",
+      "summary": "Hydrolyse a nitrile to the carboxylic acid, releasing ammonia.",
+      "site": "nitrile",
+      "smarts": "[#6:1][CX2:2]#[NX1:3].[OH2:4]>>[#6:1][CH0:2](=[O:4])[OH].[NH3;+0:3]",
+      "reagents": [{"role": "water", "default": "O"}]
+    },
+    {
+      "id": "alkene-hydrogenation",
+      "summary": "Hydrogenate an alkene to the alkane (H2/Pd-C).",
+      "site": "alkene",
+      "smarts": "[CX3:1]=[CX3:2]>>[C:1][C:2]",
+      "reagents": []
+    },
+    {
+      "id": "halide-amination",
+      "summary": "Displace an alkyl halide with an amine, releasing the hydrogen halide.",
+      "site": "alkyl halide",
+      "smarts": "[#6;X4:1][Cl,Br,I:2].[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):3]>>[#6:1][N:3].[*H:2]",
+      "reagents": [{"role": "amine", "default": null}]
+    },
+    {
+      "id": "phenol-alkylation",
+      "summary": "O-alkylate a phenol with an alkyl halide, releasing the hydrogen halide.",
+      "site": "phenol",
+      "smarts": "[c:1][OX2H1:2].[#6;X4:3][Cl,Br,I:4]>>[c:1][O:2][#6:3].[*H:4]",
+      "reagents": [{"role": "alkyl halide", "default": null}]
+    },
+    {
+      "id": "acid-to-acyl-chloride",
+      "summary": "Convert a carboxylic acid to the acyl chloride (SOCl2 or oxalyl chloride).",
+      "site": "carboxylic acid",
+      "smarts": "[#6:1][C:2](=[O:3])[OX2H1:4]>>[#6:1][C:2](=[O:3])[Cl]",
+      "reagents": []
+    }
+  ]
+}
