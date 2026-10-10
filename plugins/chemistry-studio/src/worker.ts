@@ -138,6 +138,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache, budget);
       if (toolId === 'known-reactions') return knownReactions(input);
       if (toolId === 'propose-disconnections') return proposeDisconnections(input);
+      if (toolId === 'decompose-target') return decomposeTarget(input);
       if (toolId === 'check-stock') return checkStock(input);
       if (toolId === 'search-routes') return searchRoutes(input);
       // Its `steps` are objects (reactants, products, reagents), not verify-route's equation strings.
@@ -1022,6 +1023,40 @@ async function proposeDisconnections(input: { indexDir?: string; targets?: strin
   const proposals = entries.reduce((sum, entry) => sum + (entry.proposals?.length ?? 0), 0);
   const summary = `Disconnections: ${proposals} proposal(s) for ${entries.length} target(s), ${recorded} with a recorded reaction that makes it.`;
   return { artifacts: [{ artifactType: 'reaction-disconnections', artifactVersion: 1, summary, data }], notices: [] };
+}
+
+/** Break assembled targets into the units they were built from, so the retro search can be asked
+ *  about a small molecule instead of a large one. The unit library is the user's own local data, so
+ *  the application supplies its directory; without one the fragments still come back, which is what
+ *  the retro search needs. Application-invoked only. */
+async function decomposeTarget(input: { targets?: string[]; monomerDir?: string }) {
+  const targets = Array.isArray(input?.targets) ? input.targets.filter(t => typeof t === 'string' && t.trim()).slice(0, 8) : [];
+  if (targets.length === 0) throw new Error('A decomposition needs at least one target.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT], persistent: true,
+    stdin: JSON.stringify({
+      decompose: targets,
+      ...(typeof input.monomerDir === 'string' && input.monomerDir ? { monomerDir: input.monomerDir } : {}),
+    }),
+    // The cut is linear and measured at 11 ms for a 292-atom target, so this timeout covers runtime
+    // start-up and reading the library, not the work.
+    timeoutMs: 60_000,
+  });
+  if (run.code !== 0) throw new Error(pythonFailure('The decomposition failed', run));
+  const data = JSON.parse(run.stdout) as {
+    decompositions?: Array<{ units?: unknown[]; unidentified?: unknown[]; covered?: number; hasLibrary?: boolean }>;
+  };
+  const entries = data.decompositions ?? [];
+  const units = entries.reduce((sum, entry) => sum + (entry.units?.length ?? 0), 0);
+  const loose = entries.reduce((sum, entry) => sum + (entry.unidentified?.length ?? 0), 0);
+  const library = entries.some(entry => entry.hasLibrary);
+  const summary = library
+    ? `Decomposition: ${units} named unit(s) and ${loose} unidentified fragment(s) across ${entries.length} target(s).`
+    : `Decomposition: ${loose} fragment(s) across ${entries.length} target(s); no unit library was available to name them.`;
+  return { artifacts: [{ artifactType: 'target-decomposition', artifactVersion: 1, summary, data }], notices: [] };
 }
 
 /** Which of the user's imported vendor stock lists hold each molecule (standard InChIKey). The

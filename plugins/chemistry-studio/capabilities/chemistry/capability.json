@@ -184,6 +184,26 @@
       "billing": "none"
     },
     {
+      "id": "decompose-target",
+      "description": "Break assembled targets into the units they were built from: find the bonds joining one unit to the next, cut them, take the protecting groups off each fragment, and name each one against the user's local unit library. This lets a retro search be asked about a small molecule instead of a large one. Without a library the fragments are still returned, unnamed. The application supplies the library directory; this tool is not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "targets": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 8 },
+          "monomerDir": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "required": ["targets"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["target-decomposition"],
+      "timeoutMs": 60000,
+      "concurrency": 4,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
       "id": "check-stock",
       "description": "Check which of the user's imported vendor stock lists (Mcule, Enamine, …) hold each molecule, matched by standard InChIKey. The application supplies the stock directory; this tool is not offered to the model.",
       "inputSchema": {
@@ -316,6 +336,12 @@
       "type": "reaction-disconnections",
       "version": 1,
       "label": { "en": "Reaction disconnections", "es": "Desconexiones de reacción", "fr": "Déconnexions de réaction", "de": "Reaktionsdiskonnektionen", "pt": "Desconexões de reação", "pt-BR": "Desconexões de reação", "it": "Disconnessioni di reazione", "tr": "Reaksiyon ayrıştırmaları" },
+      "modelVisibility": "none"
+    },
+    {
+      "type": "target-decomposition",
+      "version": 1,
+      "label": { "en": "Target decomposition", "es": "Descomposición del objetivo", "fr": "Décomposition de la cible", "de": "Zielzerlegung", "pt": "Decomposição do alvo", "pt-BR": "Decomposição do alvo", "it": "Scomposizione del bersaglio", "tr": "Hedef ayrıştırması" },
       "modelVisibility": "none"
     },
     {
