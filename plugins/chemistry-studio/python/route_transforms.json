@@ -7,7 +7,12 @@
     "name). Every SMARTS here was applied to a real substrate with RDKit and its product asserted",
     "in test/test_route_program.py; nothing is carried on inspection alone. A displacement is written for",
     "Cl, Br and I only: C-F does not go, so an alkyl fluoride resolves its site and then fails to",
-    "react, which is the honest answer rather than a product nobody could make."
+    "react, which is the honest answer rather than a product nobody could make.",
+    "An entry with `siteSlots` joins two places on ONE carried molecule, so its carried-side pattern",
+    "is written as a component group - ([a].[b]) - which RDKit matches only within a single molecule.",
+    "`siteSlots` names what each of the two sites must be; `site` is null for such an entry. The",
+    "oxidant of a closure is named in `reagents` and the byproduct in the SMARTS matches it, so the",
+    "equation balances as written rather than leaving half of it to the reader."
   ],
   "sites": {
     "carboxylic acid": "[CX3](=O)[OX2H1]",
@@ -27,7 +32,8 @@
     "aryl bromide": "cBr",
     "alkyl halide": "[CX4][F,Cl,Br,I]",
     "benzylic position": "[cX3][CX4;H1,H2,H3]",
-    "ether": "[#6;!$([#6]=O)][OX2][#6;!$([#6]=O)]"
+    "ether": "[#6;!$([#6]=O)][OX2][#6;!$([#6]=O)]",
+    "thiol": "[SX2H1]"
   },
   "transforms": [
     {
@@ -141,6 +147,22 @@
       "site": "carboxylic acid",
       "smarts": "[#6:1][C:2](=[O:3])[OX2H1:4]>>[#6:1][C:2](=[O:3])[Cl]",
       "reagents": []
+    },
+    {
+      "id": "disulfide-closure",
+      "summary": "Oxidise two thiols on one molecule to the disulfide with iodine, closing a ring and releasing two equivalents of hydrogen iodide.",
+      "site": null,
+      "siteSlots": ["thiol", "thiol"],
+      "smarts": "([SX2H1:1].[SX2H1:2]).[I:3][I:4]>>([S;H0:1][S;H0:2]).[IH:3].[IH:4]",
+      "reagents": [{"role": "oxidant", "default": "II"}]
+    },
+    {
+      "id": "bis-halomethyl-bridge",
+      "summary": "Alkylate two thiols on one molecule with a bis(halomethyl)arene, closing a ring the arene bridges and releasing two equivalents of the hydrogen halide.",
+      "site": null,
+      "siteSlots": ["thiol", "thiol"],
+      "smarts": "([SX2H1:1].[SX2H1:2]).([Cl,Br,I:3][CH2:4].[CH2:5][Cl,Br,I:6])>>([S;H0:1][CH2:4].[CH2:5][S;H0:2]).[*H:3].[*H:6]",
+      "reagents": [{"role": "bis(halomethyl)arene", "default": null}]
     }
   ]
 }

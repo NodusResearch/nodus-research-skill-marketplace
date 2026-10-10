@@ -6,13 +6,14 @@ Answers the `routeProgram` payload of a reactions_worker request, in one of thre
      "molecule": "<clean SMILES>" | "moleculeHandle": "<marked form, preferred when present>",
      "reagents": ["<SMILES>", ...],
      "sites" | "site": {"kind": "phrase", "phrase": "ester"} | {"kind": "handle", "mark": 901}
-                     | [<either>, ...]   (a list today holds one; see _requested_sites)
+                     | [<either>, ...]   (two for a transformation that declares siteSlots)
                      | "<phrase>",       (what the first adapter sent)
      "markAs": 902, "budgetSeconds": 20,
      "operation": {"kind": "named", "id": "<curated id>"}
                 | {"kind": "smarts", "smarts": "<forward reaction SMARTS>"}
                 | {"kind": "template", "id": "<retro template or its digest>", "indexDir": "<path>"}}
-        -> {"ok": true, "product", "coProducts", "formula", "productHandle", "marks", "site"?}
+        -> {"ok": true, "product", "coProducts", "formula", "productHandle", "marks",
+            "site"?, "sites"?, "ring"?}
     {"op": "describe", "molecule"|"moleculeHandle": "..."} -> {"ok": true, "formula", "sites", "summary"}
     {"op": "transforms"}  -> {"ok": true, "transforms": [{"id", "summary", "site"}]}
 
@@ -51,6 +52,22 @@ operations elsewhere untouched, because the reaction never names their atoms.
 `molecule` and `product` are always clean canonical SMILES with no marks: they go into reaction
 equations the existing route audit parses, and a mark leaking into one would corrupt the check.
 `moleculeHandle` and `productHandle` are opaque above the adapter and are passed back unchanged.
+
+TWO-SITE CLOSURES. A transformation that declares `siteSlots` in route_transforms.json joins TWO
+places on one carried molecule. Its carried-side pattern is a component group — ([a].[b]) — which
+RDKit matches only within a single molecule, so the two ends are guaranteed to be the same
+molecule's. The two sites are normally two marks, which is the whole point: on a molecule carrying
+several copies of the group, nothing else can say WHICH two are being joined.
+
+Two rules make that safe. An outcome is kept only if it CONSUMED every site the program named, so
+a ring closed anywhere else is discarded rather than returned as a near miss; and the atoms of the
+competing copies are protected before the reaction runs, so the work does not grow with the
+molecule and the outcome cap can never cut off the pair the program asked for.
+
+The ring formed is reported as {"size", "bridgeAtoms"} and NOTHING is gated on it. Whether a given
+span is reasonable is chemistry judgement that does not belong in a constant here; a five-membered
+closure and a large macrocycle are different propositions and the number is the only way for a
+caller or a report to tell them apart.
 """
 
 import json
@@ -261,6 +278,9 @@ def _reacting(rxn):
 def _fragments(outcome, owners, reacting, carried_slot, marks, canon):
     """One outcome as a record per product fragment, or None when RDKit cannot make a molecule of it.
 
+    Returns {"records", "came", "used"}: the fragments, and the carried molecule's own atom indices
+    that reached the products at all and that the reaction actually changed.
+
     Each record carries the clean SMILES, the fragment itself with its marks already on it, which
     of the carried molecule's atoms reached it, and two footprints in its own atom numbering:
     `changed` (what the reaction did, where a new mark goes) and `named` (everything the template
@@ -272,7 +292,7 @@ def _fragments(outcome, owners, reacting, carried_slot, marks, canon):
     the reaction happened, which are the ones a route refers back to."""
     from rdkit import Chem
 
-    records = []
+    records, came_in, used_up = [], set(), set()
     for product in outcome:
         try:
             Chem.SanitizeMol(product)
@@ -286,6 +306,9 @@ def _fragments(outcome, owners, reacting, carried_slot, marks, canon):
                 named.add(atom.GetIdx())
                 if came is not None and owners.get(number) == carried_slot:
                     inherited[atom.GetIdx()] = came
+                    came_in.add(came)
+                    if reacting is None or number in reacting:
+                        used_up.add(came)
                     atom.SetAtomMapNum(marks.get(came, 0))
                 else:
                     # From a reagent, or built by the template: whatever number is on it is not a mark.
@@ -311,7 +334,11 @@ def _fragments(outcome, owners, reacting, carried_slot, marks, canon):
                 "changed": frozenset(at for at, i in enumerate(group) if i in changed),
                 "named": frozenset(at for at, i in enumerate(group) if i in named),
             })
-    return records or None
+    if not records:
+        return None
+    # `used` is the carried molecule's own atom numbering, so a named site can be checked against
+    # what the reaction actually did to it rather than against everything the template named.
+    return {"records": records, "came": frozenset(came_in), "used": frozenset(used_up)}
 
 
 def _carried(records):
@@ -360,13 +387,111 @@ def _reversed_template(index_dir, wanted, deadline):
     return None
 
 
-def _operation(payload, deadline):
-    """(reaction, reagent slots, declared site phrase, slot order is negotiable) for the request's
-    operation, or a failure.
+def _ring(frag, reactants, owners, carried_slot):
+    """The ring a closure forms: {"size", "bridgeAtoms", "bridge"}, or None when there is no closure
+    to measure.
 
-    A slot is {"role", "default"}: the default fills it when the caller leaves it out, so routine
-    reagents like water never have to be named. The order is negotiable only for a reversed index
-    template, which was not authored for this toolkit's carried-molecule-first convention."""
+    A new bond is one whose two ends were not bonded in any reactant. Taking the new bonds back out
+    separates the pieces they joined, so the cycle they close is the shortest path across each piece
+    plus the bonds themselves — which is both the smallest ring through them and what a chemist
+    means by the ring size. `bridgeAtoms` is the stretch the reagent contributed, told apart from
+    the carried molecule's own stretch by which reactant its ends came from.
+
+    Nothing is gated on any of it. Whether a span is reasonable is chemistry judgement that does not
+    belong in a constant here; this only has to make the number visible."""
+    def origin(atom):
+        if not (atom.HasProp("old_mapno") and atom.HasProp("react_atom_idx")):
+            return None
+        return owners.get(atom.GetIntProp("old_mapno")), atom.GetIntProp("react_atom_idx")
+
+    fresh = []
+    for bond in frag.GetBonds():
+        begin, end = bond.GetBeginAtom(), bond.GetEndAtom()
+        left, right = origin(begin), origin(end)
+        if left is None or right is None:
+            continue
+        if left[0] is None or right[0] is None or left[0] >= len(reactants) or right[0] >= len(reactants):
+            continue
+        if left[0] != right[0] or reactants[left[0]].GetBondBetweenAtoms(left[1], right[1]) is None:
+            fresh.append((begin.GetIdx(), end.GetIdx()))
+    if not fresh or len(fresh) > 2:
+        return None
+    cut = {frozenset(pair) for pair in fresh}
+
+    def across(start, goal):
+        """The shortest path from one atom to another without using the new bonds."""
+        seen, queue = {start: None}, [start]
+        while queue:
+            nxt = []
+            for at in queue:
+                for neighbor in frag.GetAtomWithIdx(at).GetNeighbors():
+                    other = neighbor.GetIdx()
+                    if other in seen or frozenset((at, other)) in cut:
+                        continue
+                    seen[other] = at
+                    if other == goal:
+                        path, step = [], other
+                        while step is not None:
+                            path.append(step)
+                            step = seen[step]
+                        return path
+                    nxt.append(other)
+            queue = nxt
+        return None
+
+    def carried(at):
+        where = origin(frag.GetAtomWithIdx(at))
+        return where is not None and where[0] == carried_slot
+
+    if len(fresh) == 1:
+        path = across(*fresh[0])
+        return None if path is None else {"size": len(path), "bridgeAtoms": 0, "bridge": frozenset()}
+    (one, two), (three, four) = fresh
+    best = None
+    for left, right in (((one, three), (two, four)), ((one, four), (two, three))):
+        first, second = across(*left), across(*right)
+        if first is None or second is None:
+            continue
+        if best is None or len(first) + len(second) < best["size"]:
+            bridge = [leg for leg in (first, second) if not any(carried(at) for at in leg)]
+            best = {"size": len(first) + len(second),
+                    "bridgeAtoms": len(bridge[0]) if bridge else 0,
+                    "bridge": frozenset(bridge[0]) if bridge else frozenset()}
+    return best
+
+
+def _pair(sites, slots, mol, tables):
+    """The named sites in the order the declared slots want them, or a failure naming what is wrong.
+
+    Checked before anything is run: a mark that is not on the group the closure joins is a cheap
+    `no-match`, not a search over the molecule."""
+    def fits(site, phrase):
+        pattern = tables["sites"].get(phrase)
+        return bool(pattern) and any(site["atoms"] & match for match in _site_matches(mol, pattern))
+
+    orders = ((0, 1), (1, 0)) if len(sites) == 2 else ((0,),)
+    for order in orders:
+        if all(fits(sites[at], slots[position]) for position, at in enumerate(order)):
+            return [sites[at] for at in order]
+    wanted = " and ".join(sorted(set(slots))) if len(set(slots)) > 1 else f"two {slots[0]} sites"
+    return _fail("no-match", f"This transformation joins {wanted}, and what was named is not that.")
+
+
+def _operation(payload, deadline):
+    """{"rxn", "reagents", "site", "siteSlots", "flexible"} for the request's operation, or a failure.
+
+    A reagent slot is {"role", "default"}: the default fills it when the caller leaves it out, so
+    routine reagents like water never have to be named. `siteSlots` is non-empty only for a curated
+    closure, and names what each of its two sites must be. `flexible` — the reactant order being
+    negotiable — holds only for a reversed index template, which was not authored for this
+    toolkit's carried-molecule-first convention."""
+    def built(rxn, reagents, site=None, site_slots=(), flexible=False):
+        return {"rxn": rxn, "reagents": list(reagents), "site": site,
+                "siteSlots": [p for p in site_slots if isinstance(p, str)], "flexible": flexible}
+
+    def anonymous(rxn):
+        return [{"role": "reagent", "default": None}] * (rxn.GetNumReactantTemplates() - 1)
+
     operation = payload.get("operation")
     if not isinstance(operation, dict):
         return _fail("unparsable", "The request carries no operation object.")
@@ -378,7 +503,7 @@ def _operation(payload, deadline):
         rxn = _reaction(transform["smarts"])
         if rxn is None:
             return _fail("unavailable", f"The curated SMARTS for {transform['id']} does not parse in this RDKit.")
-        return rxn, list(transform.get("reagents") or []), transform.get("site"), False
+        return built(rxn, transform.get("reagents") or [], transform.get("site"), transform.get("siteSlots") or ())
     if kind == "smarts":
         smarts = operation.get("smarts")
         if not isinstance(smarts, str) or not smarts.strip():
@@ -386,7 +511,7 @@ def _operation(payload, deadline):
         rxn = _reaction(smarts.strip())
         if rxn is None:
             return _fail("unparsable", "That reaction SMARTS is not a reaction RDKit can run forward.")
-        return rxn, [{"role": "reagent", "default": None}] * (rxn.GetNumReactantTemplates() - 1), None, False
+        return built(rxn, anonymous(rxn))
     if kind == "template":
         index_dir, wanted = operation.get("indexDir"), operation.get("id")
         if not isinstance(index_dir, str) or not index_dir or not isinstance(wanted, str) or not wanted:
@@ -396,7 +521,7 @@ def _operation(payload, deadline):
         rxn = _reversed_template(index_dir, wanted, deadline)
         if rxn is None:
             return _fail("unknown-template", "That template is not in the index, or does not reverse cleanly for forward use.")
-        return rxn, [{"role": "reagent", "default": None}] * (rxn.GetNumReactantTemplates() - 1), None, True
+        return built(rxn, anonymous(rxn), flexible=True)
     return _fail("unparsable", f"Operation kind {kind!r} is not one of named, smarts or template.")
 
 
@@ -505,10 +630,10 @@ def _apply(payload, deadline):
         return _fail("unparsable", f"markAs must be a whole number from {MARK_MIN} to {MARK_MAX}.")
 
     built = _operation(payload, deadline)
-    if isinstance(built, dict):
+    if "error" in built:
         return built
-    rxn, slots, declared, flexible = built
-    filled = _slots(payload, slots, canon)
+    rxn, declared, declared_slots, flexible = built["rxn"], built["site"], built["siteSlots"], built["flexible"]
+    filled = _slots(payload, built["reagents"], canon)
     if isinstance(filled, dict):
         return filled
     _check(deadline)
@@ -516,17 +641,46 @@ def _apply(payload, deadline):
     # What the caller asked for wins over the phrase the transformation expects, so a general
     # operation can be pointed at one group — or at one mark — without a new id.
     specs = _requested_sites(payload)
-    if len(specs) > 1:
+    if declared_slots:
+        # A closure takes the sites it joins or none at all; one of two says nothing about the ring.
+        if len(specs) not in (0, len(declared_slots)):
+            return _fail("unparsable", f"This transformation joins {len(declared_slots)} sites and {len(specs)} "
+                                       f"{'was' if len(specs) == 1 else 'were'} named; give all of them or none.")
+    elif len(specs) > 1:
         return _fail("unparsable", "This toolkit acts at one site per operation; joining two places in one call is not built yet.")
     if not specs and declared:
         specs = [{"kind": "phrase", "phrase": declared}]
-    site = None
-    if specs:
-        site = _resolve_site(specs[0], mol, marks, tables)
+
+    sites = []
+    for spec in specs:
+        site = _resolve_site(spec, mol, marks, tables)
         if "error" in site:
             return site
-    site_atoms = site["atoms"] if site else None
-    site_label = (site or {}).get("phrase") or (f"mark {site['mark']}" if site else None)
+        sites.append(site)
+    if declared_slots and sites:
+        ordered = _pair(sites, declared_slots, mol, tables)
+        if isinstance(ordered, dict) and "error" in ordered:
+            return ordered
+        sites = ordered
+    site_label = " and ".join((site["phrase"] or f"mark {site['mark']}") for site in sites) or None
+    _check(deadline)
+
+    guard = mol
+    if declared_slots and sites:
+        # Only the named copies may react. Without this, a molecule carrying n copies of the group
+        # offers n(n-1) orderings of the pair, the work grows with the molecule, and the outcome cap
+        # could cut off the very pair the program named. With it the work is the two orderings of
+        # the named pair whatever the molecule's size, and the cap can never decide the answer.
+        named = frozenset().union(*[site["atoms"] for site in sites])
+        competing = set()
+        for phrase in set(declared_slots):
+            for match in _site_matches(mol, tables["sites"].get(phrase) or ""):
+                competing |= set(match)
+        competing -= named
+        if competing:
+            guard = Chem.Mol(mol)
+            for at in competing:
+                guard.GetAtomWithIdx(at).SetProp("_protected", "1")
     _check(deadline)
 
     arity = rxn.GetNumReactantTemplates()
@@ -535,7 +689,7 @@ def _apply(payload, deadline):
     if not flexible or arity == 1 or mol.HasSubstructMatch(rxn.GetReactantTemplate(0)):
         # The curated set is authored carried-molecule-first, so slot 0 is the convention; a
         # curated transformation that does not fit there has simply not applied, and says so below.
-        assignments = [(0, (mol,) + tuple(filled))]
+        assignments = [(0, (guard,) + tuple(filled))]
     else:
         # A reversed index template was not written for that convention, so a carried molecule that
         # does not fit slot 0 is offered the others and every fit is run.
@@ -543,7 +697,7 @@ def _apply(payload, deadline):
         for slot in range(1, arity):
             if mol.HasSubstructMatch(rxn.GetReactantTemplate(slot)):
                 rest = list(filled)
-                assignments.append((slot, tuple(mol if at == slot else rest.pop(0) for at in range(arity))))
+                assignments.append((slot, tuple(guard if at == slot else rest.pop(0) for at in range(arity))))
             if len(assignments) >= MAX_SLOT_ASSIGNMENTS:
                 break
         if not assignments:
@@ -560,27 +714,40 @@ def _apply(payload, deadline):
         _check(deadline)
         for outcome in outcomes:
             _check(deadline)
-            records = _fragments(outcome, owners, reacting, carried_slot, marks, canon)
-            if records is None:
+            made = _fragments(outcome, owners, reacting, carried_slot, marks, canon)
+            if made is None:
                 continue
-            main, others = _carried(records)
-            if site_atoms is not None and not (frozenset().union(*[r["inherited"] for r in records]) & site_atoms):
+            # EVERY named site must have been consumed. An outcome that acted somewhere else is not
+            # a near miss, it is the wrong place — and for a closure it is the wrong ring.
+            #
+            # A closure is held to the atoms the reaction CHANGED, which for the curated closures is
+            # exactly the two sites joined, so the test is as tight as the feature needs. Elsewhere
+            # the wider footprint is right: a mark may sit on an atom the template names without
+            # changing it, and pointing at that atom is still a statement about where to act.
+            touched = (made["used"] or made["came"]) if declared_slots else made["came"]
+            if sites and not all(touched & site["atoms"] for site in sites):
                 continue
+            main, others = _carried(made["records"])
+            ring = _ring(main["mol"], reactants, owners, carried_slot) if declared_slots else None
             marked = Chem.Mol(main["mol"])
             if mark_as is not None:
-                for at in (main["changed"] or main["named"]):
+                # A closure's mark covers the new bond and the bridge it installed, so a later line
+                # can refer to the linkage rather than to one end of it.
+                place = set(main["changed"] or main["named"]) | (ring["bridge"] if ring else frozenset())
+                for at in place:
                     marked.GetAtomWithIdx(at).SetAtomMapNum(mark_as)
             product_handle = _marked_smiles(marked)
             # Keyed on the MARKED form as well as the clean one: two outcomes that differ only in
             # where a mark ended up are two different states for the next line, not one answer. An
             # isomorphic pair collapses here, because RDKit's canonical ranking accounts for the
             # numbers, so a symmetric molecule does not read as ambiguous.
-            distinct[(main["clean"], tuple(sorted(r["clean"] for r in others)), product_handle)] = (
-                main["clean"], sorted(r["clean"] for r in others), product_handle,
-                sorted({a.GetAtomMapNum() for a in marked.GetAtoms() if a.GetAtomMapNum()}))
+            distinct[(main["clean"], tuple(sorted(r["clean"] for r in others)), product_handle)] = {
+                "product": main["clean"], "coProducts": sorted(r["clean"] for r in others),
+                "productHandle": product_handle, "ring": ring,
+                "marks": sorted({a.GetAtomMapNum() for a in marked.GetAtoms() if a.GetAtomMapNum()})}
 
     if not distinct:
-        if site_atoms is not None:
+        if site_label:
             return _fail("no-match", f"This transformation does not apply at the {site_label} of the carried molecule.")
         return _fail("no-match", "This transformation does not apply to the carried molecule as given.")
     if len(distinct) > 1:
@@ -588,13 +755,17 @@ def _apply(payload, deadline):
             return _fail("ambiguous-site", f"This transformation gives {len(distinct)} different outcomes at the {site_label}; name a narrower site or a mark.")
         return _fail("ambiguous-site", f"This transformation applies in {len(distinct)} places and no site was named.")
 
-    product, co_products, product_handle, present = next(iter(distinct.values()))
-    answer = {"ok": True, "product": product, "coProducts": co_products,
-              "formula": rdMolDescriptors.CalcMolFormula(Chem.MolFromSmiles(product)),
-              "productHandle": product_handle, "marks": present}
-    if site:
-        answer["site"] = {"phrase": site["phrase"], "atoms": sorted(site["atoms"]),
-                          **({"mark": site["mark"]} if "mark" in site else {})}
+    chosen = next(iter(distinct.values()))
+    answer = {"ok": True, "product": chosen["product"], "coProducts": chosen["coProducts"],
+              "formula": rdMolDescriptors.CalcMolFormula(Chem.MolFromSmiles(chosen["product"])),
+              "productHandle": chosen["productHandle"], "marks": chosen["marks"]}
+    if chosen["ring"]:
+        answer["ring"] = {"size": chosen["ring"]["size"], "bridgeAtoms": chosen["ring"]["bridgeAtoms"]}
+    if sites:
+        reported = [{"phrase": site["phrase"], "atoms": sorted(site["atoms"]),
+                     **({"mark": site["mark"]} if "mark" in site else {})} for site in sites]
+        # `site` stays the first one, so a caller written against the one-site shape still reads.
+        answer["site"], answer["sites"] = reported[0], reported
     return answer
 
 
@@ -630,7 +801,10 @@ def _describe(payload, deadline):
 
 
 def _transforms():
-    return {"ok": True, "transforms": [{"id": t["id"], "summary": t.get("summary") or "", "site": t.get("site")}
+    # `siteSlots` is empty for a one-site transformation and holds the two phrases a closure joins,
+    # so a caller can tell which operations need two sites without knowing their ids.
+    return {"ok": True, "transforms": [{"id": t["id"], "summary": t.get("summary") or "",
+                                        "site": t.get("site"), "siteSlots": list(t.get("siteSlots") or [])}
                                        for t in _tables()["order"]]}
 
 
