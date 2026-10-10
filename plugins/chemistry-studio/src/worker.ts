@@ -813,7 +813,10 @@ async function resolveRouteLabels(
   const total = maxLabelsTotal(budget);
   const out: RouteLabelInput[][] = Array.from({ length: stepCount }, () => []);
   if (!Array.isArray(raw)) return out;
-  const entries: Array<{ index: number; label: RouteLabelInput }> = [];
+  // `name` is optional on RouteLabelInput, because a caller can label a species without naming it.
+  // This path is the names-first one and skips an unnamed entry outright below, so the name is
+  // required here and the batch look-up can rely on it.
+  const entries: Array<{ index: number; label: RouteLabelInput & { name: string } }> = [];
   for (let index = 0; index < Math.min(stepCount, raw.length); index += 1) {
     const list = Array.isArray(raw[index]) ? raw[index]! : [];
     for (const entry of list.slice(0, perStep)) {

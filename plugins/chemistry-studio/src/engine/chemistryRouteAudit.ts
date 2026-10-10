@@ -575,7 +575,10 @@ function checkPerMoleculePacking(step: RouteStepAudit): { ok: true } | { ok: fal
 export interface RouteLabelInput {
   role: 'reactant' | 'product' | 'agent';
   byproduct?: boolean;
-  name: string;
+  /** Optional, because a label can carry facts that need no name: which side a species is on and
+   *  whether it is a co-product. A caller that writes names (the names-first contract) always
+   *  supplies one and is unaffected. */
+  name?: string;
   smiles: string;
   nameSmiles?: string[];
 }
@@ -840,8 +843,14 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
     if (!step.ok) continue;
     const supplied = Array.isArray(labels[step.index]) ? labels[step.index]! : [];
     for (const raw of supplied) {
-      if (!raw || typeof raw.name !== 'string' || !raw.name.trim() || typeof raw.smiles !== 'string' || !raw.smiles.trim()) continue;
+      if (!raw || typeof raw.smiles !== 'string' || !raw.smiles.trim()) continue;
       if (raw.role !== 'reactant' && raw.role !== 'product' && raw.role !== 'agent') continue;
+      // A label may arrive without a name. Putting a species on its side and marking it a
+      // co-product needs no name; only COMPARING a name against a structure does. Gating the
+      // whole label on a name meant a nameless co-product was never flagged, and `organicMains`
+      // below reads an unflagged organic product as a main one — so the stereo excusal would
+      // hold a route to centres in species it had already discarded.
+      const named = typeof raw.name === 'string' && Boolean(raw.name.trim());
       let declared: RouteSpeciesSummary;
       try { declared = await summarize(raw.smiles, cache); } catch { continue; }
       const candidates = (Array.isArray(raw.nameSmiles) ? raw.nameSmiles : [])
@@ -855,7 +864,9 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // canonicalisation as `*` and no real species contains one, so the test is exact.
       const abstracted = declared.canonicalSmiles.includes('*');
       let nameOk: boolean | undefined;
-      if (abstracted) {
+      if (!named) {
+        // Nothing to compare, and not counted as unresolved: no name was offered, so none failed.
+      } else if (abstracted) {
         // Not checked, and deliberately not counted as unresolved: the name resolved fine, it is
         // the structure that is partly undrawn.
       } else if (candidates.length) {
@@ -880,12 +891,12 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       const target = side.find(entry => entry.canonicalSmiles === declared.canonicalSmiles)
         ?? side.find(entry => entry.input === raw.smiles.trim());
       if (target) {
-        target.name = raw.name.trim().slice(0, MAX_CHEMICAL_NAME);
+        if (named) target.name = raw.name!.trim().slice(0, MAX_CHEMICAL_NAME);
         if (raw.byproduct === true) target.byproduct = true;
         if (typeof nameOk === 'boolean') target.nameOk = nameOk;
       }
       if (nameOk === false) {
-        const problem = `the name "${raw.name.trim().slice(0, 200)}" denotes a different structure than \`${declared.canonicalSmiles}\`${declared.formula ? ` (${declared.formula})` : ''}`;
+        const problem = `the name "${raw.name!.trim().slice(0, 200)}" denotes a different structure than \`${declared.canonicalSmiles}\`${declared.formula ? ` (${declared.formula})` : ''}`;
         (step.nameProblems ??= []).push(problem);
       }
     }
