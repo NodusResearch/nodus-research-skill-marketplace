@@ -103,6 +103,13 @@ def write_library(path, ids):
     return path
 
 
+def _plain(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+    for a in mol.GetAtoms():
+        a.SetAtomMapNum(0)
+    return mol
+
+
 def chain(ids):
     mol = Chem.MolFromSmiles(UNITS[ids[0]]["smiles"])
     for a in mol.GetAtoms():
@@ -263,6 +270,37 @@ class Identifying(unittest.TestCase):
         amb = [u for u in out["units"] if u.get("ambiguous")]
         self.assertEqual(len(amb), 1, out)
         self.assertEqual(sorted(amb[0]["ids"]), ["gly", "gly-twin"])
+
+
+class Capping(unittest.TestCase):
+    """A fragment carries a dummy atom at each cut, which identifies it but is not a molecule."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        write_library(self.dir, ["unit-R", "gly", "asp"])
+
+    def test_every_fragment_comes_back_with_a_capped_form(self):
+        out = decompose.decompose([chain(["unit-R", "gly", "asp"])], self.dir)[0]
+        for piece in out["units"] + out["unidentified"]:
+            self.assertIn("capped", piece, piece)
+            self.assertNotIn("*", piece["capped"], piece)
+
+    def test_the_capped_form_is_a_molecule_rdkit_can_read(self):
+        out = decompose.decompose([chain(["unit-R", "gly"])], self.dir)[0]
+        for piece in out["units"]:
+            self.assertIsNotNone(Chem.MolFromSmiles(piece["capped"]), piece)
+
+    def test_capping_restores_the_free_unit(self):
+        # cut a two-unit chain and the two capped fragments are the two free units again
+        out = decompose.decompose([chain(["unit-R", "gly"])], self.dir)[0]
+        got = sorted(piece["capped"] for piece in out["units"])
+        want = sorted(Chem.MolToSmiles(_plain(UNITS[i]["smiles"])) for i in ("unit-R", "gly"))
+        self.assertEqual(got, want)
+
+    def test_an_uncut_molecule_is_its_own_capped_form(self):
+        out = decompose.decompose(["C[C@@H](N)C(=O)O"], self.dir)[0]
+        piece = (out["units"] + out["unidentified"])[0]
+        self.assertEqual(piece["capped"], "C[C@@H](N)C(=O)O")
 
 
 class WithoutALibrary(unittest.TestCase):

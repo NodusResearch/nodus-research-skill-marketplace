@@ -54,6 +54,52 @@ _patterns = {}
 _libraries = {}
 
 
+def capped(piece):
+    """The fragment with its cut ends capped, so it is a molecule a search can be asked about.
+
+    A fragment comes out of the cut carrying a dummy atom wherever a bond was broken. That is right
+    for identifying it — a dummy keeps the neighbour's degree, so a form cannot match across the
+    cut — but a dummy is not a molecule, and a retro search handed one would be asked about an atom
+    that does not exist.
+
+    What the cap must be is not the same at both ends, because the bond that was cut was made by
+    losing water. On the nitrogen the hydrogen is simply restored. On the carbonyl carbon the
+    hydroxyl is, and capping THAT end with a hydrogen instead turns the acid into an aldehyde —
+    which is a different compound, and a search asked about it answers a different question."""
+    from rdkit import Chem
+
+    rw = Chem.RWMol(piece)
+    drop = []
+    for atom in piece.GetAtoms():
+        if atom.GetAtomicNum() != 0:
+            continue
+        neighbours = atom.GetNeighbors()
+        carbonyl = (len(neighbours) == 1 and neighbours[0].GetSymbol() == "C"
+                    and any(b.GetBondType().name == "DOUBLE"
+                            and b.GetOtherAtom(neighbours[0]).GetSymbol() == "O"
+                            for b in neighbours[0].GetBonds()))
+        if carbonyl:
+            # the hydroxyl the condensation took; RDKit fills its hydrogen in. The isotope has to
+            # go with it: FragmentOnBonds labels each dummy with the atom index it was cut from, and
+            # keeping that label turns the oxygen into [5OH] — a different compound on paper.
+            cap = rw.GetAtomWithIdx(atom.GetIdx())
+            cap.SetAtomicNum(8)
+            cap.SetIsotope(0)
+            cap.SetFormalCharge(0)
+            cap.SetAtomMapNum(0)
+            cap.SetNoImplicit(False)
+        else:
+            drop.append(atom.GetIdx())
+    for idx in sorted(drop, reverse=True):
+        rw.RemoveAtom(idx)
+    try:
+        out = rw.GetMol()
+        Chem.SanitizeMol(out)
+        return Chem.MolToSmiles(out)
+    except Exception:
+        return None
+
+
 def _compiled():
     """The link and protector queries, parsed once per process."""
     if not _patterns:
@@ -211,18 +257,21 @@ def decompose(targets, library_dir=None):
                 record["protectingGroups"][name] = record["protectingGroups"].get(name, 0) + 1
             hits, where = identify(piece, forms) if forms else ([], {})
             smiles = Chem.MolToSmiles(piece)
+            free = capped(piece)
             if hits:
                 covered += len(original)
                 record["units"].append({
                     "atoms": sorted(original), "smiles": smiles,
+                    **({"capped": free} if free else {}),
                     "ids": hits, "joinedAt": sorted(where.get(hits[0]) or ()),
                     **({"ambiguous": True} if len(hits) > 1 else {}),
                     **({"deprotected": gone} if gone else {})})
             else:
                 # Not a failure: an unidentified fragment is still a small molecule, which is the
-                # thing a retro pass can afford to ask about.
+                # thing a retro pass can afford to ask about — and `capped` is the form to ask with.
                 record["unidentified"].append({
                     "atoms": sorted(original), "smiles": smiles,
+                    **({"capped": free} if free else {}),
                     **({"deprotected": gone} if gone else {})})
         record["covered"] = round(covered / mol.GetNumAtoms(), 3) if mol.GetNumAtoms() else 0.0
         out.append(record)
