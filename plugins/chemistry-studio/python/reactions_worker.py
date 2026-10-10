@@ -1665,6 +1665,16 @@ def handle(request):
         return {"stock": stock, "orderable": orderable,
                 **({"sameSkeleton": same} if same else {}), **({"sameSkeletonOrderable": same_order} if same_order else {}),
                 "lists": sorted(ready), "orderLists": sorted(order)}
+    if "decompose" in request:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import decompose as D
+
+        library_dir = request.get("monomerDir")
+        return {"decompositions": D.decompose(
+            [t for t in request.get("decompose", []) if isinstance(t, str) and t.strip()],
+            library_dir if isinstance(library_dir, str) and library_dir else None)}
     if "compatibility" in request:
         steps = [x for x in request.get("compatibility", []) if isinstance(x, dict)][:24]
         textbook = request.get("textbookDir")
