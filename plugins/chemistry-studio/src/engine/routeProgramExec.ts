@@ -10,6 +10,7 @@
 // report built on this trace can instead say "line N failed; N+1..M were not run".
 import {
   isOpError,
+  type ApplyRequest,
   type ApplyLine,
   type Molecule,
   type MolRef,
@@ -82,7 +83,12 @@ async function runApply(line: ApplyLine, ops: MoleculeOps, bound: Map<MolRef, Mo
     const missing: OpError = { error: 'unavailable', message: `${line.from} is not bound to a molecule at line ${line.line}` };
     return { trace: failed(line, missing, []), input: null };
   }
-  const outcome = await ops.apply(input, line.op, line.reagents, line.site);
+  // `assigns` is the ref this line binds: the adapter keys its site marks by it, and only the
+  // interpreter knows it. Counting applies instead would be silently wrong for any program that
+  // does not number its refs in order. The site list is today zero or one entry, passed untouched.
+  const request: ApplyRequest = { molecule: input, op: line.op, reagents: line.reagents, assigns: line.ref };
+  if (line.site) request.sites = [line.site];
+  const outcome = await ops.apply(request);
   if (isOpError(outcome)) return { trace: failed(line, outcome, [input.smiles]), input };
   bound.set(line.ref, outcome.product);
   const reactants = [input.smiles];

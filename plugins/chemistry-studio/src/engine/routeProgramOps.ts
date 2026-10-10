@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { host, type CapabilityHost } from './host';
 import { chemistryDependencies } from '../deps';
 import type { ChemistryInspectionResult } from './chemistryDocument';
-import type { Molecule, MoleculeOps, OpError, OpErrorCode, OpOutcome, Operation, SpeciesRef, TemplateOffer } from './routeProgramTypes';
+import type { ApplyRequest, Molecule, MoleculeOps, OpError, OpErrorCode, OpOutcome, Operation, SiteRef, SpeciesRef, TemplateOffer } from './routeProgramTypes';
 
 const REACTIONS_RUNTIME_ID = 'chemistry';
 const REACTIONS_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'python', 'reactions_worker.py');
@@ -27,6 +27,11 @@ const APPLY_BUDGET_SECONDS = 20;
  *  person waiting, so the size gate sits at the measured edge instead of paying for a guaranteed
  *  miss. */
 export const OFFER_MAX_HEAVY_ATOMS = 100;
+
+/** Marks are numbers the toolkit puts on the atoms an operation creates or exposes. They start at
+ *  900 so they cannot collide with the small atom-map numbers a template or a user's SMILES
+ *  carries; this adapter issues them upward from there, one per successful apply. */
+const MARK_BASE = 900;
 
 const ERROR_CODES: ReadonlySet<string> = new Set<OpErrorCode>([
   'unresolved-name', 'unknown-template', 'no-match', 'ambiguous-site', 'absent-site', 'unparsable', 'unavailable', 'budget',
@@ -115,6 +120,15 @@ function approximateHeavyAtoms(smiles: string): number {
 }
 
 export function createMoleculeOps(options: MoleculeOpsOptions = {}): MoleculeOps {
+  // Mark state belongs to one program, so it lives in this closure and not at module level: two
+  // programs running at once would otherwise hand each other's marks out.
+  let issued = 0;
+  let lastMark: number | null = null;
+  /** Mark by the ref its line declared it assigns. A line that declared none has a mark for `last`
+   *  but no entry here, so a later reference to it is an absent site rather than a guess. */
+  const markByRef = new Map<string, number>();
+  /** Marks the toolkit says still sit on a product, keyed by that product's handle. */
+  const survivors = new Map<string, Set<number>>();
   const signalOf = () => options.signal ?? safeHostSignal();
 
   async function resolve(species: SpeciesRef): Promise<Molecule | OpError> {
@@ -148,10 +162,33 @@ export function createMoleculeOps(options: MoleculeOpsOptions = {}): MoleculeOps
     return { error: 'unresolved-name', message: 'A species needs a name or a structure.' };
   }
 
-  async function apply(molecule: Molecule, op: Operation, reagents: SpeciesRef[], site?: string): Promise<OpOutcome | OpError> {
-    // Resolved one after another and before the Python call: a reagent that fails stops the line
-    // with its own error, and the order the line gave them is the order the interpreter pairs
-    // names to structures by.
+  /** A handle becomes a number only if this adapter issued it and the molecule in hand still carries
+   *  it. Anything else is an absent site: falling back to a phrase or to no site would act
+   *  somewhere the program did not name. */
+  function siteMark(molecule: Molecule, site: Extract<SiteRef, { kind: 'handle' }>): number | OpError {
+    const mark = site.ref === 'last' ? lastMark : markByRef.get(site.ref);
+    const name = site.ref === 'last' ? 'the previous line' : site.ref;
+    if (mark === null || mark === undefined) {
+      return { error: 'absent-site', message: site.ref === 'last'
+        ? 'No earlier operation acted, so there is no previous line to return to.'
+        : `No line that ran declared that it assigns ${site.ref}, so there is no site to return to.` };
+    }
+    if (!molecule.handle || !survivors.get(molecule.handle)?.has(mark)) return { error: 'absent-site', message: `The site where ${name} acted no longer exists on the molecule this line starts from.` };
+    return mark;
+  }
+
+  async function apply(request: ApplyRequest): Promise<OpOutcome | OpError> {
+    const { molecule, op, reagents, assigns } = request;
+    // Every handle is resolved before anything is sent, and the first that cannot be found fails
+    // the whole call. The list goes through whole and in order: if the toolkit cannot take more
+    // than one site it says so in its reply, and that is mapped as it arrives.
+    const wireSites: Array<Record<string, unknown>> = [];
+    for (const site of request.sites ?? []) {
+      if (site.kind === 'phrase') { wireSites.push({ kind: 'phrase', phrase: site.phrase }); continue; }
+      const mark = siteMark(molecule, site);
+      if (typeof mark !== 'number') return mark;
+      wireSites.push({ kind: 'handle', mark });
+    }
     const resolved: Molecule[] = [];
     for (const reagent of reagents) {
       const result = await resolve(reagent);
@@ -165,15 +202,22 @@ export function createMoleculeOps(options: MoleculeOpsOptions = {}): MoleculeOps
       if (!options.indexDir) return unavailable('A template operation needs the reaction index directory, and none was supplied.');
       operation = { kind: 'template', id: op.id, indexDir: options.indexDir };
     }
+    const markAs = MARK_BASE + issued;
     const reply = await call(options, {
-      op: 'apply', molecule: molecule.smiles, operation,
+      op: 'apply', molecule: molecule.smiles,
+      ...(molecule.handle ? { moleculeHandle: molecule.handle } : {}),
+      operation,
       reagents: resolved.map(entry => entry.smiles),
-      ...(site ? { site } : {}),
+      ...(wireSites.length ? { sites: wireSites } : {}),
+      markAs,
       budgetSeconds: APPLY_BUDGET_SECONDS,
     });
     if (!reply.ok) return reply.error;
     const product = asMolecule(reply.body.product, reply.body.formula);
     if (!product) return unavailable('The chemistry runtime reported success without a product.');
+    // The handle rides on the molecule and the SMILES stays plain: that string goes into reaction
+    // equations the audit parses, and a mark in it would not parse.
+    if (typeof reply.body.productHandle === 'string' && reply.body.productHandle) product.handle = reply.body.productHandle;
     const rawCo = reply.body.coProducts;
     if (rawCo !== undefined && !Array.isArray(rawCo)) return unavailable('The chemistry runtime returned co-products in an unexpected shape.');
     const coProducts: Molecule[] = [];
@@ -181,6 +225,13 @@ export function createMoleculeOps(options: MoleculeOpsOptions = {}): MoleculeOps
       const parsed = asMolecule(entry);
       if (!parsed) return unavailable('The chemistry runtime returned a co-product that is not a structure.');
       coProducts.push(parsed);
+    }
+    issued += 1;
+    lastMark = markAs;
+    if (assigns) markByRef.set(assigns, markAs);
+    if (product.handle) {
+      const marks = Array.isArray(reply.body.marks) ? reply.body.marks.filter((entry): entry is number => typeof entry === 'number') : [];
+      survivors.set(product.handle, new Set(marks));
     }
     return { product, coProducts, reagents: resolved, provenance: op };
   }

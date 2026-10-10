@@ -35,6 +35,22 @@ export type Operation =
   | { kind: 'named'; id: string }
   | { kind: 'smarts'; smarts: string };
 
+/** Where an operation acts.
+ *
+ *  A phrase is enough for a small molecule, and useless for a growing one: a phrase cannot pick
+ *  one of several identical groups, and a molecule that has been through many steps carries many
+ *  copies of the same group. Measured by building it -- a structure with three of one group
+ *  returns `ambiguous-site` for all three, which is the shape a long route is made of.
+ *
+ *  So a line may instead point at the place an earlier line acted. The toolkit already follows
+ *  which product atoms came from which reactant, so it can mark the atoms an operation created or
+ *  exposed and find them again later. A route that grows at one end then says "where the last
+ *  line acted" rather than naming a group that now appears everywhere. */
+export type SiteRef =
+  | { kind: 'phrase'; phrase: string }
+  /** `last` is the line before this one; a MolRef is the line that produced that molecule. */
+  | { kind: 'handle'; ref: MolRef | 'last' };
+
 /** `M1 = start("<name>")` — the route's first molecule, a purchasable input. */
 export interface StartLine {
   kind: 'start';
@@ -52,11 +68,10 @@ export interface ApplyLine {
   from: MolRef;
   op: Operation;
   reagents: SpeciesRef[];
-  /** Which part of the carried molecule the operation acts on, as a phrase the application
-   *  resolves ("the free amine"). Never an atom index: an index into a structure the model never
-   *  sees is exactly the fragile coupling this design removes. An unresolvable or ambiguous site
-   *  is an error on the line, not a guess. */
-  site?: string;
+  /** Which part of the carried molecule the operation acts on. Never an atom index: an index into
+   *  a structure the model never sees is exactly the fragile coupling this design removes. An
+   *  unresolvable or ambiguous site is an error on the line, not a guess. */
+  site?: SiteRef;
   /** The step's prose, which stays per step as it is today. */
   note?: string;
 }
@@ -109,7 +124,12 @@ export interface ParseResult {
  *  into an equation; `handle` is the toolkit's own identifier, so an adapter that keeps a parsed
  *  object alive between lines does not have to re-parse the structure every time. */
 export interface Molecule {
+  /** Canonical, and clean: no site marks. This is what the bridge writes into an equation, so it
+   *  must stay the structure and nothing else. */
   smiles: string;
+  /** The toolkit's own form of the same molecule, carrying whatever marks it needs to find a site
+   *  again on a later line. OPAQUE: no layer above the adapter reads or edits it, and it is passed
+   *  back unchanged on the next operation. Absent when the toolkit needs no such form. */
   handle?: string;
   formula?: string;
 }
@@ -159,10 +179,31 @@ export interface TemplateOffer {
 export interface MoleculeOps {
   /** Resolve a named or directly given species to a structure. */
   resolve(species: SpeciesRef): Promise<Molecule | OpError>;
-  apply(molecule: Molecule, op: Operation, reagents: SpeciesRef[], site?: string): Promise<OpOutcome | OpError>;
+  apply(request: ApplyRequest): Promise<OpOutcome | OpError>;
   /** Which operations apply to this molecule with this reagent; for interactive mode later. */
   offer?(molecule: Molecule, reagent: SpeciesRef): Promise<TemplateOffer[]>;
   describe?(molecule: Molecule): Promise<{ formula: string; sites: string[]; summary: string }>;
+}
+
+/** One operation, as the interpreter hands it to the toolkit.
+ *
+ *  An options object rather than positional arguments for two reasons that both came from
+ *  building it. `assigns` is needed because the toolkit records a site mark per line and has to
+ *  file it under the ref the line actually binds -- an adapter that instead counted operations
+ *  and assumed the Nth produced `M(N+1)` would hand back the wrong mark for any program that
+ *  numbers its refs differently, which is silent and wrong rather than loud and wrong.
+ *
+ *  And `sites` is a LIST because an intramolecular operation -- a ring closure -- joins two
+ *  places on one molecule, so it needs two sites in one call. A toolkit that does not yet support
+ *  more than one says so plainly; it is not the caller's job to guess the limit. */
+export interface ApplyRequest {
+  molecule: Molecule;
+  op: Operation;
+  reagents: SpeciesRef[];
+  /** Empty or absent when the operation applies in only one place anyway. */
+  sites?: SiteRef[];
+  /** The ref this line binds, so a mark made here can be found again by that name. */
+  assigns?: MolRef;
 }
 
 /** What one line did. A line after the first failure is present but unexecuted, so a report can

@@ -48,13 +48,16 @@ const inspect = async (smiles) => smiles.map(s => s.includes('BAD')
 
 const ops = (python, extra = {}) => createMoleculeOps({ python, inspect, signal: new AbortController().signal, ...extra });
 const M = { smiles: 'CCO' };
+/** The old positional shape, kept so the cases read the same; `assigns` is the ref the line binds. */
+const applyOn = (o, molecule, op, reagents = [], site, assigns) =>
+  o.apply({ molecule, op, reagents, ...(site ? { sites: Array.isArray(site) ? site : [site] } : {}), ...(assigns ? { assigns } : {}) });
 
 // ---------------------------------------------------------------- apply
 
 test('a successful apply becomes an OpOutcome with the reagents in the order given', async () => {
   const python = fakePython({ ok: true, product: 'CC=O', coProducts: ['O'], formula: 'C2H4O', site: { phrase: 'the alcohol', atoms: [2] } });
   const op = { kind: 'named', id: 'oxidise' };
-  const out = await ops(python).apply(M, op, [{ smiles: 'zzz' }, { smiles: 'aaa' }, { smiles: 'mmm' }], 'the alcohol');
+  const out = await applyOn(ops(python), M, op, [{ smiles: 'zzz' }, { smiles: 'aaa' }, { smiles: 'mmm' }], { kind: 'phrase', phrase: 'the alcohol' });
   assert.deepEqual(out.product, { smiles: 'CC=O', formula: 'C2H4O' });
   assert.deepEqual(out.coProducts, [{ smiles: 'O' }]);
   assert.deepEqual(out.reagents.map(r => r.smiles), ['ZZZ', 'AAA', 'MMM']);
@@ -63,7 +66,9 @@ test('a successful apply becomes an OpOutcome with the reagents in the order giv
   assert.equal(sent.op, 'apply');
   assert.equal(sent.molecule, 'CCO');
   assert.deepEqual(sent.reagents, ['ZZZ', 'AAA', 'MMM']);
-  assert.equal(sent.site, 'the alcohol');
+  assert.deepEqual(sent.sites, [{ kind: 'phrase', phrase: 'the alcohol' }]);
+  assert.equal(sent.markAs, 900);
+  assert.equal('moleculeHandle' in sent, false);
   assert.deepEqual(sent.operation, { kind: 'named', id: 'oxidise' });
   assert.equal(typeof sent.budgetSeconds, 'number');
   assert.deepEqual(python.requests[0].args.slice(0, 1), ['-I']);
@@ -71,25 +76,25 @@ test('a successful apply becomes an OpOutcome with the reagents in the order giv
 
 test('smarts and template operations are marshalled; a template carries the index directory', async () => {
   const python = fakePython({ ok: true, product: 'C', coProducts: [] });
-  await ops(python, { indexDir: '/idx' }).apply(M, { kind: 'template', id: 't1' }, []);
-  await ops(python).apply(M, { kind: 'smarts', smarts: '[OH]>>[O-]' }, []);
+  await applyOn(ops(python, { indexDir: '/idx' }), M, { kind: 'template', id: 't1' }, []);
+  await applyOn(ops(python), M, { kind: 'smarts', smarts: '[OH]>>[O-]' }, []);
   assert.deepEqual(python.requests[0].body.operation, { kind: 'template', id: 't1', indexDir: '/idx' });
   assert.deepEqual(python.requests[1].body.operation, { kind: 'smarts', smarts: '[OH]>>[O-]' });
-  assert.equal('site' in python.requests[1].body, false);
+  assert.equal('sites' in python.requests[1].body, false);
 });
 
 test('a template without an index directory is unavailable and makes no call', async () => {
   const python = fakePython({ ok: true, product: 'C' });
-  const out = await ops(python).apply(M, { kind: 'template', id: 't1' }, []);
+  const out = await applyOn(ops(python), M, { kind: 'template', id: 't1' }, []);
   assert.equal(out.error, 'unavailable');
   assert.equal(python.requests.length, 0);
 });
 
 test('a reagent that will not resolve fails the call with its own error, before any Python call', async () => {
   const python = fakePython({ ok: true, product: 'C' });
-  const bad = await ops(python).apply(M, { kind: 'named', id: 'x' }, [{ smiles: 'fine' }, { smiles: 'BAD' }], undefined);
+  const bad = await applyOn(ops(python), M, { kind: 'named', id: 'x' }, [{ smiles: 'fine' }, { smiles: 'BAD' }], undefined);
   assert.equal(bad.error, 'unparsable');
-  const named = await ops(python).apply(M, { kind: 'named', id: 'x' }, [{ name: 'water' }]);
+  const named = await applyOn(ops(python), M, { kind: 'named', id: 'x' }, [{ name: 'water' }]);
   assert.equal(named.error, 'unresolved-name');
   assert.equal(python.requests.length, 0);
 });
@@ -97,33 +102,33 @@ test('a reagent that will not resolve fails the call with its own error, before 
 for (const code of ['unresolved-name', 'unknown-template', 'no-match', 'ambiguous-site', 'absent-site', 'unparsable', 'unavailable', 'budget']) {
   test(`error code ${code} from Python is mapped verbatim`, async () => {
     const python = fakePython({ ok: false, error: code, message: `Exact words for ${code}.` });
-    const out = await ops(python).apply(M, { kind: 'named', id: 'x' }, []);
+    const out = await applyOn(ops(python), M, { kind: 'named', id: 'x' }, []);
     assert.deepEqual(out, { error: code, message: `Exact words for ${code}.` });
   });
 }
 
 test('an unknown error code becomes unavailable', async () => {
-  const out = await ops(fakePython({ ok: false, error: 'exploded', message: 'x' })).apply(M, { kind: 'named', id: 'x' }, []);
+  const out = await applyOn(ops(fakePython({ ok: false, error: 'exploded', message: 'x' })), M, { kind: 'named', id: 'x' }, []);
   assert.equal(out.error, 'unavailable');
 });
 
 test('malformed JSON, a missing result, a non-zero exit, a missing runtime and a timeout are all unavailable', async () => {
   const op = { kind: 'named', id: 'x' };
-  assert.equal((await ops(fakePython('not json {')).apply(M, op, [])).error, 'unavailable');
-  assert.equal((await ops(fakePython('{"other":1}')).apply(M, op, [])).error, 'unavailable');
-  assert.equal((await ops(fakePython({ ok: true })).apply(M, op, [])).error, 'unavailable');
-  const crashed = await ops(fakePython('', { code: 1, stderr: 'Traceback\nValueError: boom' })).apply(M, op, []);
+  assert.equal((await applyOn(ops(fakePython('not json {')), M, op, [])).error, 'unavailable');
+  assert.equal((await applyOn(ops(fakePython('{"other":1}')), M, op, [])).error, 'unavailable');
+  assert.equal((await applyOn(ops(fakePython({ ok: true })), M, op, [])).error, 'unavailable');
+  const crashed = await applyOn(ops(fakePython('', { code: 1, stderr: 'Traceback\nValueError: boom' })), M, op, []);
   assert.equal(crashed.error, 'unavailable');
   assert.match(crashed.message, /boom/);
-  const missing = await ops(fakePython({}, { ready: { ready: false, detail: 'no runtime' } })).apply(M, op, []);
+  const missing = await applyOn(ops(fakePython({}, { ready: { ready: false, detail: 'no runtime' } })), M, op, []);
   assert.deepEqual(missing, { error: 'unavailable', message: 'no runtime' });
-  const timedOut = await ops(fakePython({}, { throws: new Error('timed out after 60000 ms') })).apply(M, op, []);
+  const timedOut = await applyOn(ops(fakePython({}, { throws: new Error('timed out after 60000 ms') })), M, op, []);
   assert.equal(timedOut.error, 'unavailable');
 });
 
 test('the host call is bounded by a timeout in the range the other call sites use', async () => {
   const python = fakePython({ ok: true, product: 'C' });
-  await ops(python).apply(M, { kind: 'named', id: 'x' }, []);
+  await applyOn(ops(python), M, { kind: 'named', id: 'x' }, []);
   assert.ok(python.requests[0].timeoutMs >= 60_000 && python.requests[0].timeoutMs <= 240_000);
 });
 
@@ -181,7 +186,7 @@ test('an abort propagates as a throw, not an OpError', async () => {
   const python = fakePython({ ok: true, product: 'C' });
   const o = createMoleculeOps({ python, inspect, signal: controller.signal });
   controller.abort(new Error('cancelled'));
-  await assert.rejects(o.apply(M, { kind: 'named', id: 'x' }, []), /cancelled/);
+  await assert.rejects(applyOn(o, M, { kind: 'named', id: 'x' }, []), /cancelled/);
   await assert.rejects(o.resolve({ smiles: 'C' }), /cancelled/);
   await assert.rejects(o.describe(M), /cancelled/);
   assert.equal(python.requests.length, 0);
@@ -193,5 +198,113 @@ test('an abort that lands while Python is running throws instead of reporting un
     ensureRuntime: async () => ({ ready: true }),
     run: async () => { controller.abort(new Error('stopped mid-run')); throw new Error('killed'); },
   };
-  await assert.rejects(createMoleculeOps({ python, inspect, signal: controller.signal }).apply(M, { kind: 'named', id: 'x' }, []), /stopped mid-run/);
+  await assert.rejects(applyOn(createMoleculeOps({ python, inspect, signal: controller.signal }), M, { kind: 'named', id: 'x' }, []), /stopped mid-run/);
+});
+
+// ---------------------------------------------------------------- provenance handles
+
+const reply = (n, extra = {}) => ({ ok: true, product: `P${n}`, coProducts: [], productHandle: `H${n}`, marks: [900 + n - 1], ...extra });
+const NAMED = { kind: 'named', id: 'x' };
+
+test('a handle site becomes a mark, markAs is issued per apply, and productHandle is carried and sent back', async () => {
+  let n = 0;
+  const python = fakePython(() => reply(++n, { marks: n === 1 ? [900] : [900, 901] }));
+  const o = ops(python);
+  const first = await applyOn(o, { smiles: 'A' }, NAMED, [], undefined, 'M2');
+  assert.equal(first.product.handle, 'H1');
+  assert.equal(python.requests[0].body.markAs, 900);
+  const second = await applyOn(o, first.product, NAMED, [], { kind: 'handle', ref: 'last' });
+  assert.equal(python.requests[1].body.moleculeHandle, 'H1');
+  assert.equal(python.requests[1].body.molecule, 'P1');
+  assert.deepEqual(python.requests[1].body.sites, [{ kind: 'handle', mark: 900 }]);
+  assert.equal(python.requests[1].body.markAs, 901);
+  await applyOn(o, second.product, NAMED, [], { kind: 'handle', ref: 'M2' });
+  assert.deepEqual(python.requests[2].body.sites, [{ kind: 'handle', mark: 900 }]);
+});
+
+test('a mark never appears in Molecule.smiles', async () => {
+  const python = fakePython(reply(1));
+  const out = await applyOn(ops(python), { smiles: 'A' }, NAMED, []);
+  assert.equal(out.product.smiles, 'P1');
+  assert.doesNotMatch(out.product.smiles, /900|:\d/);
+});
+
+test('an unknown reference is absent-site and makes no Python call', async () => {
+  const python = fakePython(reply(1));
+  const o = ops(python);
+  for (const ref of ['last', 'M9']) {
+    const out = await applyOn(o, { smiles: 'A', handle: 'H0' }, NAMED, [], { kind: 'handle', ref });
+    assert.equal(out.error, 'absent-site');
+    assert.match(out.message, ref === 'last' ? /previous line/ : /M9/);
+  }
+  assert.equal(python.requests.length, 0);
+});
+
+test('a reference the reply says did not survive is absent-site', async () => {
+  let n = 0;
+  const python = fakePython(() => reply(++n, { marks: [] }));
+  const o = ops(python);
+  const first = await applyOn(o, { smiles: 'A' }, NAMED, [], undefined, 'M2');
+  const out = await applyOn(o, first.product, NAMED, [], { kind: 'handle', ref: 'M2' });
+  assert.equal(out.error, 'absent-site');
+  assert.equal(python.requests.length, 1);
+});
+
+test('two instances do not share marks', async () => {
+  const python = fakePython(reply(1));
+  const a = ops(python);
+  const b = ops(python);
+  const first = await applyOn(a, { smiles: 'A' }, NAMED, []);
+  const out = await applyOn(b, first.product, NAMED, [], { kind: 'handle', ref: 'last' });
+  assert.equal(out.error, 'absent-site');
+  await applyOn(b, { smiles: 'A' }, NAMED, []);
+  assert.equal(python.requests.at(-1).body.markAs, 900);
+});
+
+test('a mark is filed under the ref the line assigns, on a program whose refs are not sequential', async () => {
+  let n = 0;
+  const python = fakePython(() => { n += 1; return reply(n, { marks: [900, 901, 902] }); });
+  const o = ops(python);
+  const a = await applyOn(o, { smiles: 'A' }, NAMED, [], undefined, 'M5');
+  const b = await applyOn(o, a.product, NAMED, [], undefined, 'M2');
+  // The third line returns to the first (M5), not to whatever the count would have called M2.
+  const c = await applyOn(o, b.product, NAMED, [], { kind: 'handle', ref: 'M5' });
+  assert.deepEqual(python.requests[2].body.sites, [{ kind: 'handle', mark: 900 }]);
+  await applyOn(o, c.product, NAMED, [], { kind: 'handle', ref: 'M2' });
+  assert.deepEqual(python.requests[3].body.sites, [{ kind: 'handle', mark: 901 }]);
+});
+
+test('a handle ref for a line that declared no assigns is absent-site with no Python call', async () => {
+  let n = 0;
+  const python = fakePython(() => reply(++n, { marks: [900] }));
+  const o = ops(python);
+  const a = await applyOn(o, { smiles: 'A' }, NAMED, []);
+  const out = await applyOn(o, a.product, NAMED, [], { kind: 'handle', ref: 'M2' });
+  assert.equal(out.error, 'absent-site');
+  assert.match(out.message, /M2/);
+  assert.match(out.message, /assigns/);
+  assert.equal(python.requests.length, 1);
+  // `last` still works for that line.
+  await applyOn(o, a.product, NAMED, [], { kind: 'handle', ref: 'last' });
+  assert.deepEqual(python.requests[1].body.sites, [{ kind: 'handle', mark: 900 }]);
+});
+
+test('a two-entry sites list reaches the wire in order', async () => {
+  let n = 0;
+  const python = fakePython(() => reply(++n, { marks: [900, 901] }));
+  const o = ops(python);
+  const a = await applyOn(o, { smiles: 'A' }, NAMED, [], undefined, 'M2');
+  await applyOn(o, a.product, NAMED, [], [{ kind: 'phrase', phrase: 'the acid' }, { kind: 'handle', ref: 'M2' }]);
+  assert.deepEqual(python.requests[1].body.sites, [{ kind: 'phrase', phrase: 'the acid' }, { kind: 'handle', mark: 900 }]);
+});
+
+test('one unresolvable handle in a two-entry list fails the whole call with no Python call', async () => {
+  let n = 0;
+  const python = fakePython(() => reply(++n, { marks: [900] }));
+  const o = ops(python);
+  const a = await applyOn(o, { smiles: 'A' }, NAMED, [], undefined, 'M2');
+  const out = await applyOn(o, a.product, NAMED, [], [{ kind: 'handle', ref: 'M2' }, { kind: 'handle', ref: 'M7' }]);
+  assert.equal(out.error, 'absent-site');
+  assert.match(out.message, /M7/);
+  assert.equal(python.requests.length, 1);
 });

@@ -6,6 +6,10 @@ Every expectation below is a canonical SMILES RDKit actually produced, not one r
 by eye: a curated SMARTS that is quietly wrong is the worst outcome this module can have, so each
 one is pinned to its product here.
 
+The handle tests are the ones that matter most. A mark is only useful if it survives a long run of
+operations that do not touch it, and that is the property most likely to drift quietly, so it is
+tested at depth rather than over one step.
+
 The reversal of an index retro template is only exercised when ROUTE_PROGRAM_TEST_INDEX names a
 directory holding one, because an index is local data that never ships with the repository.
 """
@@ -120,8 +124,13 @@ class SiteResolution(unittest.TestCase):
         # Two esters, so the declared phrase cannot discriminate; a narrower phrase can.
         both = named("ester-hydrolysis", "CCOC(=O)COC(C)=O")
         self.assertEqual(both["error"], "ambiguous-site")
-        narrowed = named("ester-hydrolysis", "CCOC(=O)COC(C)=O", site="ether")
+        narrowed = named("ester-hydrolysis", "CCOC(=O)COC(C)=O", site={"kind": "phrase", "phrase": "ether"})
         self.assertEqual(narrowed["error"], "absent-site")
+
+    def test_a_bare_string_site_is_still_read_as_a_phrase(self):
+        # The shape the first adapter sent, kept working so the two sides can land independently.
+        out = named("ester-hydrolysis", "CCOC(=O)COC(C)=O", site="ether")
+        self.assertEqual(out["error"], "absent-site")
 
     def test_a_site_that_resolves_but_cannot_react_is_no_match_not_a_guess(self):
         # "alkyl halide" covers C-F; the displacement does not, so the site resolves and the
@@ -131,7 +140,7 @@ class SiteResolution(unittest.TestCase):
         self.assertIn("alkyl halide", out["message"])
 
     def test_a_phrase_outside_the_vocabulary_is_an_unresolved_name(self):
-        out = named("ketone-reduction", "CC(=O)C", site="unicorn group")
+        out = named("ketone-reduction", "CC(=O)C", site={"kind": "phrase", "phrase": "unicorn group"})
         self.assertEqual(out["error"], "unresolved-name")
         self.assertIn("unicorn group", out["message"])
 
@@ -223,6 +232,240 @@ class Dispatch(unittest.TestCase):
     def test_the_worker_needs_no_index_for_a_route_program_request(self):
         out = reactions_worker.handle({"routeProgram": {"op": "transforms"}})
         self.assertTrue(out["routeProgram"]["ok"])
+
+
+class Handles(unittest.TestCase):
+    """Provenance marks: acting at the place an earlier operation acted."""
+
+    def test_three_of_the_same_group_need_a_mark_and_the_mark_picks_the_right_one(self):
+        seeded = named("ester-formation", "COC(=O)c1ccc(C(=O)O)c(C(=O)OCCC)c1", ["CCO"], markAs=901)
+        self.assertEqual(seeded["product"], "CCCOC(=O)c1cc(C(=O)OC)ccc1C(=O)OCC")
+        self.assertEqual(seeded["marks"], [901])
+
+        by_phrase = apply(moleculeHandle=seeded["productHandle"],
+                          operation={"kind": "named", "id": "ester-hydrolysis"},
+                          site={"kind": "phrase", "phrase": "ester"})
+        self.assertEqual(by_phrase["error"], "ambiguous-site")
+        self.assertIn("3 places", by_phrase["message"])
+
+        by_mark = apply(moleculeHandle=seeded["productHandle"],
+                        operation={"kind": "named", "id": "ester-hydrolysis"},
+                        site={"kind": "handle", "mark": 901})
+        # The ethyl ester the mark sits on, not the methyl or the propyl one beside it.
+        self.assertEqual(by_mark["product"], "CCCOC(=O)c1cc(C(=O)OC)ccc1C(=O)O")
+        self.assertNotEqual(by_mark["product"], "CCCOC(=O)c1cc(C(=O)O)ccc1C(=O)OCC")
+        self.assertNotEqual(by_mark["product"], "CCOC(=O)c1ccc(C(=O)OC)cc1C(=O)O")
+        self.assertEqual(by_mark["coProducts"], ["CCO"])
+
+    def test_four_operations_each_at_the_site_the_previous_one_made(self):
+        step = named("primary-alcohol-oxidation", "COC(=O)c1ccc(CO)cc1", markAs=901)
+        self.assertEqual(step["product"], "COC(=O)c1ccc(C=O)cc1")
+        self.assertEqual(step["marks"], [901])
+
+        step = apply(moleculeHandle=step["productHandle"],
+                     operation={"kind": "named", "id": "aldehyde-oxidation"},
+                     site={"kind": "handle", "mark": 901}, markAs=902)
+        self.assertEqual(step["product"], "COC(=O)c1ccc(C(=O)O)cc1")
+        self.assertEqual(step["marks"], [901, 902])
+
+        step = apply(moleculeHandle=step["productHandle"],
+                     operation={"kind": "named", "id": "ester-formation"}, reagents=["CCO"],
+                     site={"kind": "handle", "mark": 902}, markAs=903)
+        self.assertEqual(step["product"], "CCOC(=O)c1ccc(C(=O)OC)cc1")
+        # 903 took 902's atoms, because this operation acted on exactly what 902 marked. An atom
+        # holds one mark, so the response says which marks are left rather than keeping both.
+        self.assertEqual(step["marks"], [901, 903])
+
+        # Two esters now, so nothing but a mark can say which one.
+        self.assertEqual(apply(moleculeHandle=step["productHandle"],
+                               operation={"kind": "named", "id": "ester-hydrolysis"},
+                               site={"kind": "phrase", "phrase": "ester"})["error"], "ambiguous-site")
+        last = apply(moleculeHandle=step["productHandle"],
+                     operation={"kind": "named", "id": "ester-hydrolysis"},
+                     site={"kind": "handle", "mark": 903})
+        self.assertEqual(last["product"], "COC(=O)c1ccc(C(=O)O)cc1")
+        self.assertEqual(last["coProducts"], ["CCO"])
+        self.assertEqual(last["marks"], [901, 903])
+
+    def test_two_marks_on_two_arms_each_address_their_own_arm(self):
+        first = named("aldehyde-oxidation", "O=Cc1ccc(C(=O)OC)cc1C", markAs=901)
+        self.assertEqual(first["product"], "COC(=O)c1ccc(C(=O)O)c(C)c1")
+        second = apply(moleculeHandle=first["productHandle"],
+                       operation={"kind": "named", "id": "ester-hydrolysis"},
+                       site={"kind": "phrase", "phrase": "ester"}, markAs=902)
+        self.assertEqual(second["product"], "Cc1cc(C(=O)O)ccc1C(=O)O")
+        # Disjoint arms, so neither mark took anything from the other.
+        self.assertEqual(second["marks"], [901, 902])
+
+        self.assertEqual(apply(moleculeHandle=second["productHandle"],
+                               operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                               site={"kind": "phrase", "phrase": "carboxylic acid"})["error"], "ambiguous-site")
+        at_901 = apply(moleculeHandle=second["productHandle"],
+                       operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                       site={"kind": "handle", "mark": 901})
+        at_902 = apply(moleculeHandle=second["productHandle"],
+                       operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                       site={"kind": "handle", "mark": 902})
+        self.assertEqual(at_901["product"], "Cc1cc(C(=O)O)ccc1C(=O)Cl")
+        self.assertEqual(at_902["product"], "Cc1cc(C(=O)Cl)ccc1C(=O)O")
+        self.assertNotEqual(at_901["product"], at_902["product"])
+
+    def test_a_mark_survives_six_operations_elsewhere_and_still_addresses_its_own_site(self):
+        """The mid-chain case: the mark is set first, the molecule then goes through six operations
+        on another arm, and the seventh acts at the original mark."""
+        step = named("aldehyde-oxidation", "O=Cc1ccc(C(=O)O)cc1CO", markAs=901)
+        self.assertEqual(step["product"], "O=C(O)c1ccc(C(=O)O)c(CO)c1")
+        self.assertEqual(step["marks"], [901])
+        elsewhere = [("primary-alcohol-oxidation", "primary alcohol"), ("aldehyde-reduction", "aldehyde")] * 3
+        for transform_id, phrase in elsewhere:
+            step = apply(moleculeHandle=step["productHandle"],
+                         operation={"kind": "named", "id": transform_id},
+                         site={"kind": "phrase", "phrase": phrase})
+            self.assertTrue(step.get("ok"), step)
+            self.assertEqual(step["marks"], [901], step)
+        self.assertEqual(step["product"], "O=C(O)c1ccc(C(=O)O)c(CO)c1")
+
+        # Two carboxylic acids by now, and only the mark knows which one came from the aldehyde.
+        self.assertEqual(apply(moleculeHandle=step["productHandle"],
+                               operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                               site={"kind": "phrase", "phrase": "carboxylic acid"})["error"], "ambiguous-site")
+        out = apply(moleculeHandle=step["productHandle"],
+                    operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                    site={"kind": "handle", "mark": 901})
+        self.assertEqual(out["product"], "O=C(O)c1ccc(C(=O)Cl)c(CO)c1")
+        # The other acid, marked by hand for contrast, gives a different molecule.
+        other = apply(moleculeHandle="O=[C:901]([OH:901])c1ccc(C(=O)O)c(CO)c1",
+                      operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                      site={"kind": "handle", "mark": 901})
+        self.assertEqual(other["product"], "O=C(Cl)c1ccc(C(=O)O)c(CO)c1")
+        self.assertNotEqual(out["product"], other["product"])
+
+    def test_two_marks_do_not_drift_over_eighteen_operations_elsewhere(self):
+        """The property most likely to fail quietly, so it is tested at the depth a real route has.
+
+        Three arms on one ring. Two of them are marked, the third is then oxidised and reduced
+        eight times over, and at the end each mark still addresses its own arm and nothing else."""
+        step = named("aldehyde-oxidation", "O=Cc1cc(CO)c(C(=O)OC)cc1C", markAs=901)
+        self.assertEqual(step["product"], "COC(=O)c1cc(C)c(C(=O)O)cc1CO")
+        step = apply(moleculeHandle=step["productHandle"],
+                     operation={"kind": "named", "id": "ester-hydrolysis"},
+                     site={"kind": "phrase", "phrase": "ester"}, markAs=902)
+        settled = step["product"]
+        self.assertEqual(settled, "Cc1cc(C(=O)O)c(CO)cc1C(=O)O")
+        self.assertEqual(step["marks"], [901, 902])
+
+        elsewhere = [("primary-alcohol-oxidation", "primary alcohol"), ("aldehyde-reduction", "aldehyde")] * 8
+        for at, (transform_id, phrase) in enumerate(elsewhere):
+            step = apply(moleculeHandle=step["productHandle"],
+                         operation={"kind": "named", "id": transform_id},
+                         site={"kind": "phrase", "phrase": phrase})
+            self.assertTrue(step.get("ok"), (at, step))
+            self.assertEqual(step["marks"], [901, 902], at)
+        self.assertEqual(step["product"], settled)
+
+        self.assertEqual(apply(moleculeHandle=step["productHandle"],
+                               operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                               site={"kind": "phrase", "phrase": "carboxylic acid"})["error"], "ambiguous-site")
+        at_901 = apply(moleculeHandle=step["productHandle"],
+                       operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                       site={"kind": "handle", "mark": 901})
+        at_902 = apply(moleculeHandle=step["productHandle"],
+                       operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                       site={"kind": "handle", "mark": 902})
+        self.assertEqual(at_901["product"], "Cc1cc(C(=O)O)c(CO)cc1C(=O)Cl")
+        self.assertEqual(at_902["product"], "Cc1cc(C(=O)Cl)c(CO)cc1C(=O)O")
+
+    def test_a_mark_that_is_not_there_is_an_absent_site(self):
+        out = named("ketone-reduction", "CC(=O)C", site={"kind": "handle", "mark": 999})
+        self.assertEqual(out["error"], "absent-site")
+        self.assertIn("999", out["message"])
+
+    def test_a_mark_in_two_separate_places_is_ambiguous(self):
+        out = apply(moleculeHandle="[CH3:901]OC(=O)c1ccc(C(=O)O[CH3:901])cc1",
+                    operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site={"kind": "handle", "mark": 901})
+        self.assertEqual(out["error"], "ambiguous-site")
+        self.assertIn("2 separate places", out["message"])
+
+    def test_no_mark_ever_reaches_the_molecule_or_the_product(self):
+        out = named("aldehyde-oxidation", "O=Cc1ccc(C(=O)OC)cc1C", markAs=901)
+        self.assertNotIn(":", out["product"])
+        self.assertNotIn("901", out["product"])
+        for co_product in out["coProducts"]:
+            self.assertNotIn(":", co_product)
+        # The handle is where the mark lives, and it is a different string from the product.
+        self.assertIn(":901]", out["productHandle"])
+        self.assertNotEqual(out["productHandle"], out["product"])
+        onward = apply(moleculeHandle=out["productHandle"],
+                       operation={"kind": "named", "id": "ester-hydrolysis"},
+                       site={"kind": "phrase", "phrase": "ester"})
+        self.assertNotIn(":", onward["product"])
+        self.assertNotIn(":", "".join(onward["coProducts"]))
+
+    def test_an_unmarked_product_has_a_handle_equal_to_itself(self):
+        out = named("ketone-reduction", "CC(=O)c1ccccc1")
+        self.assertEqual(out["marks"], [])
+        self.assertEqual(out["productHandle"], out["product"])
+
+    def test_a_map_number_in_a_plain_molecule_is_not_provenance(self):
+        # `molecule` is contracted to be clean, so a stray number in one is cleared rather than
+        # read as a mark the caller never claimed.
+        out = apply(molecule="[CH3:901]OC(=O)c1ccccc1",
+                    operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site={"kind": "handle", "mark": 901})
+        self.assertEqual(out["error"], "absent-site")
+
+    def test_the_handle_is_preferred_over_the_plain_molecule(self):
+        out = apply(molecule="CC(=O)c1ccccc1", moleculeHandle="[CH3:901]C(=O)CCCC(C)=O",
+                    operation={"kind": "named", "id": "ketone-reduction"},
+                    site={"kind": "handle", "mark": 901})
+        self.assertEqual(out["product"], "CC(=O)CCCC(C)O")
+
+    def test_a_site_list_holds_one_today_and_says_so_when_given_two(self):
+        one = named("ketone-reduction", "CC(=O)c1ccccc1", site=[{"kind": "phrase", "phrase": "ketone"}])
+        self.assertEqual(one["product"], "CC(O)c1ccccc1")
+        two = named("ketone-reduction", "CC(=O)c1ccccc1",
+                    site=[{"kind": "phrase", "phrase": "ketone"}, {"kind": "handle", "mark": 901}])
+        self.assertEqual(two["error"], "unparsable")
+        self.assertIn("one site", two["message"])
+
+    def test_the_plural_key_the_adapter_sends_is_read_too(self):
+        # The adapter sends `sites`; ignoring it would drop the handle and fall back to the
+        # transformation's own phrase, which is the one way a site can go silently unhonoured.
+        marked = named("aldehyde-oxidation", "O=Cc1ccc(C(=O)OC)cc1C", markAs=901)
+        out = route_program.handle({"op": "apply", "moleculeHandle": marked["productHandle"],
+                                    "operation": {"kind": "named", "id": "acid-to-acyl-chloride"},
+                                    "sites": [{"kind": "handle", "mark": 901}]})
+        self.assertEqual(out["site"]["mark"], 901)
+        self.assertEqual(out["product"], "COC(=O)c1ccc(C(=O)Cl)c(C)c1")
+        missing = route_program.handle({"op": "apply", "molecule": "CC(=O)C",
+                                        "operation": {"kind": "named", "id": "ketone-reduction"},
+                                        "sites": [{"kind": "handle", "mark": 999}]})
+        self.assertEqual(missing["error"], "absent-site")
+
+    def test_a_mark_must_be_a_whole_number_in_range(self):
+        for bad in ("nine", 0, -3, 10 ** 9, 1.5):
+            with self.subTest(bad):
+                self.assertEqual(named("ketone-reduction", "CC(=O)c1ccccc1", markAs=bad)["error"], "unparsable")
+        self.assertEqual(named("ketone-reduction", "CC(=O)c1ccccc1",
+                               site={"kind": "handle", "mark": "nine"})["error"], "unparsable")
+
+    def test_a_handle_site_is_reported_back_with_its_mark(self):
+        marked = named("aldehyde-oxidation", "O=Cc1ccc(C(=O)OC)cc1C", markAs=901)
+        out = apply(moleculeHandle=marked["productHandle"],
+                    operation={"kind": "named", "id": "acid-to-acyl-chloride"},
+                    site={"kind": "handle", "mark": 901})
+        self.assertEqual(out["site"]["mark"], 901)
+        self.assertIsNone(out["site"]["phrase"])
+        self.assertTrue(out["site"]["atoms"])
+
+    def test_describe_reports_the_marks_a_handle_still_holds(self):
+        out = route_program.handle({"op": "describe",
+                                    "moleculeHandle": "O=C(O)c1ccc([C:901](=O)[OH:901])c(CO)c1"})
+        self.assertEqual(out["marks"], [901])
+        self.assertIn("marks held: 901", out["summary"])
+        self.assertIn("carboxylic acid (2)", out["summary"])
+        self.assertEqual(route_program.handle({"op": "describe", "molecule": "CC(=O)C"})["marks"], [])
 
 
 @unittest.skipUnless(os.environ.get("ROUTE_PROGRAM_TEST_INDEX"),

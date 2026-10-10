@@ -25,7 +25,7 @@ const { executeRouteProgram } = createRequire(import.meta.url)(bundle);
 // ---------------------------------------------------------------- fakes
 
 /** `failures` maps an operation id (or `resolve:<name>`) to the OpErrorCode it should return. */
-function fakeOps(failures = {}) {
+function fakeOps(failures = {}, { handles = false } = {}) {
   const calls = { resolve: [], apply: [] };
   return {
     calls,
@@ -34,17 +34,17 @@ function fakeOps(failures = {}) {
       calls.resolve.push(name);
       const code = failures[`resolve:${name}`];
       if (code) return { error: code, message: `cannot resolve ${name}` };
-      return { smiles: name.toUpperCase() };
+      return handles ? { smiles: name.toUpperCase(), handle: `h:${name}` } : { smiles: name.toUpperCase() };
     },
-    async apply(molecule, op, reagents, site) {
+    async apply({ molecule, op, reagents, sites, assigns }) {
       const id = op.id ?? op.smarts;
-      calls.apply.push({ from: molecule.smiles, id, site });
+      calls.apply.push({ from: molecule.smiles, handle: molecule.handle, id, sites, assigns });
       const code = failures[id];
       if (code) return { error: code, message: `${id} failed on ${molecule.smiles}` };
       const resolved = [];
       for (const r of reagents) resolved.push({ smiles: (r.name ?? r.smiles).toUpperCase() });
       return {
-        product: { smiles: `${molecule.smiles}+${id}` },
+        product: handles ? { smiles: `${molecule.smiles}+${id}`, handle: `${molecule.handle}+${id}` } : { smiles: `${molecule.smiles}+${id}` },
         coProducts: [{ smiles: `BY${id}` }],
         reagents: resolved,
         provenance: op,
@@ -175,11 +175,41 @@ test('reagent order is preserved, in the trace and in the equation', async () =>
   assert.equal(trace.lines[1].equation, 'A>ZZ.AA.MM>A+x.BYx');
 });
 
-test('the site phrase reaches ops.apply', async () => {
+test('a phrase site reaches ops.apply unchanged', async () => {
   const ops = fakeOps();
-  const p = program([start(1, 'M1', 'a'), apply(2, 'M2', 'M1', 'x', { site: 'the free amine' })]);
+  const site = { kind: 'phrase', phrase: 'the free amine' };
+  const p = program([start(1, 'M1', 'a'), apply(2, 'M2', 'M1', 'x', { site })]);
   await executeRouteProgram(p, ops);
-  assert.equal(ops.calls.apply[0].site, 'the free amine');
+  assert.deepEqual(ops.calls.apply[0].sites, [{ kind: 'phrase', phrase: 'the free amine' }]);
+  assert.equal(ops.calls.apply[0].sites[0], site);
+});
+
+test('a handle site reaches ops.apply unchanged, last included', async () => {
+  const ops = fakeOps();
+  const p = program([
+    start(1, 'M1', 'a'),
+    apply(2, 'M2', 'M1', 'x', { site: { kind: 'handle', ref: 'M1' } }),
+    apply(3, 'M3', 'M2', 'y', { site: { kind: 'handle', ref: 'last' } }),
+    apply(4, 'M4', 'M3', 'z'),
+  ]);
+  await executeRouteProgram(p, ops);
+  assert.deepEqual(ops.calls.apply[0].sites, [{ kind: 'handle', ref: 'M1' }]);
+  assert.deepEqual(ops.calls.apply[1].sites, [{ kind: 'handle', ref: 'last' }]);
+  assert.equal(ops.calls.apply[2].sites, undefined);
+  assert.equal('sites' in ops.calls.apply[2], true);
+});
+
+test('a molecule handle survives from one line into the next, and into stateBeforeFailure', async () => {
+  const ops = fakeOps({ z: 'no-match' }, { handles: true });
+  const p = program([
+    start(1, 'M1', 'a'),
+    apply(2, 'M2', 'M1', 'x'),
+    apply(3, 'M3', 'M2', 'y'),
+    apply(4, 'M4', 'M3', 'z'),
+  ]);
+  const trace = await executeRouteProgram(p, ops);
+  assert.deepEqual(ops.calls.apply.map((c) => c.handle), ['h:a', 'h:a+x', 'h:a+x+y']);
+  assert.deepEqual(trace.stateBeforeFailure, { smiles: 'A+x+y', handle: 'h:a+x+y' });
 });
 
 test('a signal that is already aborted throws before any chemistry runs', async () => {
@@ -194,8 +224,8 @@ test('an abort partway through throws and is not swallowed into the trace', asyn
   const ac = new AbortController();
   const ops = fakeOps();
   const inner = ops.apply;
-  ops.apply = async (...args) => {
-    const out = await inner(...args);
+  ops.apply = async (request) => {
+    const out = await inner(request);
     ac.abort();
     return out;
   };
@@ -258,8 +288,8 @@ test('only the named reagents contribute when some are given as structures', asy
 test('a short reagents array does not shift names onto the wrong species', async () => {
   const ops = fakeOps();
   const inner = ops.apply;
-  ops.apply = async (...args) => {
-    const out = await inner(...args);
+  ops.apply = async (request) => {
+    const out = await inner(request);
     return { ...out, reagents: out.reagents.slice(1) };
   };
   const p = program([
@@ -295,4 +325,31 @@ test('two names for one structure keep the first', async () => {
   ]);
   const trace = await executeRouteProgram(p, fakeOps());
   assert.deepEqual(trace.lines[1].names, { SAME: 'same' });
+});
+
+test('assigns is the line\'s own ref, even when refs are not sequential', async () => {
+  const ops = fakeOps();
+  const p = program([
+    start(1, 'M1', 'a'),
+    apply(2, 'M5', 'M1', 'x'),
+    apply(3, 'M2', 'M5', 'y', { site: { kind: 'handle', ref: 'M5' } }),
+  ]);
+  const trace = await executeRouteProgram(p, ops);
+  assert.deepEqual(ops.calls.apply.map((c) => c.assigns), ['M5', 'M2']);
+  assert.deepEqual(trace.lines.map((t) => t.ref), ['M1', 'M5', 'M2']);
+});
+
+test('sites is a one-entry list for a line with a site and absent for one without', async () => {
+  const requests = [];
+  const ops = fakeOps();
+  const inner = ops.apply;
+  ops.apply = async (request) => { requests.push(request); return inner(request); };
+  const p = program([
+    start(1, 'M1', 'a'),
+    apply(2, 'M2', 'M1', 'x', { site: { kind: 'phrase', phrase: 'p' } }),
+    apply(3, 'M3', 'M2', 'y'),
+  ]);
+  await executeRouteProgram(p, ops);
+  assert.equal(requests[0].sites.length, 1);
+  assert.equal('sites' in requests[1], false);
 });

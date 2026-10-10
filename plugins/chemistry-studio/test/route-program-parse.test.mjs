@@ -47,7 +47,7 @@ test('a well-formed program parses every field with input line numbers', () => {
   assert.deepEqual(r.program.lines, [
     { kind: 'start', line: 3, ref: 'M1', input: { name: 'glycine' } },
     { kind: 'apply', line: 4, ref: 'M2', from: 'M1', op: { kind: 'template', id: 'ord:T1234' },
-      reagents: [{ name: 'benzyl chloroformate' }], site: 'the free amine', note: 'protect first' },
+      reagents: [{ name: 'benzyl chloroformate' }], site: { kind: 'phrase', phrase: 'the free amine' }, note: 'protect first' },
     { kind: 'apply', line: 6, ref: 'M3', from: 'M2', op: { kind: 'named', id: 'ester-hydrolysis' },
       reagents: [{ name: 'water' }, { smiles: '[OH-]' }] },
     { kind: 'apply', line: 7, ref: 'M4', from: 'M3', op: { kind: 'smarts', smarts: '[C:1]=[O:2]>>[C:1][O:2]' },
@@ -207,4 +207,55 @@ test('too-many-lines: emitted once, at the first excess statement', () => {
   const r = parseRouteProgram(body.join('\n'));
   assert.deepEqual(codes(r), [['too-many-lines', 257]]);
   assert.equal(r.program.lines.length, 256);
+});
+
+test('site forms: phrase, @last and @M<n> handles', () => {
+  const r = parseRouteProgram([
+    'M1 = start("a")',
+    'M2 = apply(M1, named="x", site="the free amine")',
+    'M3 = apply(M2, named="y", site=@last)',
+    'M4 = apply(M3, named="z", site=@M2)',
+    'target = M4',
+  ].join('\n'));
+  assert.deepEqual(r.diagnostics, []);
+  assert.deepEqual(r.program.lines.slice(1, 4).map((l) => l.site), [
+    { kind: 'phrase', phrase: 'the free amine' },
+    { kind: 'handle', ref: 'last' },
+    { kind: 'handle', ref: 'M2' },
+  ]);
+});
+
+test('a quoted @last is a phrase, not a handle', () => {
+  const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", site="@last")\ntarget = M2');
+  assert.deepEqual(r.diagnostics, []);
+  assert.deepEqual(r.program.lines[1].site, { kind: 'phrase', phrase: '@last' });
+});
+
+test('bad-site: malformed handle', () => {
+  for (const h of ['@', '@first', '@M0', '@M1000', '@last2']) {
+    only(parseRouteProgram(`M1 = start("a")\nM2 = apply(M1, named="x", site=${h})\ntarget = M1`), 'bad-site', 2);
+  }
+});
+
+test('unknown-ref through a handle', () => {
+  only(parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x")\nM3 = apply(M2, named="y", site=@M7)\ntarget = M3'), 'unknown-ref', 3);
+});
+
+test('forward-ref through a handle', () => {
+  const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", site=@M3)\nM3 = apply(M2, named="y")\ntarget = M3');
+  only(r, 'forward-ref', 2);
+});
+
+test('self-ref through a handle', () => {
+  only(parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x")\nM3 = apply(M2, named="y", site=@M3)\ntarget = M3'), 'self-ref', 3);
+});
+
+test('bad-site: @last on the first apply line', () => {
+  const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", site=@last)\nM3 = apply(M2, named="y", site=@last)\ntarget = M3');
+  only(r, 'bad-site', 2);
+  assert.ok(/first apply/.test(r.diagnostics[0].message));
+});
+
+test('a handle is refused where a string is required', () => {
+  only(parseRouteProgram('M1 = start("a")\nM2 = start(@last)\ntarget = M1'), 'syntax', 2);
 });

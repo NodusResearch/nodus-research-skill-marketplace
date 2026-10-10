@@ -34,6 +34,7 @@ class Refusal {
 type Value =
   | { t: 'str'; v: string }
   | { t: 'ident'; v: string }
+  | { t: 'handle'; v: string }
   | { t: 'list'; items: ListItem[] };
 
 interface ListItem {
@@ -138,6 +139,15 @@ class Scanner {
     if (c === '[') {
       if (!allowList) throw new Refusal('syntax', 'A list cannot be nested inside another list.');
       return { t: 'list', items: this.list() };
+    }
+    if (c === '@') {
+      // Unquoted by design: a quoted "@last" is a phrase, and letting the two blur would turn a
+      // typo in a quote into a silent change of meaning.
+      const m = /[A-Za-z0-9_]*/y;
+      m.lastIndex = this.pos + 1;
+      const word = m.exec(this.s)![0];
+      this.pos += 1 + word.length;
+      return { t: 'handle', v: word };
     }
     IDENT.lastIndex = this.pos;
     const m = IDENT.exec(this.s);
@@ -270,9 +280,17 @@ function parseApply(ref: MolRef, line: number, args: Arg[]): ApplyLine {
   }
   const result: ApplyLine = { kind: 'apply', line, ref, from, op: ops[0], reagents: [] };
   if (siteValue !== undefined) {
-    const site = asString(siteValue, 'site=').trim();
-    if (site === '') throw new Refusal('bad-site', 'The site= argument is given but empty.');
-    result.site = site;
+    if (siteValue.t === 'handle') {
+      const h = siteValue.v;
+      if (h !== 'last' && !MOL_REF.test(h)) {
+        throw new Refusal('bad-site', `The site handle "@${h}" is not valid; use @last or a reference such as @M3.`);
+      }
+      result.site = { kind: 'handle', ref: h };
+    } else {
+      const phrase = asString(siteValue, 'site=').trim();
+      if (phrase === '') throw new Refusal('bad-site', 'The site= argument is given but empty.');
+      result.site = { kind: 'phrase', phrase };
+    }
   }
   if (reagentsValue !== undefined) {
     if (reagentsValue.t !== 'list') throw new Refusal('syntax', 'The reagents= argument must be a list in square brackets.');
@@ -371,11 +389,23 @@ export function parseRouteProgram(text: string): ParseResult {
   const program: ParseResult['program'] = { lines: kept };
   let sawStart = false;
   let sawTarget = false;
+  let applies = 0;
   for (const l of kept) {
     if (l.kind === 'start') sawStart = true;
     else if (l.kind === 'apply') {
+      applies++;
       if (l.from === l.ref) report(l.line, 'self-ref', `The reference ${l.ref} is built from itself.`);
       else checkRef(l.from, l.line, 'This apply line');
+      const site = l.site;
+      if (site?.kind === 'handle') {
+        if (site.ref === 'last') {
+          if (applies === 1) report(l.line, 'bad-site', 'The site @last has no previous operation to point at, because this is the first apply line.');
+        } else if (site.ref === l.ref) {
+          report(l.line, 'self-ref', `The site handle @${site.ref} points at the line that assigns it.`);
+        } else {
+          checkRef(site.ref, l.line, 'The site handle');
+        }
+      }
     } else {
       if (sawTarget) {
         report(l.line, 'syntax', 'There is more than one target line; only the first is used.');
