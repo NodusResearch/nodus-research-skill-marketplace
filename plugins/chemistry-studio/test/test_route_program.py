@@ -684,6 +684,77 @@ class TemplateRows(unittest.TestCase):
             self.assertIsNotNone(Chem.MolFromSmarts(smarts.split(">>")[0]), line)
 
 
+class SiteEnvironment(unittest.TestCase):
+    """Telling a proposal that acted AT the named place from one that merely matched there.
+
+    The template filter decides which templates run, not where they are applied, so most surviving
+    proposals are disconnections elsewhere and they bury the one asked for. A disconnection at the
+    site destroys the site's own surroundings, so those surroundings cannot occur in the precursors.
+
+    The radius matters more than it looks: at one that is too small the environment recurs, survives
+    the disconnection intact, and every proposal reads as having acted elsewhere. Measured, that
+    threw away all 4,020 proposals on one target."""
+
+    CHAIN = "CCCCCCCCNC(=O)CCCCCCCC"
+
+    def test_the_environment_is_smaller_than_the_molecule_and_reparses(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        smiles = reactions_worker._environment(mol, {8}, 2)
+        self.assertIsNotNone(smiles)
+        env = Chem.MolFromSmiles(smiles)
+        self.assertIsNotNone(env, smiles)
+        self.assertLess(env.GetNumAtoms(), mol.GetNumAtoms())
+
+    def test_a_cut_neighbour_becomes_a_dummy_so_the_kept_atom_keeps_its_degree(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        env = Chem.MolFromSmiles(reactions_worker._environment(mol, {8}, 1))
+        self.assertTrue(any(a.GetAtomicNum() == 0 for a in env.GetAtoms()), Chem.MolToSmiles(env))
+
+    def test_an_empty_site_has_no_environment(self):
+        self.assertIsNone(reactions_worker._environment(Chem.MolFromSmiles(self.CHAIN), set(), 2))
+
+    def test_a_bigger_radius_keeps_more(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        sizes = [Chem.MolFromSmiles(reactions_worker._environment(mol, {8}, r)).GetNumAtoms()
+                 for r in (1, 2, 3)]
+        self.assertEqual(sizes, sorted(sizes))
+        self.assertLess(sizes[0], sizes[-1])
+
+    def test_the_query_occurs_exactly_once_in_the_molecule_it_came_from(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        query = reactions_worker._site_environment(mol, {8})
+        self.assertIsNotNone(query)
+        self.assertEqual(len(mol.GetSubstructMatches(query, uniquify=True, maxMatches=8)), 1)
+
+    def test_a_repetitive_environment_is_grown_until_it_is_unique(self):
+        # a symmetric chain: a small window around one methylene matches in many places, so the
+        # radius has to grow before the query says anything about WHICH one
+        mol = Chem.MolFromSmiles("OCCCCCCCCCCCCO")
+        small = Chem.MolFromSmarts(
+            reactions_worker._environment(mol, {6}, 1).replace("[*]", "[*,#1]"))
+        self.assertGreater(len(mol.GetSubstructMatches(small, uniquify=True, maxMatches=20)), 1)
+        grown = reactions_worker._site_environment(mol, {6})
+        if grown is not None:
+            self.assertEqual(len(mol.GetSubstructMatches(grown, uniquify=True, maxMatches=8)), 1)
+
+    def test_a_precursor_that_still_holds_the_environment_did_not_act_there(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        query = reactions_worker._site_environment(mol, {8})
+        # the molecule itself obviously still holds it
+        self.assertFalse(reactions_worker._acted_at_site(self.CHAIN, query))
+
+    def test_a_precursor_without_the_environment_did_act_there(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        query = reactions_worker._site_environment(mol, {8})
+        # the amide cut back to the amine and the acid: the environment is gone from both
+        self.assertTrue(reactions_worker._acted_at_site("CCCCCCCCN.OC(=O)CCCCCCCC", query))
+
+    def test_one_precursor_holding_it_is_enough_to_reject_the_whole_set(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        query = reactions_worker._site_environment(mol, {8})
+        self.assertFalse(reactions_worker._acted_at_site(f"CO.{self.CHAIN}", query))
+
+
 class DisconnectionSite(unittest.TestCase):
     """Marking a target says WHERE a disconnection is wanted, which lets the retro pass skip the
     templates that are found only somewhere else.

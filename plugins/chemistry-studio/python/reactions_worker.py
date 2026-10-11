@@ -814,6 +814,103 @@ def _site_of(raw):
     return mol, site, (smiles, sorted(reported))
 
 
+# How far around the site the environment query reaches. It GROWS from the first until the
+# environment occurs exactly once: a radius at which it occurs twice does not identify the site, so
+# finding it in a precursor says nothing. Measured — at a fixed radius 2 one target kept 0 of 4,020
+# proposals because its site's environment recurs and survives the disconnection intact.
+SITE_ENV_MIN_RADIUS, SITE_ENV_MAX_RADIUS = 2, 7
+
+
+def _environment(mol, site, radius):
+    """The site's neighbourhood as a SMILES, cut ends capped, or None.
+
+    Every atom within `radius` keeps its original hydrogen count written out, so an atom that loses
+    neighbours here does not appear to gain hydrogens. Each neighbour just outside becomes a dummy,
+    which keeps the kept atom's degree. A touched aromatic ring is kept whole, transitively, because
+    a partial aromatic ring cannot be kekulised and the result would not parse."""
+    from rdkit import Chem
+
+    if not site:
+        return None
+    count = mol.GetNumAtoms()
+    distance = Chem.GetDistanceMatrix(mol)
+    keep = {i for i in range(count) if min(distance[i][s] for s in site) <= radius}
+    rings = [set(r) for r in mol.GetRingInfo().AtomRings()
+             if all(mol.GetAtomWithIdx(a).GetIsAromatic() for a in r)]
+    grew = True
+    while grew:
+        grew = False
+        for ring in rings:
+            if ring & keep and not ring <= keep:
+                keep |= ring
+                grew = True
+    caps = {nb.GetIdx() for i in keep for nb in mol.GetAtomWithIdx(i).GetNeighbors()
+            if nb.GetIdx() not in keep}
+    rw = Chem.RWMol(mol)
+    for i in keep:
+        atom = rw.GetAtomWithIdx(i)
+        atom.SetNumExplicitHs(mol.GetAtomWithIdx(i).GetTotalNumHs())
+        atom.SetNoImplicit(True)
+    for i in caps:
+        atom = rw.GetAtomWithIdx(i)
+        atom.SetAtomicNum(0)
+        atom.SetIsAromatic(False)
+        atom.SetFormalCharge(0)
+        atom.SetNumExplicitHs(0)
+        atom.SetNoImplicit(True)
+        atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+        atom.SetIsotope(0)
+    for bond in rw.GetBonds():
+        i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        if (i in caps) != (j in caps) and bond.GetIsAromatic():
+            bond.SetIsAromatic(False)
+            bond.SetBondType(Chem.BondType.SINGLE)
+    for i in sorted(set(range(count)) - keep - caps, reverse=True):
+        rw.RemoveAtom(i)
+    try:
+        out = rw.GetMol()
+        Chem.SanitizeMol(out)
+        return Chem.MolToSmiles(out, allHsExplicit=True)
+    except Exception:
+        return None
+
+
+def _site_environment(mol, site):
+    """A query that occurs exactly once in `mol`, around the site, or None if no radius gives one.
+
+    The caps are widened to "any atom or a hydrogen": a disconnection just outside the window leaves
+    the environment intact but may put a hydrogen where a cut neighbour was, and a cap that only
+    matched heavy atoms would call that a change at the site."""
+    from rdkit import Chem
+
+    for radius in range(SITE_ENV_MIN_RADIUS, SITE_ENV_MAX_RADIUS + 1):
+        smiles = _environment(mol, site, radius)
+        if smiles is None:
+            continue
+        query = Chem.MolFromSmarts(smiles.replace("[*]", "[*,#1]"))
+        if query is None:
+            continue
+        if len(mol.GetSubstructMatches(query, uniquify=True, maxMatches=8)) <= 1:
+            return query
+    return None
+
+
+def _acted_at_site(side, query):
+    """Whether this precursor set no longer holds the site's environment.
+
+    A disconnection AT the site destroys that environment, so it cannot occur in the precursors; one
+    away from it leaves the environment standing in one of them. This is what separates the
+    proposals that answer the question asked from the ones that merely survived the template filter:
+    naming the site decides which templates run, not where they are applied."""
+    from rdkit import Chem
+
+    for frag in side.split("."):
+        mol = Chem.MolFromSmiles(frag)
+        if mol is not None and mol.HasSubstructMatch(query):
+            return False
+    return True
+
+
 def _at_site(mol, query, site):
     """Whether `query` is found on `mol` in a place that touches `site` (any place, if no site)."""
     if not site:
@@ -901,6 +998,20 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_s
                                        # which templates proposed it (most common first), so an index that
                                        # documents its templates (a textbook index) can cite their sources
                                        "templates": sorted(((best or {}).get("templates", []) + [(count, smarts)]), key=lambda t: -t[0])[:3]}
+        if site and proposals:
+            # Rank-saving, not search-saving: the template filter leaves proposals that matched at
+            # the site but were APPLIED elsewhere, and they bury the one that was asked for. If
+            # nothing survives, the unfiltered set is kept and said to be unfiltered — an empty
+            # answer is worse than a crowded one.
+            query = _site_environment(mol, site)
+            if query is not None:
+                kept = {k: v for k, v in proposals.items() if _acted_at_site(k, query)}
+                if kept:
+                    entry["atSite"] = len(kept)
+                    entry["awayFromSite"] = len(proposals) - len(kept)
+                    proposals = kept
+                else:
+                    entry["atSite"] = 0
         entry["_proposals"] = proposals
         results.append(entry)
 
