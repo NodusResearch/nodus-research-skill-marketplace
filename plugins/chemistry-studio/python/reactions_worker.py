@@ -765,7 +765,9 @@ SITE_MAX_MATCHES = 200
 
 
 def _site_of(raw):
-    """(molecule, site atoms) for a target that may carry map numbers marking where to act.
+    """(molecule, site atoms, (canonical smiles, site atoms in canonical order)).
+
+    For a target that may carry map numbers marking where to act.
 
     A target written with atom map numbers says WHERE the disconnection is wanted. The numbers are
     stripped from the molecule that is searched and reported, so the caller sees ordinary SMILES;
@@ -781,11 +783,23 @@ def _site_of(raw):
 
     mol = Chem.MolFromSmiles(raw)
     if mol is None:
-        return None, frozenset()
+        return None, frozenset(), ()
     site = frozenset(a.GetIdx() for a in mol.GetAtoms() if a.GetAtomMapNum())
     for atom in mol.GetAtoms():
         atom.SetAtomMapNum(0)
-    return mol, site
+    # The site is reported beside the CANONICAL target, so the indices have to be the canonical
+    # molecule's, not the order the caller happened to write. Without this a caller holding only
+    # `target` reads them against the wrong atoms: one measured case marked atom 262 and had 267
+    # reported back.
+    smiles = Chem.MolToSmiles(mol)
+    reported = site
+    try:
+        order = json.loads(mol.GetProp("_smilesAtomOutputOrder"))
+        where = {old: new for new, old in enumerate(order)}
+        reported = frozenset(where[i] for i in site if i in where)
+    except (KeyError, ValueError):
+        reported = frozenset()
+    return mol, site, (smiles, sorted(reported))
 
 
 def _at_site(mol, query, site):
@@ -836,14 +850,15 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_s
     deadline = time.monotonic() + budget_seconds if budget_seconds else None
     results = []
     for raw in targets:
-        mol, site = _site_of(raw)
-        target = Chem.MolToSmiles(mol) if mol is not None else None
+        mol, site, canonical = _site_of(raw)
+        target = canonical[0] if canonical else None
         entry = {"input": raw, "target": target, "madeBy": None, "proposals": []}
         if not target:
             results.append(entry)
             continue
         if site:
-            entry["site"] = sorted(site)
+            # indices into `target`, which is what the caller holds
+            entry["site"] = canonical[1]
         proposals = {}
         if mol is not None and templates:
             reactants = rdchiralReactants(target)

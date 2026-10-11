@@ -663,50 +663,64 @@ class DisconnectionSite(unittest.TestCase):
     unmarked target is kept."""
 
     def test_an_unmarked_target_has_no_site_and_keeps_its_atoms(self):
-        mol, site = reactions_worker._site_of("CC(=O)OCC")
+        mol, site, canonical = reactions_worker._site_of("CC(=O)OCC")
         self.assertEqual(site, frozenset())
-        self.assertEqual(Chem.MolToSmiles(mol), "CCOC(C)=O")
+        self.assertEqual(canonical[0], "CCOC(C)=O")
+        self.assertEqual(canonical[1], [])
 
     def test_marks_give_the_site_and_are_stripped_from_the_molecule(self):
-        mol, site = reactions_worker._site_of("CC(=O)O[CH2:901]C")
+        mol, site, canonical = reactions_worker._site_of("CC(=O)O[CH2:901]C")
         self.assertEqual(len(site), 1)
         # the molecule that is searched and reported carries no map numbers
-        self.assertEqual(Chem.MolToSmiles(mol), "CCOC(C)=O")
+        self.assertEqual(canonical[0], "CCOC(C)=O")
         self.assertEqual(mol.GetAtomWithIdx(next(iter(site))).GetSymbol(), "C")
 
-    def test_every_marked_atom_is_in_the_site(self):
-        _, site = reactions_worker._site_of("[CH3:901]C(=O)O[CH2:902]C")
+    def test_the_reported_site_indexes_the_canonical_target_not_the_input(self):
+        """The caller holds `target`, so the indices have to be its own."""
+        mol, site, (smiles, reported) = reactions_worker._site_of("CC(=O)O[CH2:901]C")
+        marked_atom = Chem.MolFromSmiles(smiles).GetAtomWithIdx(reported[0])
+        self.assertEqual(marked_atom.GetSymbol(), "C")
+        # the methylene of the ethyl: two heavy neighbours, two hydrogens
+        self.assertEqual(marked_atom.GetTotalNumHs(), 2)
+        self.assertEqual(sorted(n.GetSymbol() for n in marked_atom.GetNeighbors()), ["C", "O"])
+
+    def test_the_reported_site_is_every_marked_atom_and_no_other(self):
+        _, site, (smiles, reported) = reactions_worker._site_of("[CH3:901]C(=O)O[CH2:902]C")
         self.assertEqual(len(site), 2)
+        self.assertEqual(len(reported), 2)
+        canonical = Chem.MolFromSmiles(smiles)
+        self.assertTrue(all(0 <= i < canonical.GetNumAtoms() for i in reported))
 
     def test_without_a_site_any_place_counts(self):
-        mol, site = reactions_worker._site_of("OCCCCCCO")
+        mol, site, _ = reactions_worker._site_of("OCCCCCCO")
         alcohol = Chem.MolFromSmarts("[OX2H1]")
         self.assertTrue(reactions_worker._at_site(mol, alcohol, site))
 
     def test_a_pattern_found_only_away_from_the_site_is_rejected(self):
         # one end marked; the query is pinned to the OTHER kind of group, which is at neither end
-        mol, site = reactions_worker._site_of("[OH:901]CCCCCCO")
+        mol, site, _ = reactions_worker._site_of("[OH:901]CCCCCCO")
         self.assertEqual(len(site), 1)
         self.assertTrue(reactions_worker._at_site(mol, Chem.MolFromSmarts("[OX2H1]"), site))
         self.assertFalse(reactions_worker._at_site(mol, Chem.MolFromSmarts("[NX3]"), site))
 
     def test_a_pattern_found_at_the_site_among_several_places_is_kept(self):
         # a symmetric diol: the alcohol query matches twice, and only one match is at the mark
-        mol, site = reactions_worker._site_of("[OH:901]CCCCCCO")
+        mol, site, _ = reactions_worker._site_of("[OH:901]CCCCCCO")
         alcohol = Chem.MolFromSmarts("[OX2H1]")
         self.assertEqual(len(mol.GetSubstructMatches(alcohol, uniquify=True)), 2)
         self.assertTrue(reactions_worker._at_site(mol, alcohol, site))
 
     def test_a_pattern_that_spans_the_site_counts_even_when_the_mark_is_not_its_anchor(self):
         # the mark is on the carbon; the query starts at the oxygen and reaches it
-        mol, site = reactions_worker._site_of("CC(=O)O[CH2:901]C")
+        mol, site, _ = reactions_worker._site_of("CC(=O)O[CH2:901]C")
         ester = Chem.MolFromSmarts("[CX3](=O)[OX2][CX4]")
         self.assertTrue(reactions_worker._at_site(mol, ester, site))
 
     def test_a_target_that_does_not_parse_gives_no_molecule(self):
-        mol, site = reactions_worker._site_of("not a molecule")
+        mol, site, canonical = reactions_worker._site_of("not a molecule")
         self.assertIsNone(mol)
         self.assertEqual(site, frozenset())
+        self.assertEqual(canonical, ())
 
 
 if __name__ == "__main__":
