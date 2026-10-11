@@ -1,7 +1,7 @@
 import { Molecule } from 'openchemlib';
 import type { RDKitModule } from '@rdkit/rdkit';
 
-export interface SceneAtom { id: string; element: string; charge: number; isotope: number; label: string; x: number; y: number; depth?: number; lonePairs?: number }
+export interface SceneAtom { id: string; element: string; charge: number; isotope: number; label: string; x: number; y: number; depth?: number; lonePairs?: number; radical?: number; unpaired?: number }
 export interface SceneBond { id: string; a: number; b: number; order: number; stereo: number; plain?: boolean }
 export interface ChemicalScene { atoms: SceneAtom[]; bonds: SceneBond[]; convention?: 'fischer' | 'haworth'; description?: string; spatial?: Array<{ x: number; y: number; z: number }> }
 
@@ -12,11 +12,24 @@ export function sceneFromMolfile(molfile: string): ChemicalScene {
     atoms: Array.from({ length: m.getAllAtoms() }, (_, a) => {
       const element = m.getAtomLabel(a), h = m.getImplicitHydrogens(a), charge = m.getAtomCharge(a), isotope = m.getAtomMass(a);
       const label = `${isotope ? `^{${isotope}}` : ''}${element}${h ? `H${h > 1 ? `_${h}` : ''}` : ''}${charge ? `^{${Math.abs(charge) > 1 ? Math.abs(charge) : ''}${charge > 0 ? '+' : '-'}}` : ''}`;
-      return { id: `a${a}`, element, charge, isotope, label, x: m.getAtomX(a), y: -m.getAtomY(a) };
+      // The molfile RAD value (1 singlet, 2 doublet, 3 triplet), which OpenChemLib keeps in the
+      // high nibble. Without it RDKit re-reads a radical centre with one hydrogen more.
+      const radical = m.getAtomRadical(a) >> 4;
+      return { id: `a${a}`, element, charge, isotope, label, x: m.getAtomX(a), y: -m.getAtomY(a), ...(radical ? { radical } : {}) };
     }),
     bonds: Array.from({ length: m.getAllBonds() }, (_, b) => ({ id: `b${b}`, a: m.getBondAtom(0, b), b: m.getBondAtom(1, b), order: m.getBondOrder(b),
       stereo: m.getBondType(b) === Molecule.cBondTypeUp ? 1 : m.getBondType(b) === Molecule.cBondTypeDown ? 6 : 0 })),
   };
+}
+
+/** The skeletal convention: a neutral carbon with at least one bond is a bare vertex, its
+ *  hydrogens implied by valence. Everything a reader could not infer keeps its label: a heteroatom
+ *  and its hydrogens (OH, NH₂), a charged or isotopically labelled carbon, and a carbon with no
+ *  bond at all (methane would otherwise draw as nothing). Only the label changes; the element,
+ *  charge and coordinates the round-trip checks are untouched. */
+export function skeletalLabels(scene: ChemicalScene): ChemicalScene {
+  const bonded = new Set(scene.bonds.flatMap(bond => [bond.a, bond.b]));
+  return { ...scene, atoms: scene.atoms.map((atom, index) => (atom.element === 'C' && !atom.charge && !atom.isotope && bonded.has(index) ? { ...atom, label: '' } : atom)) };
 }
 
 /** Independent molfile writer: no OCL parity cache may override edited geometry. */
@@ -31,9 +44,12 @@ export function sceneMolfile(scene: ChemicalScene): string {
     return `${xyz(scene.spatial?.[i].x ?? a.x)}${xyz(y)}${xyz(z)} ${a.element.padEnd(3)} 0  0  0  0  0  0  0  0  0  0  0  0`;
   });
   const bonds = scene.bonds.map(b => `${field(b.a + 1)}${field(b.b + 1)}${field(b.order)}${field(is3D ? 0 : b.stereo)}  0  0  0`);
+  // V2000 property entries are " aaa vvv": a blank before each three-wide field. RDKit happens to
+  // read a CHG line without them, but drops an ISO line written that way without an error.
   const props = scene.atoms.flatMap((a, i) => [
-    ...(a.charge ? [`M  CHG  1${field(i + 1)}${field(a.charge)}`] : []),
-    ...(a.isotope ? [`M  ISO  1${field(i + 1)}${field(a.isotope)}`] : []),
+    ...(a.charge ? [`M  CHG  1 ${field(i + 1)} ${field(a.charge)}`] : []),
+    ...(a.isotope ? [`M  ISO  1 ${field(i + 1)} ${field(a.isotope)}`] : []),
+    ...(a.radical ? [`M  RAD  1 ${field(i + 1)} ${field(a.radical)}`] : []),
   ]);
   return `\n     Nodus          ${is3D ? '3D' : '2D'}\n\n${field(atoms.length)}${field(bonds.length)}  0  0  0  0  0  0  0  0999 V2000\n${[...atoms, ...bonds, ...props, 'M  END', ''].join('\n')}`;
 }
@@ -83,7 +99,12 @@ export function canonicalScene(scene: ChemicalScene, kit: RDKitModule): string {
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const glyph = (s: string) => s.replace(/_([2-9])/g, (_, n) => '₀₁₂₃₄₅₆₇₈₉'[Number(n)]).replace(/\^\{([^}]+)\}/g, (_, text: string) => [...text].map(c => '0123456789+-'.includes(c) ? '⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻'['0123456789+-'.indexOf(c)] : c).join(''));
 
-const VALENCE_ELECTRONS: Record<string, number> = { H: 1, B: 3, C: 4, N: 5, O: 6, F: 7, Si: 4, P: 5, S: 6, Cl: 7, Br: 7, I: 7 };
+// Every main-group element: one missing from this table drew with no pairs at all, so
+// hydrogen selenide came out with a bare selenium and still read as verified.
+const VALENCE_ELECTRONS: Record<string, number> = {
+  H: 1, Li: 1, Be: 2, B: 3, C: 4, N: 5, O: 6, F: 7, Na: 1, Mg: 2, Al: 3, Si: 4, P: 5, S: 6, Cl: 7,
+  K: 1, Ca: 2, Ga: 3, Ge: 4, As: 5, Se: 6, Br: 7, Rb: 1, Sr: 2, In: 3, Sn: 4, Sb: 5, Te: 6, I: 7, Xe: 8,
+};
 
 /** Nonbonding pairs are derived from valence electrons, formal charge and the sum
  * of bond orders. The language model never supplies them. */
@@ -93,6 +114,8 @@ export function assignLonePairs(scene: ChemicalScene): void {
   scene.atoms.forEach((atom, index) => {
     const electrons = (VALENCE_ELECTRONS[atom.element] ?? 0) - atom.charge - bondOrder[index];
     atom.lonePairs = Math.max(0, Math.min(4, Math.floor(electrons / 2)));
+    // An odd count is a radical: its unpaired electron is drawn, not rounded away.
+    atom.unpaired = electrons > 0 && electrons < 8 ? electrons % 2 : 0;
   });
 }
 
@@ -114,8 +137,8 @@ export function renderScene(scene: ChemicalScene): string {
   // Lone pairs occupy the directions left over after bonding: they cluster in the
   // widest angular gap between bonds rather than spreading between two bonds.
   const lonePairs = scene.atoms.map((atom, i) => {
-    if (!atom.lonePairs) return '';
-    const count = atom.lonePairs;
+    if (!atom.lonePairs && !atom.unpaired) return '';
+    const count = (atom.lonePairs ?? 0) + (atom.unpaired ?? 0);
     const p = point(i), occupied: number[] = [];
     scene.bonds.forEach(bond => {
       const other = bond.a === i ? bond.b : bond.b === i ? bond.a : -1;
@@ -133,8 +156,9 @@ export function renderScene(scene: ChemicalScene): string {
       const bisector = start + widest / 2, spread = Math.min(Math.PI / 3, widest / (count + 1));
       angles = Array.from({ length: count }, (_, k) => bisector + (k - (count - 1) / 2) * spread);
     }
-    return angles.map(angle => {
+    return angles.map((angle, k) => {
       const cx = p.x + Math.cos(angle) * 26, cy = p.y + Math.sin(angle) * 26;
+      if (k >= (atom.lonePairs ?? 0)) return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="2.6" fill="black" stroke="none"/>`;
       const tx = -Math.sin(angle) * 4.5, ty = Math.cos(angle) * 4.5;
       return `<circle cx="${(cx + tx).toFixed(1)}" cy="${(cy + ty).toFixed(1)}" r="2.6" fill="black" stroke="none"/><circle cx="${(cx - tx).toFixed(1)}" cy="${(cy - ty).toFixed(1)}" r="2.6" fill="black" stroke="none"/>`;
     }).join('');
@@ -143,16 +167,22 @@ export function renderScene(scene: ChemicalScene): string {
 }
 
 /** A deliberately narrow, reversible ChemFig dialect, not arbitrary TeX. */
-export function exportSceneChemfig(scene: ChemicalScene): string {
+export function exportSceneChemfig(scene: ChemicalScene, anchoredBonds: ReadonlySet<number> = new Set()): string {
   const emitted = new Set<number>(), tree = new Set<number>();
   // Wedges must be explicit tree edges, never implicit ring closures. Build a
   // spanning tree with those edges first without changing atom order or parity.
+  // A bond an electron arrow starts or ends on comes next: only a tree edge carries
+  // the @{b…} name the arrow is drawn to, and a ring closure has none.
   const parents = scene.atoms.map((_, i) => i);
   const root = (i: number): number => parents[i] === i ? i : (parents[i] = root(parents[i]));
-  const edges = scene.bonds.map((b, i) => ({ b, i })).sort((x, y) => Number(!!y.b.stereo && !y.b.plain) - Number(!!x.b.stereo && !x.b.plain));
+  const rank = (b: SceneBond, i: number) => (b.stereo && !b.plain ? 2 : 0) + (anchoredBonds.has(i) ? 1 : 0);
+  const edges = scene.bonds.map((b, i) => ({ b, i })).sort((x, y) => rank(y.b, y.i) - rank(x.b, x.i));
   for (const { b, i } of edges) if (root(b.a) !== root(b.b)) { parents[root(b.a)] = root(b.b); tree.add(i); }
   if (tree.size !== scene.atoms.length - 1) throw new Error('Disconnected ChemFig scenes are unsupported.');
-  const render = (a: number): string => {
+  // node-tikzjax's TeX never returns once branches nest 32 deep (a 33-atom chain), and a
+  // timed-out engine refuses every later compilation: refuse the export here instead.
+  const render = (a: number, depth = 0): string => {
+    if (depth > 30) throw new Error('ChemFig export exceeds the supported branch depth.');
     emitted.add(a);
     let text = `@{${scene.atoms[a].id}}${scene.atoms[a].label}`;
     scene.bonds.forEach((b, i) => { if (!tree.has(i) && (b.a === a || b.b === a)) {
@@ -165,7 +195,7 @@ export function exportSceneChemfig(scene: ChemicalScene): string {
       const dx = scene.atoms[c].x - scene.atoms[a].x, dy = scene.atoms[c].y - scene.atoms[a].y;
       let symbol = b.order === 2 ? '=' : b.order === 3 ? '~' : '-';
       if (b.stereo && !b.plain) symbol = `${b.a === a ? '<' : '>'}${b.stereo === 6 ? ':' : ''}`;
-      text += `(${symbol}[@{${b.id}}:${(Math.atan2(dy, dx) * 180 / Math.PI).toFixed(6)},${Math.hypot(dx, dy).toFixed(6)}]${render(c)})`;
+      text += `(${symbol}[@{${b.id}}:${(Math.atan2(dy, dx) * 180 / Math.PI).toFixed(6)},${Math.hypot(dx, dy).toFixed(6)}]${render(c, depth + 1)})`;
     });
     return text;
   };
@@ -183,11 +213,16 @@ export function verifySceneChemfig(source: string, expected: ChemicalScene, cano
   let p = 0;
   const read = (pattern: RegExp): RegExpExecArray => { const match = pattern.exec(body.slice(p)); if (!match) throw new Error(`Invalid ChemFig export at ${p}.`); p += match[0].length; return match; };
   const parse = (x: number, y: number): number => {
-    const atom = read(/^@\{(a\d+)\}((?:\^\{\d+\})?[A-Z][a-z]?(?:H(?:_[2-9])?)?(?:\^\{\d*[+-]\})?)/);
-    const definition = /^(?:\^\{(\d+)\})?([A-Z][a-z]?)(?:H(?:_[2-9])?)?(?:\^\{(\d*)([+-])\})?$/.exec(atom[2])!;
+    const atom = read(/^@\{(a\d+)\}((?:(?:\^\{\d+\})?[A-Z][a-z]?(?:H(?:_[2-9])?)?(?:\^\{\d*[+-]\})?)?)/);
+    // An unlabelled atom is a bare skeletal vertex, which is carbon by the convention the exporter
+    // follows: `skeletalLabels` blanks only a neutral, unlabelled, bonded carbon. Its hydrogens are
+    // implied, and the RDKit round-trip below recomputes them from valence.
+    const definition: Array<string | undefined> = atom[2]
+      ? /^(?:\^\{(\d+)\})?([A-Z][a-z]?)(?:H(?:_[2-9])?)?(?:\^\{(\d*)([+-])\})?$/.exec(atom[2])!
+      : ['', undefined, 'C', undefined, undefined];
     const index = atoms.length;
     if (atoms.some(a => a.id === atom[1])) throw new Error('Duplicate exported atom ID.');
-    atoms.push({ id: atom[1], label: atom[2], element: definition[2], isotope: Number(definition[1] ?? 0), charge: definition[4] ? Number(definition[3] || 1) * (definition[4] === '+' ? 1 : -1) : 0, x, y });
+    atoms.push({ id: atom[1], label: atom[2], element: definition[2]!, isotope: Number(definition[1] ?? 0), charge: definition[4] ? Number(definition[3] || 1) * (definition[4] === '+' ? 1 : -1) : 0, x, y });
     while (p < body.length && body[p] !== ')') {
       if (body.startsWith('?[', p)) { const ring = read(/^\?\[(r\d+),([123])\]/), previous = rings.get(ring[1]);
         if (previous) { if (previous[1] !== Number(ring[2])) throw new Error('Inconsistent ring order.'); bonds.push({ id: '', a: previous[0], b: index, order: previous[1], stereo: 0 }); rings.delete(ring[1]); }

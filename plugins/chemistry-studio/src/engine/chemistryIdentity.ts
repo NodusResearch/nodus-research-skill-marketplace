@@ -1,10 +1,23 @@
 import type { ChemistryIntent, ChemistryPartialReason, ChemistryReference, ChemistryResolution, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
 import { reactionSmilesSpecies } from './chemistryReactionShared';
+import { MAX_REACTION_COEFFICIENT } from './chemistryLimits';
 import { buildingBlockSmiles, isResinBoundName } from './peptideBuildingBlocks';
 
 export interface ChemistryIdentityDependencies {
   fetch: typeof fetch;
   validate: (request: ChemistryValidationRequest, signal?: AbortSignal) => Promise<ChemistryValidationResult>;
+  /** Answers already read from a local PubChem mirror for this batch. Only definite answers are in
+   *  it — a name with exactly one CID, a structure whose InChIKey has a CID — so anything absent is
+   *  asked of the network exactly as before. */
+  pubchemMirror?: PubChemMirror;
+  /** What a local OPSIN returned for this batch's names — the web service's own fields — so a name
+   *  in it is answered without the round trip, by exactly the same rules. */
+  opsinLocal?: Map<string, { status: string; smiles?: string; warnings?: string[]; message?: string }>;
+}
+
+export interface PubChemMirror {
+  names: Map<string, { cid: number; smiles: string; formula?: string }>;
+  smiles: Map<string, { cid: number; name?: string; formula?: string }>;
 }
 
 /** No model-generated structures, status, captions, URLs or projection arrays. */
@@ -122,7 +135,7 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
     ids.add(item.id);
     if (raw.kind === 'reaction' && raw.depiction !== 'skeletal') throw new Error('A reaction scheme must use depiction "skeletal".');
     if (raw.kind === 'reaction' && !['reactant', 'product', 'agent'].includes(item.role)) throw new Error(`${at}.role must be "reactant", "product" or "agent".`);
-    if (raw.kind === 'reaction' && (!Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > 12)) throw new Error(`${at}.coefficient must be a whole number from 1 to 12.`);
+    if (raw.kind === 'reaction' && (!Number.isInteger(item.coefficient) || item.coefficient < 1 || item.coefficient > MAX_REACTION_COEFFICIENT)) throw new Error(`${at}.coefficient must be a whole number from 1 to ${MAX_REACTION_COEFFICIENT}.`);
     const input = item.input;
     if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['kind', 'value'].includes(key))) throw new Error(`${at}.input must be an object with exactly "kind" and "value".`);
     if (!['name', 'pubchem-cid', 'smiles'].includes(input.kind)) throw new Error(`${at}.input.kind must be "name", "pubchem-cid" or "smiles".`);
@@ -226,20 +239,40 @@ async function references(input: ChemistryIntent['species'][number]['input'], de
   const found: ChemistryReference[] = [];
   if (input.kind === 'name') {
     const url = `https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(input.value)}.json`;
-    const record = await readJSON(url, deps, signal);
+    // An OPSIN that cannot be reached is no answer, as in resolveSpeciesName: it used to throw past
+    // the PubChem look-up below, so an EBI outage — or a local-only run — left every name unchecked.
+    let record: any = null;
+    try { record = await opsinRecord(input.value, deps, signal); } catch (error) { if (signal?.aborted) throw error; }
     if (record?.status === 'WARNING' || record?.warnings?.length) throw new Error('OPSIN reports an ambiguous or partially interpreted name; provide an exact identifier.');
     if (record?.status === 'SUCCESS' && typeof record.smiles === 'string') found.push({ provider: 'opsin', query: input.value, smiles: record.smiles, retrievedAt, url });
   }
+  // For a name, a PubChem that cannot be reached leaves what OPSIN found, as in resolveSpeciesName;
+  // the breaker and a local-only run refuse a request by throwing, which discarded OPSIN's answer.
+  // A CID asked for by number has no other source, so its failure still stands.
+  const unreachable = (error: unknown): ChemistryReference[] => {
+    if (signal?.aborted || input.kind !== 'name') throw error;
+    return found;
+  };
   let cid = input.value;
   if (input.kind === 'name') {
-    const matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(input.value)}/cids/JSON?name_type=complete`, deps, signal);
+    // The mirror holds only names with exactly one CID, so its answer is the one the two requests
+    // below would have reached.
+    const local = deps.pubchemMirror?.names.get(input.value);
+    if (local) {
+      found.push({ provider: 'pubchem', query: input.value, smiles: local.smiles, retrievedAt, url: `https://pubchem.ncbi.nlm.nih.gov/compound/${local.cid}` });
+      return found;
+    }
+    let matches: any;
+    try { matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(input.value)}/cids/JSON?name_type=complete`, deps, signal); }
+    catch (error) { return unreachable(error); }
     const cids = matches?.IdentifierList?.CID;
     if (cids && (!Array.isArray(cids) || cids.length !== 1 || !Number.isSafeInteger(cids[0]) || cids[0] <= 0)) throw new Error('PubChem returned an ambiguous identity; provide a specific CID or isomeric SMILES.');
     if (!cids) return found;
     cid = String(cids[0]);
   }
   const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/IsomericSMILES/JSON`;
-  const record = await readJSON(url, deps, signal);
+  let record: any;
+  try { record = await readJSON(url, deps, signal); } catch (error) { return unreachable(error); }
   const rows = record?.PropertyTable?.Properties;
   if (!Array.isArray(rows) || rows.length !== 1 || String(rows[0].CID) !== cid) {
     if (input.kind === 'pubchem-cid' || record) throw new Error('The PubChem identity could not be resolved exactly.');
@@ -311,6 +344,12 @@ export interface SpeciesStructureName {
 export async function nameStructureBySmiles(rawSmiles: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesStructureName> {
   const smiles = typeof rawSmiles === 'string' ? rawSmiles.trim().slice(0, 2000) : '';
   if (!smiles) return { smiles, status: 'unnamed', feedback: 'Not a structure.' };
+  const local = deps.pubchemMirror?.smiles.get(smiles);
+  if (local) {
+    return local.name
+      ? { smiles, status: 'named', cid: local.cid, name: local.name.slice(0, 300), ...(local.formula ? { formula: local.formula } : {}) }
+      : { smiles, status: 'unnamed', cid: local.cid, ...(local.formula ? { formula: local.formula } : {}), feedback: 'PubChem holds this structure but reports no IUPAC name for it.' };
+  }
   let cid: number | undefined;
   try {
     const matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/cids/JSON`, deps, signal);
@@ -348,6 +387,8 @@ export interface SpeciesNameResolution {
 }
 
 async function pubchemByName(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
+  const local = deps.pubchemMirror?.names.get(value);
+  if (local) return { name: value, status: 'resolved', smiles: local.smiles, source: 'pubchem', ...(local.formula ? { formula: local.formula } : {}) };
   const matches = await readJSON(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(value)}/cids/JSON?name_type=complete`, deps, signal);
   const cids = matches?.IdentifierList?.CID;
   if (!Array.isArray(cids) || !cids.length) return { name: value, status: 'unresolved', feedback: 'PubChem has no exact match for this name.' };
@@ -368,8 +409,18 @@ async function pubchemByName(value: string, deps: ChemistryIdentityDependencies,
   };
 }
 
+/** OPSIN's record for one name: a local answer is turned into the record the web service would
+ *  have sent (it reports a parse with warnings as SUCCESS + warnings), so every caller treats the
+ *  two identically. */
+async function opsinRecord(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<any | null> {
+  const local = deps.opsinLocal?.get(value);
+  return local
+    ? { status: local.status === 'FAILURE' ? 'FAILURE' : 'SUCCESS', smiles: local.smiles, warnings: local.warnings ?? [], message: local.message }
+    : readJSON(`https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(value)}.json`, deps, signal);
+}
+
 async function opsinByName(value: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
-  const record = await readJSON(`https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(value)}.json`, deps, signal);
+  const record = await opsinRecord(value, deps, signal);
   if (record?.status === 'SUCCESS' && typeof record.smiles === 'string' && record.smiles) {
     if (Array.isArray(record.warnings) && record.warnings.length) {
       return { name: value, status: 'unresolved', source: 'opsin', feedback: `OPSIN only partly interpreted the name: ${record.warnings.join(' ').slice(0, 200)}` };

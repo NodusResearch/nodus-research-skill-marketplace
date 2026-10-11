@@ -1,9 +1,9 @@
 import { MAX_REACTION_CHARS } from './chemistryLimits';
 import { MAX_CHEMICAL_NAME } from './chemistryIdentity';
 import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit, RouteTargetAudit } from './chemistryDocument';
-import { balanceReaction } from './chemistryReaction';
+import { BalanceUnchecked, balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
-import { deliveredAtOpenCentres, productMatchesTarget, validateChemicalReferences } from './chemistryValidationCore';
+import { deliveredAtOpenCentres, productMatchesTarget, stereoGraph, validateChemicalReferences, type StereoGraph } from './chemistryValidationCore';
 import { bondLedger, skeletonChange, type SkeletonReport } from './chemistrySkeleton';
 import { maxSpeciesPerStep, maxSpeciesTotal, maxSteps, type ChemistryCapBudget } from './chemistryLimits';
 
@@ -27,9 +27,25 @@ const MAX_SPECIES_PER_STEP_FLOOR = 48;
 const MAX_SPECIES_TOTAL_FLOOR = 1024;
 
 
-async function summarize(input: string): Promise<RouteSpeciesSummary> {
+/** Every species one audit has summarised, by the SMILES as written. A route names an intermediate
+ *  on the step that makes it and the step that uses it, a reagent on many steps, and every label
+ *  again for its name check: 289 summaries for 32 distinct species on a 20-step route, each a full
+ *  RDKit pass. Each caller gets its own copy, because the audit writes coefficients and names onto
+ *  the summary it is handed. */
+type SummaryCache = Map<string, Promise<RouteSpeciesSummary>>;
+
+async function summarize(input: string, cache?: SummaryCache): Promise<RouteSpeciesSummary> {
+  let pending = cache?.get(input);
+  if (!pending) {
+    pending = summarizeOnce(input);
+    cache?.set(input, pending);
+  }
+  return { ...(await pending) };
+}
+
+async function summarizeOnce(input: string): Promise<RouteSpeciesSummary> {
   try {
-    const checked = await validateChemicalReferences({ references: [input], inspect: true });
+    const checked = await validateChemicalReferences({ references: [input], inspect: true, summaryOnly: true });
     if (!checked.inspection) throw new Error('RDKit produced no inspection summary.');
     return { input, ...checked.inspection };
   } catch (error) {
@@ -54,9 +70,9 @@ const canCarry = (species: RouteSpeciesSummary): boolean =>
 
 const splitField = (field: string): string[] => field.split('.').map(entry => entry.trim()).filter(Boolean);
 
-async function summarizeField(field: string): Promise<RouteSpeciesSummary[]> {
+async function summarizeField(field: string, cache?: SummaryCache): Promise<RouteSpeciesSummary[]> {
   const out: RouteSpeciesSummary[] = [];
-  for (const smiles of splitField(field)) out.push(await summarize(smiles));
+  for (const smiles of splitField(field)) out.push(await summarize(smiles, cache));
   return out;
 }
 
@@ -75,9 +91,9 @@ async function summarizeField(field: string): Promise<RouteSpeciesSummary[]> {
  *  with its own SMILES. So each label claims its fragments from the side's pool and becomes ONE
  *  species with ONE coefficient. A fragment no label claims stays a species of its own, which is
  *  what happens for every route that sends no labels, so nothing changes for them. */
-async function summarizeFieldGrouped(field: string, declared: string[]): Promise<RouteSpeciesSummary[]> {
+async function summarizeFieldGrouped(field: string, declared: string[], cache?: SummaryCache): Promise<RouteSpeciesSummary[]> {
   const tokens = splitField(field);
-  if (!declared.length) return summarizeField(field);
+  if (!declared.length) return summarizeField(field, cache);
   const unclaimed = tokens.map((token) => ({ token, taken: false }));
   const claim = (fragment: string): boolean => {
     const slot = unclaimed.find((entry) => !entry.taken && entry.token === fragment);
@@ -97,7 +113,7 @@ async function summarizeFieldGrouped(field: string, declared: string[]): Promise
     if (fragments.every((fragment) => claim(fragment))) grouped.push({ position: first, smiles });
     else unclaimed.forEach((entry, index) => { entry.taken = snapshot[index]; });
   }
-  if (!grouped.length) return summarizeField(field);
+  if (!grouped.length) return summarizeField(field, cache);
   // Keep document order: a grouped species sits where its first fragment was.
   const entries = [
     ...grouped.map((entry) => ({ position: entry.position, smiles: entry.smiles })),
@@ -105,18 +121,27 @@ async function summarizeFieldGrouped(field: string, declared: string[]): Promise
       .filter((entry): entry is { position: number; smiles: string } => entry !== null),
   ].sort((a, b) => a.position - b.position);
   const out: RouteSpeciesSummary[] = [];
-  for (const entry of entries) out.push(await summarize(entry.smiles));
+  for (const entry of entries) out.push(await summarize(entry.smiles, cache));
   return out;
 }
 
-/** The SMILES of every species the author declared for one role on one step, in order. */
-/** The names the author gave each species of one role, in the same order `declaredFor` hands the
- *  structures over, so a summary can be matched back to the name the author wrote. */
-function namesFor(labels: Array<RouteLabelInput | null | undefined>, role: 'reactant' | 'agent' | 'product'): string[] {
-  return labels
-    .filter((label): label is RouteLabelInput => Boolean(label) && label!.role === role && typeof label!.smiles === 'string' && label!.smiles.trim().length > 0)
-    .map((label) => label.name);
+/** The name the author gave a species on this step, found by the structure it was written beside.
+ *  Matched by position it named the wrong species whenever the labels were not in the order of the
+ *  reaction string, or one species had no label: a step told the author that the acid it esterified
+ *  was "a condition" because the catalyst's label came first. A grouped salt's summary carries the
+ *  declared SMILES as its input, so it matches its label too. */
+type SpeciesNamer = (entry: RouteSpeciesSummary) => string | undefined;
+
+function namerFor(labels: Array<RouteLabelInput | null | undefined>): SpeciesNamer {
+  const byStructure = new Map<string, string>();
+  for (const label of labels) {
+    if (!label || typeof label.smiles !== 'string' || typeof label.name !== 'string' || !label.name.trim()) continue;
+    if (!byStructure.has(label.smiles.trim())) byStructure.set(label.smiles.trim(), label.name.trim());
+  }
+  return (entry) => entry.name ?? byStructure.get(entry.input.trim());
 }
+
+/** The SMILES of every species the author declared for one role on one step, in order. */
 
 function declaredFor(labels: Array<RouteLabelInput | null | undefined>, role: 'reactant' | 'agent' | 'product'): string[] {
   return labels
@@ -138,55 +163,148 @@ function sumSide(species: RouteSpeciesSummary[]): { composition: Record<string, 
 
 /** A stereocentre a step neither makes nor breaks must come out the way it went in.
  *
- *  Compare the multiset of specified CIP descriptors on each side. When both sides carry the SAME
- *  NUMBER of specified centres but a different mix, a centre was inverted — which an amide
- *  coupling, a deprotection or a cleavage does not do. Differing counts mean a centre was created
- *  or destroyed, which is ordinary chemistry, so that case is left alone.
- *
  *  This is the one error class atom balance cannot reach. An epimer has identical atom counts, so
  *  the equation balances; it carries over as the same declared structure, so continuity holds; and
  *  the right bonds form, so the skeleton ledger is satisfied. A route can therefore be balanced,
  *  continuous, skeleton-clean and end on an exact match to the requested target while passing
  *  through a compound that cannot give it.
  *
- *  Descriptors, not geometry, because a CIP label is what the toolkit reports here — sound for
- *  this comparison since the ranking at such a centre does not change when a neighbouring acid
- *  becomes an amide, which is the change these steps make. */
-function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[], names: { reactants: string[]; products: string[] } = { reactants: [], products: [] }): string {
-  const tags = (list: RouteSpeciesSummary[]): string[] => list.flatMap(entry => entry.cipTags ?? []).sort();
-  const left = tags(reactants);
-  const right = tags(products);
-  if (left.length !== right.length || left.join(',') === right.join(',')) return '';
-  // The toolkit reports descriptors parenthesised — "(S)", "(R)" — as the "(?)" filter beside
-  // stereocentres shows, so match that form rather than a bare letter.
-  const count = (list: string[], tag: string) => list.filter(entry => entry.replace(/[()]/g, '') === tag).length;
-  const describe = (list: string[]) => `${count(list, 'S')} (S) and ${count(list, 'R')} (R)`;
-  // Counts alone are not actionable. "Give the product the configuration its reactant carries" is
-  // advice a reader can follow with two centres in play and cannot follow with a dozen: nothing in
-  // the sentence says which one moved. So each side is also listed species by species, in the
-  // molecule's own atom order, with the atom index of every specified centre — the index locates
-  // it in the very string the author wrote, which is the only handle they have on it.
-  const perSpecies = (list: RouteSpeciesSummary[], labelled: string[]) => list
-    .map((entry, position) => ({ entry, name: entry.name ?? labelled[position] ?? entry.formula }))
-    .filter(({ entry }) => (entry.cipCentres ?? entry.cipTags ?? []).length)
-    .map(({ entry, name }) => {
-      const centres = entry.cipCentres?.length
-        ? entry.cipCentres.map(centre => `${centre.tag} at atom ${centre.atom}`).join(', ')
-        : (entry.cipTags ?? []).join(', ');
-      return `${name}: ${centres}`;
-    })
-    .join(' · ');
-  const sides = [perSpecies(reactants, names.reactants), perSpecies(products, names.products)];
-  const where = sides.every(Boolean)
-    ? ` In: ${sides[0]}. Out: ${sides[1]}. Atom indices count from zero in the structure as the application parsed it.`
-    : '';
-  return `This step inverts a stereocentre: its reactants carry ${describe(left)} specified centres and its products ${describe(right)}, the same number on each side.${where} A coupling, a deprotection or a cleavage does not change configuration, so either a declared structure has the wrong descriptor at one centre — give the product the configuration its reactant carries — or, if an inversion is genuinely intended, say in this step's own prose which centre inverts and why.`;
+ *  Compared centre by centre, not by CIP letter. The letters were compared as a multiset, which is
+ *  only sound while no branch at the centre changes rank, and a step that changes a group two bonds
+ *  away does change it: a bromide displaced by cyanide next to a phenyl-bearing centre keeps its
+ *  configuration and flips its letter (CH2Br outranks phenyl, CH2CN does not), so a correct step was
+ *  refused — and the same step with the centre really inverted kept its letter and passed. Here each
+ *  centre on the left is matched to one on the right through its branches: a branch the step leaves
+ *  alone looks the same from the centre on both sides, a hydrogen is a hydrogen, and the one branch
+ *  the step rewrites is the one left over. With every neighbour placed, RDKit's own chiral tags say
+ *  whether the arrangement survived. A centre whose branches cannot be told apart is not judged. */
+const BRANCH_DEPTH = 6;
+
+/** A label for the branch that starts at `atom` and leads away from `from`, unfolded `depth` bonds:
+ *  equal labels mean the branch looks the same from the centre that far out. */
+function branchLabels(graph: StereoGraph): (atom: number, from: number, depth: number) => string {
+  const memo = new Map<string, string>();
+  const label = (atom: number, from: number, depth: number): string => {
+    const key = `${atom}:${from}:${depth}`;
+    const known = memo.get(key);
+    if (known !== undefined) return known;
+    const { z, charge, hydrogens } = graph.atoms[atom];
+    const own = `${z}/${charge}/${hydrogens}/${graph.neighbours[atom].length}`;
+    const value = depth === 0 ? own : `${own}(${graph.neighbours[atom]
+      .filter((next) => next.atom !== from)
+      .map((next) => `${next.order}${label(next.atom, atom, depth - 1)}`).sort().join(',')})`;
+    memo.set(key, value);
+    return value;
+  };
+  return label;
+}
+
+/** Each neighbour of centre `a` placed among the neighbours of centre `b` (-1 stands for the implicit
+ *  hydrogens), with how far out the placed branches agree; null when the placement is ambiguous. */
+function placeNeighbours(left: StereoGraph, a: number, right: StereoGraph, b: number): { order: number[]; agreement: number } | null {
+  const leftLabel = branchLabels(left), rightLabel = branchLabels(right);
+  const around = (graph: StereoGraph, centre: number) => [...graph.neighbours[centre].map((entry) => entry.atom), ...Array.from({ length: graph.atoms[centre].hydrogens }, () => -1)];
+  const from = around(left, a), to = around(right, b);
+  if (from.length !== to.length || from.filter((atom) => atom === -1).length > 1) return null;
+  const depthOf = (x: number, y: number): number => {
+    if (x === -1 || y === -1) return x === y ? BRANCH_DEPTH + 1 : -1;
+    let depth = -1;
+    while (depth < BRANCH_DEPTH && leftLabel(x, a, depth + 1) === rightLabel(y, b, depth + 1)) depth += 1;
+    return depth;
+  };
+  const placed = new Array<number>(from.length).fill(-2);
+  const taken = new Set<number>();
+  let agreement = 0;
+  // Branches the step leaves alone agree at least two bonds out, and must agree with exactly one
+  // branch on the other side: a tie between two is a symmetry this cannot settle.
+  for (let i = 0; i < from.length; i += 1) {
+    const depths = to.map((y) => depthOf(from[i], y));
+    const best = Math.max(...depths);
+    if (best < 2 || depths.filter((depth) => depth === best).length !== 1) continue;
+    const j = depths.indexOf(best);
+    if (taken.has(j)) return null;
+    placed[i] = j;
+    taken.add(j);
+    agreement += 1;
+  }
+  const leftOver = placed.map((value, i) => (value === -2 ? i : -1)).filter((i) => i >= 0);
+  const free = to.map((_, j) => j).filter((j) => !taken.has(j));
+  // The branch the step rewrote is the one left over, and it must still start with the same element
+  // (its hydrogens may change: an ester reduced to the alcohol).
+  if (leftOver.length > 1 || leftOver.length !== free.length) return null;
+  if (leftOver.length === 1) {
+    const [x, y] = [from[leftOver[0]], to[free[0]]];
+    if ((x === -1) !== (y === -1) || (x !== -1 && left.atoms[x].z !== right.atoms[y].z)) return null;
+    placed[leftOver[0]] = free[0];
+  }
+  return { order: placed, agreement };
+}
+
+/** Whether a permutation is odd. */
+function oddPermutation(order: number[]): boolean {
+  const seen = new Array<boolean>(order.length).fill(false);
+  let odd = false;
+  for (let start = 0; start < order.length; start += 1) {
+    if (seen[start]) continue;
+    let length = 0;
+    for (let at = start; !seen[at]; at = order[at]) { seen[at] = true; length += 1; }
+    if (length % 2 === 0) odd = !odd;
+  }
+  return odd;
+}
+
+async function invertedConfiguration(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = (entry) => entry.name): Promise<string> {
+  const centred = async (list: RouteSpeciesSummary[]) => (await Promise.all(list
+    .filter((entry) => (entry.cipTags ?? []).length > 0)
+    .map(async (entry) => ({ entry, graph: await stereoGraph(entry.input) }))))
+    .filter((item): item is { entry: RouteSpeciesSummary; graph: StereoGraph } => item.graph !== null);
+  const left = await centred(reactants), right = await centred(products);
+  if (!left.length || !right.length) return '';
+  const centres = (graph: StereoGraph) => graph.tags.map((tag, atom) => (tag ? atom : -1)).filter((atom) => atom >= 0);
+  const used = new Set<string>();
+  const found: string[] = [];
+  const unplaced: string[] = [];
+  for (const source of left) {
+    for (const a of centres(source.graph)) {
+      // The one centre on the right this one became: most branches agreeing, and no tie.
+      let best: { product: (typeof right)[number]; b: number; order: number[]; agreement: number } | null = null;
+      let tied = false;
+      for (const product of right) {
+        for (const b of centres(product.graph)) {
+          if (used.has(`${right.indexOf(product)}:${b}`)) continue;
+          const atomA = source.graph.atoms[a], atomB = product.graph.atoms[b];
+          if (atomA.z !== atomB.z || atomA.hydrogens !== atomB.hydrogens) continue;
+          const placement = placeNeighbours(source.graph, a, product.graph, b);
+          if (!placement || placement.agreement < 2) continue;
+          if (!best || placement.agreement > best.agreement) { best = { product, b, ...placement }; tied = false; }
+          else if (placement.agreement === best.agreement) tied = true;
+        }
+      }
+      if (!best || tied) { unplaced.push(source.graph.cip.get(a) ?? '?'); continue; }
+      used.add(`${right.indexOf(best.product)}:${best.b}`);
+      // The tags are relative to each atom's neighbour order, so the arrangement survived when the
+      // tags agree and the placement is an even permutation, or disagree and it is odd.
+      const kept = (source.graph.tags[a] === best.product.graph.tags[best.b]) === !oddPermutation(best.order);
+      if (kept) continue;
+      const name = (entry: RouteSpeciesSummary) => nameOf(entry) ?? entry.formula;
+      found.push(`atom ${a} of ${name(source.entry)} ${source.graph.cip.get(a) ?? ''} comes out as atom ${best.b} of ${name(best.product.entry)} ${best.product.graph.cip.get(best.b) ?? ''} with the opposite configuration`.replace(/ {2,}/g, ' '));
+    }
+  }
+  // A centre whose branches are alike (the ring carbon opposite a bridge) cannot be placed. Those
+  // are still compared by letter, among themselves only, as the whole step used to be: a matched
+  // centre's letter no longer takes part, so a rank change at a placed centre cannot trip it.
+  const unmatched = right.flatMap((product, p) => centres(product.graph).filter((b) => !used.has(`${p}:${b}`)).map((b) => product.graph.cip.get(b) ?? '?'));
+  if (!found.length && unplaced.length && unplaced.length === unmatched.length && [...unplaced].sort().join(',') !== [...unmatched].sort().join(',')) {
+    found.push(`its reactants carry ${[...unplaced].sort().join(', ')} at centres that could not be matched one to one, and its products ${[...unmatched].sort().join(', ')}`);
+  }
+  if (!found.length) return '';
+  return `This step inverts a stereocentre: ${found.join('; ')}. Atom indices count from zero in the SMILES as written. A coupling, a deprotection or a cleavage does not change configuration, so either a declared structure has the wrong configuration at that centre — give the product the configuration its reactant carries — or, if an inversion is genuinely intended, say in this step's own prose which centre inverts and why.`;
 }
 
 /** Whether the declared species admit a balanced equation, solved exactly as the drawing
  *  path solves it. Coefficients cannot be written inside a reaction SMILES, so a species
  *  list that balances only at 2:3:2:2 is balanced, not refused. Agents take no part. */
-function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): { balanced: boolean; chargeBalanced: boolean; differences: string[]; coefficients: number[] | null } {
+function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): { balanced: boolean; unchecked?: boolean; chargeBalanced: boolean; differences: string[]; coefficients: number[] | null } {
   const chargeBalanced = sumSide(reactants).charge === sumSide(products).charge;
   const ordered = [...reactants, ...agents, ...products];
   const roles = [
@@ -199,6 +317,8 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
     const coefficients = balanceReaction(compositions, roles, ordered.map(() => 1));
     return { balanced: true, chargeBalanced, differences: [], coefficients };
   } catch (error) {
+    // Unchecked keeps its single action: no hint about an Agent that would add a species.
+    if (error instanceof BalanceUnchecked) return { balanced: false, unchecked: true, chargeBalanced, differences: [error.message], coefficients: null };
     const message = error instanceof Error ? error.message : 'The species cannot be balanced.';
     return { balanced: false, chargeBalanced, differences: [message + agentMisplacementHint(reactants, agents, products)], coefficients: null };
   }
@@ -206,7 +326,7 @@ function stepBalance(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSumma
 
 /** The sentence naming a single species listed on the wrong side, when moving it across
  *  balances the step; empty otherwise. A species on both sides is left alone. */
-function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = () => undefined): string {
   const same = (a: RouteSpeciesSummary, b: RouteSpeciesSummary) => a.canonicalSmiles === b.canonicalSmiles;
   const tryMove = (from: RouteSpeciesSummary[], to: RouteSpeciesSummary[], position: number, toProducts: boolean): string => {
     const species = from[position];
@@ -217,7 +337,7 @@ function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpe
     if (!result.balanced || !result.coefficients) return '';
     const ordered = toProducts ? [...nextFrom, ...agents, ...nextTo] : [...nextTo, ...agents, ...nextFrom];
     const count = result.coefficients[ordered.indexOf(species)];
-    const label = speciesLabel(species);
+    const label = authorLabel(species, nameOf);
     return toProducts
       ? `"${label}" is listed as a reactant, but the step forms it: list it under Byproducts (${count} ${label}).`
       : `"${label}" is listed on the product side, but the step consumes it: list it under Reactants (${count} ${label}).`;
@@ -231,11 +351,11 @@ function sideFlipThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpe
  *  that side too balances the step: a solvent the reaction makes (ethanol from sodium ethoxide in
  *  ethanol, water in an aqueous oxidation) or a "catalyst" that is really used up. The agent keeps
  *  its place as the solvent; the step only lacks it as a byproduct or reactant. Empty otherwise. */
-function agentRoleThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): string {
+function agentRoleThatBalances(reactants: RouteSpeciesSummary[], agents: RouteSpeciesSummary[], products: RouteSpeciesSummary[], nameOf: SpeciesNamer = () => undefined): string {
   for (let i = 0; i < agents.length; i++) {
     const species = agents[i];
     const others = agents.filter((_, position) => position !== i);
-    const label = speciesLabel(species);
+    const label = authorLabel(species, nameOf);
     const formed = stepBalance(reactants, others, [...products, species]);
     if (formed.balanced && formed.coefficients) {
       const count = formed.coefficients[reactants.length + others.length + products.length];
@@ -347,6 +467,13 @@ function loneAtomOfDiatomicElement(species: RouteSpeciesSummary): { written: str
 const PACKING_BUDGET = 20000;
 
 const speciesLabel = (entry: RouteSpeciesSummary): string => entry.formula || entry.canonicalSmiles;
+
+/** A species as the author wrote it — their name, with the formula beside it — or the formula alone
+ *  when the step carried no name for it. */
+const authorLabel = (entry: RouteSpeciesSummary, nameOf: SpeciesNamer): string => {
+  const name = nameOf(entry);
+  return name ? `${name} (${speciesLabel(entry)})` : speciesLabel(entry);
+};
 
 /** The per-molecule capacity a simple necessary condition exposes: for the largest product
  *  size that is short, how many such molecules are needed and how many substrate molecules can
@@ -558,6 +685,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
     ? Boolean(radicalInput[index])
     : radicalInput === true;
   const audited: RouteStepAudit[] = [];
+  const cache: SummaryCache = new Map();
   let totalSpecies = 0;
   const labelInput: Array<Array<RouteLabelInput | null | undefined> | null | undefined> =
     Array.isArray(input?.labels) ? input.labels : [];
@@ -577,9 +705,10 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // Group each side's fragments back into the species the author declared, so a salt counts
       // once and takes one coefficient. Without labels this is exactly the old behaviour.
       const stepLabels = Array.isArray(labelInput[index]) ? labelInput[index]!.filter(Boolean) : [];
-      const reactants = await summarizeFieldGrouped(reactantField, declaredFor(stepLabels, 'reactant'));
-      const agents = await summarizeFieldGrouped(agentField, declaredFor(stepLabels, 'agent'));
-      const products = await summarizeFieldGrouped(productField, declaredFor(stepLabels, 'product'));
+      const nameOf = namerFor(stepLabels);
+      const reactants = await summarizeFieldGrouped(reactantField, declaredFor(stepLabels, 'reactant'), cache);
+      const agents = await summarizeFieldGrouped(agentField, declaredFor(stepLabels, 'agent'), cache);
+      const products = await summarizeFieldGrouped(productField, declaredFor(stepLabels, 'product'), cache);
       if (!reactants.length || !products.length) throw new Error('A step needs at least one reactant and one product.');
       const count = reactants.length + agents.length + products.length;
       if (count > maxPerStep) throw new Error(`A step may name at most ${maxPerStep} species.`);
@@ -624,7 +753,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       }
       // An inverted stereocentre balances perfectly, so it has to be refused separately.
       const inverted = balance.balanced
-        ? invertedConfiguration(reactants, products, { reactants: namesFor(stepLabels, 'reactant'), products: namesFor(stepLabels, 'product') })
+        ? await invertedConfiguration(reactants, products, nameOf)
         : '';
       if (inverted) balance = { ...balance, balanced: false, differences: [inverted] };
       // A reactant-side species that takes no part in the only balance is a reagent or a
@@ -645,10 +774,11 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
             // becomes"). Measured: a coupling reagent listed under Reactants with its co-product
             // omitted came back balanced, no differences, and refiled under Agents under a bare
             // formula. The verdict is not flipped on a guess; the reading is named instead.
-            const names = namesFor(stepLabels, 'reactant');
-            const refiled = moved.map(position => reactants[position].name ?? names[position] ?? reactants[position].formula ?? reactants[position].canonicalSmiles);
+            const refiled = moved.map(position => nameOf(reactants[position]) ?? reactants[position].formula ?? reactants[position].canonicalSmiles);
             const list = refiled.map(name => `"${name}"`).join(' and ');
-            step.refiledReactant = `${list} ${refiled.length > 1 ? 'were' : 'was'} listed under Reactants, and the step balances only if ${refiled.length > 1 ? 'they take' : 'it takes'} no part, so the check treated ${refiled.length > 1 ? 'them' : 'it'} as ${refiled.length > 1 ? 'conditions' : 'a condition'}. If that is right, list ${refiled.length > 1 ? 'them' : 'it'} under Agents. If ${refiled.length > 1 ? 'they are' : 'it is'} genuinely consumed, then the product ${refiled.length > 1 ? 'they become' : 'it becomes'} is missing from this step, and naming it is what makes the equation close.`;
+            // One explicit edit, named: either reading closes the equation, and only the author knows which.
+            const many = refiled.length > 1;
+            step.refiledReactant = `${list} ${many ? 'were' : 'was'} listed under Reactants, and the step balances only if ${many ? 'they take' : 'it takes'} no part, so the check treated ${many ? 'them' : 'it'} as ${many ? 'conditions' : 'a condition'}. Make one edit to this step: move ${list} to Agents, or name under Products the ${many ? 'products they become' : 'product it becomes'}.`;
             reactants.splice(0, reactants.length, ...kept);
             agents.splice(0, agents.length, ...asAgents);
             balance = retried;
@@ -658,8 +788,8 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // Still refused: when moving one species to the other side makes the step balance (water
       // written as a reactant in an oxidation that forms it), say so — the totals alone did not
       // tell the author which species or which way.
-      if (!balance.balanced) {
-        const flip = agentRoleThatBalances(reactants, agents, products) || sideFlipThatBalances(reactants, agents, products);
+      if (!balance.balanced && !balance.unchecked) {
+        const flip = agentRoleThatBalances(reactants, agents, products, nameOf) || sideFlipThatBalances(reactants, agents, products, nameOf);
         if (flip) balance.differences = balance.differences.map(entry => `${entry} ${flip}`);
       }
       // The solved coefficients travel with the species so the report can show the equation
@@ -672,6 +802,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       step.agents = agents;
       step.products = products;
       step.balanced = balance.balanced;
+      if (balance.unchecked) step.balanceUnchecked = balance.differences.join(' ');
       step.chargeBalanced = balance.chargeBalanced;
       step.differences = balance.differences;
       // Only the species the step makes are the route's responsibility to specify. A purchased
@@ -712,7 +843,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       if (!raw || typeof raw.name !== 'string' || !raw.name.trim() || typeof raw.smiles !== 'string' || !raw.smiles.trim()) continue;
       if (raw.role !== 'reactant' && raw.role !== 'product' && raw.role !== 'agent') continue;
       let declared: RouteSpeciesSummary;
-      try { declared = await summarize(raw.smiles); } catch { continue; }
+      try { declared = await summarize(raw.smiles, cache); } catch { continue; }
       const candidates = (Array.isArray(raw.nameSmiles) ? raw.nameSmiles : [])
         .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
       // A structure carrying a dummy atom is an ABSTRACTION: the author has deliberately left
@@ -731,7 +862,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
         nameOk = false;
         for (const candidate of candidates) {
           try {
-            const resolved = await summarize(candidate);
+            const resolved = await summarize(candidate, cache);
             if (resolved.canonicalSmiles === declared.canonicalSmiles) { nameOk = true; break; }
             if (resolved.skeletonSmiles === declared.skeletonSmiles && resolved.charge === declared.charge) {
               // Same constitution: a name that is silent about stereochemistry is not a
@@ -831,7 +962,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
     const declared = typeof carriers[step.index] === 'string' && carriers[step.index] ? carriers[step.index]!.trim() : '';
     if (!declared) continue;
     let canonical: string | null = null;
-    try { canonical = (await summarize(declared)).canonicalSmiles; } catch { canonical = null; }
+    try { canonical = (await summarize(declared, cache)).canonicalSmiles; } catch { canonical = null; }
     const inReactant = canonical ? step.reactants.some(entry => entry.canonicalSmiles === canonical) : false;
     const earlier = canonical ? (producers.get(canonical) ?? []).filter(index => index < step.index) : [];
     const entry = [...linkByKey.values()].find(item => item.to === step.index && item.from < step.index)
@@ -860,7 +991,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
   if (requested) {
     target = { input: requested, canonicalSmiles: null, formula: null, formedAt: null, reason: 'unparsed' };
     try {
-      const wanted = await summarize(requested);
+      const wanted = await summarize(requested, cache);
       const formedBy = (match: (product: RouteSpeciesSummary) => boolean): number[] =>
         audited.filter(step => step.ok && step.products.some(match)).map(step => step.index);
       const exact = formedBy(product => product.canonicalSmiles === wanted.canonicalSmiles);
@@ -959,23 +1090,31 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
     }
   }
 
+  // A reason that is already a sentence keeps its own full stop. Every check below ends its
+  // message with one, and appending another put ".." in front of the model on most routes.
+  const sentence = (text: string) => (/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`);
   const blocked: string[] = [];
   for (const step of audited) {
     if (!step.ok) { blocked.push(`Step ${step.index + 1}: ${step.error ?? 'could not be parsed.'}`); continue; }
-    for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${problem}.`);
-    if (!step.balanced) { blocked.push(`Step ${step.index + 1} is not balanced: ${step.differences.join('; ')}.`); continue; }
+    for (const problem of step.nameProblems ?? []) blocked.push(`Step ${step.index + 1}: ${sentence(problem)}`);
+    if (!step.balanced) {
+      blocked.push(step.balanceUnchecked
+        ? `Step ${step.index + 1} was not checked for balance: ${sentence(step.balanceUnchecked)}`
+        : `Step ${step.index + 1} is not balanced: ${sentence(step.differences.join('; '))}`);
+      continue;
+    }
     const packing = checkPerMoleculePacking(step);
     if (packing !== 'n/a' && 'unchecked' in packing) {
       step.assemblyUnchecked = packing.unchecked;
     } else if (packing !== 'n/a' && !packing.ok) {
       step.assemblyProblem = packing.reason;
-      blocked.push(`Step ${step.index + 1}: ${packing.reason}.`);
+      blocked.push(`Step ${step.index + 1}: ${sentence(packing.reason)}`);
       continue;
     }
     const skeletonProblem = await checkSkeleton(step, { rearrangement: declaredRearrangement(step.index), radical: declaredRadical(step.index) });
     if (skeletonProblem) {
       step.skeletonProblem = skeletonProblem;
-      blocked.push(`Step ${step.index + 1}: ${skeletonProblem}.`);
+      blocked.push(`Step ${step.index + 1}: ${sentence(skeletonProblem)}`);
       continue;
     }
     if (step.unspecifiedStereocentres > 0 && !step.racemic && !step.stereoNotRequired) blocked.push(`Step ${step.index + 1} leaves ${step.unspecifiedStereocentres} stereocentre(s) or double bond(s) unspecified.`);

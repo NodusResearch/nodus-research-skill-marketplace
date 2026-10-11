@@ -170,6 +170,10 @@ export interface ChemistryValidationRequest {
   /** Set by the read-only inspector: return the graph even when a stereocentre is
    *  unspecified, so an intermediate is reported with a caveat instead of rejected. */
   inspect?: boolean;
+  /** With `inspect`: the route checker's read, which uses only the inspection summary. The layout
+   *  round trip is still required, but no second layout, scene or SVG is made, and the centres in
+   *  `cipCentres` are numbered in the SMILES as written rather than in a layout's atom order. */
+  summaryOnly?: boolean;
   /** The step is a declared racemate: draw it with its open centres unspecified rather
    *  than refusing the unspecified stereocentre. Used by the route-fix drawing path. */
   racemic?: boolean;
@@ -258,6 +262,10 @@ export interface RouteStepAudit {
   /** Set when the equation balances only by assembling a product molecule from more than one
    *  substrate molecule — chemically impossible for a single transformation. */
   assemblyProblem?: string;
+  /** Set when the coefficient search gave up because more species are free to vary than it
+   *  determines coefficients for. `balanced` stays false, so nothing passes the step, but it is
+   *  unchecked rather than unbalanced, and its one action is to split the step. */
+  balanceUnchecked?: string;
   /** Why the per-molecule packing search gave up, when it did. Not set when the step's shape is
    *  simply outside what packing models (a convergent coupling), which is not a gap in coverage. */
   assemblyUnchecked?: string;

@@ -5,7 +5,7 @@ import { requireVendored } from './vendor';
 import type { ChemistryGraph, ChemistryInspectionSummary, ChemistryPartialReason, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
 import { formulaOf } from './chemistryElements';
 import { rdkitAtomPalette } from './elementColours';
-import { sceneFromMolfile, sceneMolfile, renderScene, exportSceneChemfig, verifySceneChemfig, forceTetrahedralPerspective, assignLonePairs } from './chemistryScene';
+import { sceneFromMolfile, sceneMolfile, renderScene, exportSceneChemfig, verifySceneChemfig, forceTetrahedralPerspective, assignLonePairs, skeletalLabels } from './chemistryScene';
 import { deriveProjection } from './chemistryProjections';
 import { deriveMechanism } from './chemistryMechanisms';
 import { deriveNewman, exportNewman, verifyNewman, renderNewman, newmanEvidence } from './chemistryNewman';
@@ -51,6 +51,21 @@ function delimiterFault(smiles: string): string | null {
       }
     }
   }
+  // A ring bond is opened and closed by the same label, so outside a bracket atom every label
+  // appears an even number of times. Measured: a route wrote one species with ring 2 opened and
+  // never closed, was told only that RDKit rejected it, and resubmitted the identical string in
+  // two steps of the next round.
+  const labels = new Map<string, number>();
+  for (let at = 0; at < smiles.length; at += 1) {
+    const character = smiles[at];
+    if (character === '[') { at = smiles.indexOf(']', at); if (at < 0) break; continue; }
+    const label = character === '%' ? smiles.slice(at, at + 3) : /[0-9]/.test(character) ? character : null;
+    if (!label) continue;
+    if (character === '%') at += 2;
+    labels.set(label, (labels.get(label) ?? 0) + 1);
+  }
+  const open = [...labels].filter(([, count]) => count % 2 === 1).map(([label]) => label.replace('%', ''));
+  if (open.length) return `ring bond ${open.join(', ')} opened and never closed`;
   return null;
 }
 
@@ -58,7 +73,7 @@ function delimiterFault(smiles: string): string | null {
 function rejectedGraph(smiles: string): Error {
   const fault = delimiterFault(smiles);
   return new Error(fault
-    ? `RDKit rejected the molecular graph: the SMILES has ${fault}. The rest of the string may be sound, so repair the delimiter rather than rewriting the species.`
+    ? `RDKit rejected the molecular graph: the SMILES has ${fault}. The rest of the string may be sound, so repair that one defect rather than rewriting the species.`
     : 'RDKit rejected the molecular graph.');
 }
 
@@ -74,6 +89,50 @@ type MatchableMol = JSMol & {
   get_num_atoms(): number;
   get_substruct_matches(query: JSMol, details: string): string;
 };
+
+/** A structure's tetrahedral centres as RDKit holds them, numbered in the SMILES as written: each
+ *  atom's element, charge and hydrogen count, its neighbours in bond order with the bond orders,
+ *  and the chiral tag ('cw' / 'ccw') a specified centre carries, which is relative to that
+ *  neighbour order. Null when RDKit cannot read the string. */
+export interface StereoGraph {
+  atoms: Array<{ z: number; charge: number; hydrogens: number }>;
+  neighbours: Array<Array<{ atom: number; order: number }>>;
+  tags: Array<'cw' | 'ccw' | null>;
+  cip: Map<number, string>;
+}
+
+export async function stereoGraph(smiles: string): Promise<StereoGraph | null> {
+  const kit = await rdkit();
+  const molecule = kit.get_mol(smiles);
+  if (!molecule) return null;
+  try {
+    if (!molecule.is_valid()) return null;
+    const json = JSON.parse(molecule.get_json()) as {
+      defaults: { atom: { z: number; chg: number; impHs: number; stereo: string }; bond: { bo: number } };
+      molecules: Array<{ atoms: Array<{ z?: number; chg?: number; impHs?: number; stereo?: string }>; bonds?: Array<{ atoms: [number, number]; bo?: number }> }>;
+    };
+    const graph: StereoGraph = { atoms: [], neighbours: [], tags: [], cip: new Map() };
+    for (const raw of json.molecules) {
+      const offset = graph.atoms.length;
+      for (const atom of raw.atoms) {
+        graph.atoms.push({ z: atom.z ?? json.defaults.atom.z, charge: atom.chg ?? json.defaults.atom.chg, hydrogens: atom.impHs ?? json.defaults.atom.impHs });
+        graph.neighbours.push([]);
+        const stereo = atom.stereo ?? json.defaults.atom.stereo;
+        graph.tags.push(stereo === 'cw' || stereo === 'ccw' ? stereo : null);
+      }
+      for (const bond of raw.bonds ?? []) {
+        const [a, b] = [bond.atoms[0] + offset, bond.atoms[1] + offset];
+        const order = bond.bo ?? json.defaults.bond.bo;
+        graph.neighbours[a].push({ atom: b, order });
+        graph.neighbours[b].push({ atom: a, order });
+      }
+    }
+    for (const [atom, tag] of (JSON.parse(molecule.get_stereo_tags()) as { CIP_atoms: Array<[number, string]> }).CIP_atoms) graph.cip.set(atom, tag);
+    return graph;
+  } finally {
+    molecule.delete();
+  }
+}
 
 export async function moleculeGraph(smiles: string): Promise<MoleculeGraph> {
   const kit = await rdkit();
@@ -276,6 +335,44 @@ export async function productMatchesTarget(target: string, product: string): Pro
   }
 }
 
+/** The inspection summary read straight from the parsed reference, for the route checker. The
+ *  numbers are the ones the full path reports — the same canonical graph, composition and stereo
+ *  counts — and the centres are numbered in the string the author wrote, which is the handle the
+ *  report gives them. Throws exactly where the full path's layout check would. */
+function summaryOnlyResult(kit: RDKitModule, reference: JSMol, canonicalSmiles: string, unspecifiedBonds: number, oclMolfile: () => string, parse: (source: string) => JSMol): ChemistryValidationResult {
+  const roundTrips = (molfile: () => string): boolean => {
+    try { return parse(molfile()).get_smiles() === canonicalSmiles; } catch { return false; }
+  };
+  if (!roundTrips(oclMolfile) && !roundTrips(() => reference.get_new_coords(true))) throw new Error('No available layout reproduced the reference graph and stereochemistry.');
+  const stereo = JSON.parse(reference.get_stereo_tags()) as { CIP_atoms: Array<[number, string]>; CIP_bonds: Array<[number, number, string]> };
+  const json = JSON.parse(reference.get_json());
+  if (json.molecules.length !== 1) throw new Error('Only one molecular graph per species is supported.');
+  const raw = json.molecules[0];
+  const atoms = raw.atoms.map((a: Record<string, number>, i: number) => {
+    const value = { ...json.defaults.atom, ...a };
+    return { id: `a${i}`, atomicNumber: value.z, charge: value.chg, isotope: value.isotope, hydrogens: value.impHs };
+  });
+  const bonds = (raw.bonds ?? []).map((b: { atoms: [number, number]; bo?: number }, i: number) => ({ id: `b${i}`, atoms: b.atoms.map(a => `a${a}`) as [string, string], order: b.bo ?? json.defaults.bond.bo }));
+  const unspecifiedAtoms = stereo.CIP_atoms.filter(([index, tag]) => tag === '(?)' && ORGANIC_CIP_ELEMENTS.has(atoms[index].atomicNumber)).length;
+  const { composition, charge, heavyAtoms } = compositionOf(atoms);
+  let skeletonSmiles = canonicalSmiles;
+  try { skeletonSmiles = parse(canonicalSmiles.replace(/@/g, '').replace(/[\\/]/g, '')).get_smiles(); } catch { /* keep the canonical form */ }
+  const specified = stereo.CIP_atoms.filter(([, tag]) => tag !== '(?)');
+  const alphaConfiguration = alphaConfigurationOf(kit, reference, stereo.CIP_atoms);
+  return {
+    graph: { canonicalSmiles, molfile: '', atoms, bonds }, svg: '', engineVersion: kit.version(),
+    inspection: {
+      canonicalSmiles, skeletonSmiles, formula: formulaOf(composition), charge, heavyAtoms,
+      stereocentres: specified.length + stereo.CIP_bonds.length,
+      cipTags: specified.map(([, tag]) => tag).sort(),
+      cipCentres: specified.map(([atom, tag]) => ({ atom, tag })),
+      unspecifiedStereocentres: unspecifiedAtoms + unspecifiedBonds,
+      composition,
+      ...(alphaConfiguration ? { alphaConfiguration } : {}),
+    },
+  };
+}
+
 export async function validateChemicalReferences(request: ChemistryValidationRequest): Promise<ChemistryValidationResult> {
   if (!Array.isArray(request.references) || request.references.length < 1 || request.references.length > 3
     || request.references.some(s => typeof s !== 'string' || !s || s.length > MAX_SPECIES_CHARS || /\s|\|/.test(s) || !supportAllowed(s))) {
@@ -408,6 +505,10 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
       }
       if (ocl.isBINAPChiralityBond(b)) throw new Error('Axial stereochemistry is outside the validated scope.');
     }
+    // The route checker's read. A species with no layout that round-trips is refused exactly as
+    // below, but the better of two layouts, the scene and the SVG are drawing work: on a 53-atom
+    // intermediate they were three quarters of each species' time, paid on every step that named it.
+    if (request.inspect && request.summaryOnly) return summaryOnlyResult(kit, reference, canonicalSmiles, unspecifiedBonds, () => ocl.toMolfile(), parse);
     // Two independent layout engines. A drawing is only usable if its coordinates
     // round-trip back to the same graph, so when OpenChemLib's coordinate inventor
     // rewrites geometry — it flips long conjugated polyenes inside macrolactones —
@@ -535,9 +636,14 @@ export async function validateChemicalReferences(request: ChemistryValidationReq
     if (newman) result.projection = newmanEvidence(newman);
     if (request.exportChemfig) {
       try {
-        const source = newman ? exportNewman(newman) : exportSceneChemfig(drawing);
+        // Skeletal unless the request asked to see hydrogens, or for a projection whose convention
+        // labels its carbons. A reaction scheme asks for no depiction and is drawn skeletal, like
+        // the target structure. The same labelled scene is exported and verified.
+        const skeletal = (!request.depiction || request.depiction === 'skeletal') && !drawing.convention;
+        const exported = skeletal ? skeletalLabels(drawing) : drawing;
+        const source = newman ? exportNewman(newman) : exportSceneChemfig(exported);
         if (newman) verifyNewman(source, newman, canonicalSmiles, kit);
-        else verifySceneChemfig(source, drawing, canonicalSmiles, kit);
+        else verifySceneChemfig(source, exported, canonicalSmiles, kit);
         const { compileChemfig } = await import('./chemistry');
         await compileChemfig(source);
         result.chemfig = { status: 'validated', source, checks: ['Parsed emitted topology, labels, bond orders and coordinates', 'RDKit stereochemical round-trip under the stated projection convention', 'Actual ChemFig compilation in a killable worker'] };

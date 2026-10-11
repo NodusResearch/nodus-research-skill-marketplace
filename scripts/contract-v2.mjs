@@ -1420,8 +1420,8 @@ function validateWorkerToHost(input) {
       }
       throw new Error("Malformed worker result.");
     case "host-call":
-      if (!exactKeys(message, ["type", "callId", "channel", "method", "payload"]) || typeof message.callId !== "string" || !CALL_ID.test(message.callId) || !HOST_CHANNELS.includes(message.channel) || typeof message.method !== "string" || !/^[a-zA-Z][a-zA-Z0-9.]{0,40}$/.test(message.method)) throw new Error("Malformed host call.");
-      return { type: "host-call", callId: message.callId, channel: message.channel, method: message.method, payload: message.payload };
+      if (!(exactKeys(message, ["type", "callId", "channel", "method", "payload"]) || exactKeys(message, ["type", "callId", "channel", "method", "payload", "parentCallId"])) || typeof message.callId !== "string" || !CALL_ID.test(message.callId) || message.parentCallId !== void 0 && (typeof message.parentCallId !== "string" || !CALL_ID.test(message.parentCallId)) || !HOST_CHANNELS.includes(message.channel) || typeof message.method !== "string" || !/^[a-zA-Z][a-zA-Z0-9.]{0,40}$/.test(message.method)) throw new Error("Malformed host call.");
+      return { type: "host-call", callId: message.callId, channel: message.channel, method: message.method, payload: message.payload, ...message.parentCallId ? { parentCallId: message.parentCallId } : {} };
     case "log": {
       if (!exactKeys(message, ["type", "level", "message", "detail"]) && !exactKeys(message, ["type", "level", "message"])) throw new Error("Malformed worker log.");
       if (!LEVELS.includes(message.level) || typeof message.message !== "string") throw new Error("Malformed worker log.");

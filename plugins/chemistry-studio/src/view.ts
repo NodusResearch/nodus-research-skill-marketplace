@@ -17,6 +17,11 @@ export interface ChemistryAttachments {
 type Node = Record<string, unknown>;
 
 export function documentView(document: ChemistryDocument, locale: string, attachments: ChemistryAttachments = {}): Record<string, unknown> {
+  // A legacy block is parsed from an old message, not produced here: only a document that says
+  // it was verified or partly verified earns a badge, and a malformed one is refused as
+  // unreadable rather than failing on whichever field happens to be missing.
+  if (!document || !Array.isArray(document.species) || document.species.some(species => typeof species?.input?.value !== 'string')
+    || (document.status !== 'verified' && document.status !== 'partial')) throw new Error('CHEMISTRY_LEGACY_UNREADABLE');
   const nodes: Node[] = [];
   const partial = document.status === 'partial';
 

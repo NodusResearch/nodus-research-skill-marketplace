@@ -20,8 +20,17 @@ const routedFetch = (async (input: string | URL | Request, init?: RequestInit) =
   const url = new URL(raw);
   const endpoint = ENDPOINTS.find(candidate => new URL(candidate.origin).origin === url.origin);
   if (!endpoint) throw new Error(`Chemistry Studio does not declare access to ${url.origin}.`);
-  void init;
-  const response = await host().network.fetch(endpoint.id, { path: `${url.pathname}${url.search}`, method: 'GET' });
+  // The host's fetch takes no signal, so the request's own is raced against it. Dropped, as it
+  // was, neither readJSON's 10 s timeout nor the turn's abort could end a look-up: with replies
+  // taking 14 s a name resolved after 29 s, and an abort was answered only when the reply came.
+  const signal = init?.signal ?? undefined;
+  signal?.throwIfAborted();
+  const pending = host().network.fetch(endpoint.id, { path: `${url.pathname}${url.search}`, method: 'GET' });
+  const response = !signal ? await pending : await new Promise<Awaited<typeof pending>>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('Chemical reference request aborted.'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
   const bytes = Buffer.from(response.body);
   // The engine reads the body as a stream and bounds it as it goes, which is how a
   // hostile reference is stopped before it is held in memory. The adapter has to present
@@ -29,6 +38,9 @@ const routedFetch = (async (input: string | URL | Request, init?: RequestInit) =
   return {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
+    // The host forwards the response headers; PubChem's X-Throttling-Control travels in them.
+    headers: new Headers(Object.entries((response as { headers?: Record<string, unknown> }).headers ?? {})
+      .filter(([, value]) => typeof value === 'string') as Array<[string, string]>),
     body: new ReadableStream<Uint8Array>({
       start(controller) {
         if (bytes.length) controller.enqueue(new Uint8Array(bytes));
@@ -55,10 +67,11 @@ const validate = async (request: ChemistryValidationRequest, signal?: AbortSigna
 };
 
 /** Read-only batch inspection. One subworker load parses every SMILES, and a species that
- *  cannot be parsed comes back as an error entry instead of failing the whole batch. */
-const inspectBatch = async (smiles: string[], signal?: AbortSignal): Promise<ChemistryInspectionResult[]> => {
+ *  cannot be parsed comes back as an error entry instead of failing the whole batch. A caller that
+ *  needs only the canonical SMILES says so, and the batch skips the layouts and the drawing. */
+const inspectBatch = async (smiles: string[], signal?: AbortSignal, options: { canonicalOnly?: boolean } = {}): Promise<ChemistryInspectionResult[]> => {
   signal?.throwIfAborted();
-  const result = await host().subworker.run({ entry: 'validator.js', input: { batch: smiles }, timeoutMs: 120_000 });
+  const result = await host().subworker.run({ entry: 'validator.js', input: { batch: smiles, ...(options.canonicalOnly ? { canonicalOnly: true } : {}) }, timeoutMs: 120_000 });
   return (result as { results?: ChemistryInspectionResult[] })?.results ?? [];
 };
 
