@@ -646,6 +646,18 @@ def _screen_cache_path(path):
     return f"{path}.screen-{digest.hexdigest()[:16]}.npz"
 
 
+def _template_row(line):
+    """(count, rdchiral, smarts) from one templates-file line, whatever columns it carries.
+
+    A newer index writes a fourth column between `rdchiral` and the pattern, and splitting into
+    exactly three put that column at the front of the SMARTS, so every pattern failed to parse and
+    the whole library was silently dropped — a store that read as empty rather than as unreadable.
+    The SMARTS cannot contain a tab, so taking the LAST field is correct for every version of the
+    format, present and future."""
+    parts = line.rstrip("\n").split("\t")
+    return parts[0], parts[1], parts[-1]
+
+
 def _retro_templates(index_dir):
     """The shipped retro templates, parsed once per process. Each row is
     [count, rdchiral, smarts, query]; `query` is parsed on first use when the screen is cached.
@@ -674,7 +686,7 @@ def _retro_templates(index_dir):
                 screen, valid = data["screen"], data["valid"]
             if len(screen) == len(valid) and (not len(valid) or int(valid.max()) < len(lines)):
                 for i in valid.tolist():
-                    count, rdchiral, smarts = lines[i].split("\t", 2)
+                    count, rdchiral, smarts = _template_row(lines[i])
                     rows.append([int(count), int(rdchiral), smarts, None])
                 _retro_cache[index_dir] = rows
                 _retro_screen[index_dir] = screen
@@ -683,7 +695,7 @@ def _retro_templates(index_dir):
         rows = []
     valid = []
     for i, line in enumerate(lines):
-        count, rdchiral, smarts = line.split("\t", 2)
+        count, rdchiral, smarts = _template_row(line)
         query = Chem.MolFromSmarts(smarts.split(">>")[0])
         if query is not None:
             rows.append([int(count), int(rdchiral), smarts, query])

@@ -652,6 +652,38 @@ class ReversedIndexTemplate(unittest.TestCase):
         self.assertEqual(out["error"], "unknown-template")
 
 
+class TemplateRows(unittest.TestCase):
+    """The templates file has gained a column before and will again.
+
+    Splitting into exactly three columns put a newer file's fourth column at the front of every
+    SMARTS, so every pattern failed to parse and the entire library was dropped — a store that read
+    as EMPTY rather than as unreadable, which is the worst way for this to fail. The pattern cannot
+    contain a tab, so the last field is the pattern whatever else is there."""
+
+    SMARTS = "[NH2;D1;+0:1]-[c:2]>>O=[N+;H0;D3:1](-[O-])-[c:2]"
+
+    def test_three_columns(self):
+        self.assertEqual(reactions_worker._template_row(f"12\t1\t{self.SMARTS}"),
+                         ("12", "1", self.SMARTS))
+
+    def test_four_columns_with_a_radius_between(self):
+        self.assertEqual(reactions_worker._template_row(f"12\t1\t2\t{self.SMARTS}"),
+                         ("12", "1", self.SMARTS))
+
+    def test_a_column_added_in_future_does_not_break_it(self):
+        self.assertEqual(reactions_worker._template_row(f"12\t1\t2\tsomething\t{self.SMARTS}"),
+                         ("12", "1", self.SMARTS))
+
+    def test_the_trailing_newline_is_not_part_of_the_pattern(self):
+        self.assertEqual(reactions_worker._template_row(f"12\t1\t2\t{self.SMARTS}\n")[2],
+                         self.SMARTS)
+
+    def test_the_pattern_from_either_shape_parses(self):
+        for line in (f"12\t1\t{self.SMARTS}", f"12\t1\t2\t{self.SMARTS}"):
+            smarts = reactions_worker._template_row(line)[2]
+            self.assertIsNotNone(Chem.MolFromSmarts(smarts.split(">>")[0]), line)
+
+
 class DisconnectionSite(unittest.TestCase):
     """Marking a target says WHERE a disconnection is wanted, which lets the retro pass skip the
     templates that are found only somewhere else.
