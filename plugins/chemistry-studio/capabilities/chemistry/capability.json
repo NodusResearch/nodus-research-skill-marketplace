@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "chemistry",
   "provides": "nodus:chemistry",
-  "version": "2.5.8",
+  "version": "2.5.28",
   "description": "Resolve chemical identities against references, validate the structure, draw it as a verified document, and check a step against known reactions.",
   "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
   "requires": [{ "id": "nodus:svg", "minVersion": "1.0.0", "maxVersionExclusive": "2.0.0" }],
@@ -14,7 +14,7 @@
         "type": "object",
         "properties": {
           "plan": { "type": "string", "minLength": 2, "maxLength": 64000 },
-          "question": { "type": "string", "maxLength": 8000 }
+          "question": { "type": "string", "maxLength": 64000 }
         },
         "required": ["plan"],
         "additionalProperties": false
@@ -32,7 +32,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 24 }
+          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 24 }
         },
         "required": ["smiles"],
         "additionalProperties": false
@@ -51,7 +51,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 48 }
+          "names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 512 }
         },
         "required": ["names"],
         "additionalProperties": false
@@ -70,7 +70,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "minItems": 1, "maxItems": 48 }
+          "smiles": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4000 }, "minItems": 1, "maxItems": 512 }
         },
         "required": ["smiles"],
         "additionalProperties": false
@@ -89,24 +89,26 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 4000 }, "minItems": 1, "maxItems": 96 },
-          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 2000 }, "maxItems": 96 },
+          "steps": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 64000 }, "minItems": 1, "maxItems": 512 },
+          "carriers": { "type": "array", "items": { "type": "string", "maxLength": 4000 }, "maxItems": 512 },
           "racemic": { "type": "boolean" },
+          "rearrangement": { "type": "array", "items": { "type": "boolean" }, "maxItems": 512 },
+          "radical": { "type": "array", "items": { "type": "boolean" }, "maxItems": 512 },
           "target": { "type": "string", "minLength": 1, "maxLength": 2000 },
           "enumerateStereo": { "type": "boolean" },
           "labels": {
             "type": "array",
-            "maxItems": 96,
+            "maxItems": 512,
             "items": {
               "type": "array",
-              "maxItems": 24,
+              "maxItems": 128,
               "items": {
                 "type": "object",
                 "properties": {
                   "role": { "type": "string", "enum": ["reactant", "product", "agent"] },
                   "byproduct": { "type": "boolean" },
-                  "name": { "type": "string", "minLength": 1, "maxLength": 1000 },
-                  "smiles": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                  "name": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                  "smiles": { "type": "string", "minLength": 1, "maxLength": 4000 }
                 },
                 "required": ["role", "name", "smiles"],
                 "additionalProperties": false

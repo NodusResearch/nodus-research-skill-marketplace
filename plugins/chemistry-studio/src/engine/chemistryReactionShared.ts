@@ -1,3 +1,4 @@
+import { MAX_REACTION_CHARS } from './chemistryLimits';
 import type { ChemistryIntent } from './chemistryDocument';
 
 /** Split a reaction SMILES into its three fields, tolerating one empty extra field.
@@ -6,7 +7,7 @@ import type { ChemistryIntent } from './chemistryDocument';
  *  intent is unambiguous, so it is collapsed rather than refused. A string with any other
  *  field count is still rejected. */
 export function splitReactionSmiles(source: string): { reactants: string; agents: string; products: string } {
-  if (!source || source.length > 4000 || /\s/.test(source)) throw new Error('Provide one complete reaction SMILES without whitespace.');
+  if (!source || source.length > MAX_REACTION_CHARS || /\s/.test(source)) throw new Error('Provide one complete reaction SMILES without whitespace.');
   let fields = source.split('>');
   if (fields.length === 4 && fields[2] === '') fields = [fields[0], fields[1], fields[3]];
   // `A>B` (one separator) is the common shorthand for `A>>B`: no agents field.

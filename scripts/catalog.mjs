@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateManifest, validatePluginPackage, validateSkillPackage } from './contract.mjs';
 import { isOfficialSkillCategory } from './categories.mjs';
+import { spawnSync } from 'node:child_process';
 const mentions = (instructions, id) => new RegExp(`(?<![A-Za-z0-9-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9-])`).test(instructions);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const entries = [];
@@ -41,8 +42,25 @@ function declaredOnly(directory, declared) {
 // `node_modules/` are untracked local output.
 const NOT_A_PACKAGE = ['assets', 'scripts', 'templates', 'plugins', 'build', 'node_modules'];
 
+/** Whether git ignores this directory, which is the only reliable way to tell catalogue content
+ *  from local working output. A git worktree checked out inside the repository — a second full
+ *  checkout of this same repository on another branch — is a directory full of package-shaped
+ *  files, so the walk below treated it as catalogue content and died on the first skill.json it
+ *  found there. CI has no such directory, so this check passed there and failed only locally,
+ *  which is exactly when it is wanted. Named exclusions cannot fix it: the directory is whatever
+ *  the author called their worktree. */
+function gitIgnores(name) {
+  try {
+    return spawnSync('git', ['check-ignore', '-q', '--', name], { cwd: root }).status === 0;
+  } catch {
+    // No git, or no repository: fall back to checking nothing, which is the old behaviour.
+    return false;
+  }
+}
+
 for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
   if (!dir.isDirectory() || dir.name.startsWith('.') || NOT_A_PACKAGE.includes(dir.name)) continue;
+  if (gitIgnores(dir.name)) continue;
   const directory = path.join(root, dir.name);
   const read = reader(directory);
 

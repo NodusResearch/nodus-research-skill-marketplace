@@ -1,5 +1,6 @@
 import type { ChemistryIntent, ChemistryPartialReason, ChemistryReference, ChemistryResolution, ChemistryValidationRequest, ChemistryValidationResult } from './chemistryDocument';
 import { reactionSmilesSpecies } from './chemistryReactionShared';
+import { buildingBlockSmiles, isResinBoundName } from './peptideBuildingBlocks';
 
 export interface ChemistryIdentityDependencies {
   fetch: typeof fetch;
@@ -125,8 +126,8 @@ export function parseChemistryIntent(source: string, question: string): Chemistr
     const input = item.input;
     if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['kind', 'value'].includes(key))) throw new Error(`${at}.input must be an object with exactly "kind" and "value".`);
     if (!['name', 'pubchem-cid', 'smiles'].includes(input.kind)) throw new Error(`${at}.input.kind must be "name", "pubchem-cid" or "smiles".`);
-    if (typeof input.value !== 'string' || !input.value || input.value !== input.value.trim() || input.value.length > (input.kind === 'smiles' ? 2000 : 200)) {
-      throw new Error(`${at}.input.value must be a non-empty string with no leading or trailing spaces, at most ${input.kind === 'smiles' ? 2000 : 200} characters.`);
+    if (typeof input.value !== 'string' || !input.value || input.value !== input.value.trim() || input.value.length > (input.kind === 'smiles' ? 2000 : MAX_CHEMICAL_NAME)) {
+      throw new Error(`${at}.input.value must be a non-empty string with no leading or trailing spaces, at most ${input.kind === 'smiles' ? 2000 : MAX_CHEMICAL_NAME} characters.`);
     }
     // Only explicit input from this user turn may leave the device. Retrieved
     // embeddings/model guesses cannot become either identity or network query.
@@ -254,9 +255,35 @@ async function references(input: ChemistryIntent['species'][number]['input'], de
  *  checker uses this to test an IUPAC name against the structure it was written beside. An
  *  unresolved or ambiguous name yields no candidates, which the checker reports as unchecked
  *  rather than as a disagreement. */
+/** The longest chemical name any part of this package will accept or resolve.
+ *
+ *  A systematic name for an assembled chain is long — roughly 40 characters per unit in the
+ *  nested style a model writes, so near 580 characters at 13 units and 1,660 at 40 — and cutting
+ *  one leaves it SYNTACTICALLY INCOMPLETE, so it resolves to nothing. The caller is then told the
+ *  NAME is unknown when the fault was the cut.
+ *
+ *  This was 200 in four places across three files, each masking the next: fixing two of them took
+ *  a six-unit chain from five unresolved species to two, and the remaining cut was here. OPSIN
+ *  resolves these names on the first try, so the limit was never the service's. Keep every name
+ *  bound referring to this constant rather than writing a number. */
+export const MAX_CHEMICAL_NAME = 4000;
+
 export async function resolveNameReferences(name: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<string[]> {
   const value = typeof name === 'string' ? name.trim() : '';
-  if (!value || value.length > 200 || !/\p{L}/u.test(value)) return [];
+  if (!value || value.length > MAX_CHEMICAL_NAME || !/\p{L}/u.test(value)) return [];
+  // The built-in dictionary first, exactly as resolveSpeciesName does it. This is the comparison
+  // path for a declared name, and the network resolvers cannot read the standard shorthand at all:
+  // OPSIN and PubChem both fail on `Fmoc-Lys(Boc)-OH`, so the candidate list came back empty and
+  // the name was counted unresolved rather than checked against a structure the dictionary already
+  // holds, PubChem-sourced and RDKit-validated. Returned alone rather than alongside the network's
+  // answers: a candidate silent about configuration satisfies the comparison on skeleton and
+  // charge, so offering one beside the dictionary entry would let an inverted centre pass.
+  const builtin = buildingBlockSmiles(value);
+  if (builtin) return [builtin];
+  // Same answer as resolveSpeciesName gives, or the label check would compare the author's name
+  // against a different structure from the one the equation was built with.
+  const diatomic = diatomicElementForName(value);
+  if (diatomic) return [diatomic];
   try {
     const found = await references({ kind: 'name', value }, deps, signal);
     const smiles = found.map(entry => entry.smiles).filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
@@ -315,7 +342,7 @@ export interface SpeciesNameResolution {
   status: 'resolved' | 'ambiguous' | 'unresolved';
   smiles?: string;
   formula?: string;
-  source?: 'pubchem' | 'opsin';
+  source?: 'pubchem' | 'opsin' | 'builtin';
   /** Why it did not resolve, phrased so the model can correct the name. */
   feedback?: string;
 }
@@ -362,6 +389,48 @@ const METAL_WORDS: ReadonlyArray<readonly [string, string]> = [
   ['manganese', 'Mn'], ['chromium', 'Cr'], ['cadmium', 'Cd'], ['mercury', 'Hg'], ['platinum', 'Pt'], ['gold', 'Au'],
 ];
 
+/** An element name whose free form is a diatomic molecule, and that molecule.
+ *
+ *  WHY THIS IS HERE AT ALL. A route writes species as NAMES — the contract tells the model to give
+ *  each one as a systematic name and never to author a structure. It wrote "bromine", which is
+ *  correct, and resolution returned `[Br]`: a bromine ATOM. The route then failed on a species the
+ *  model never wrote, and the checker asked it to supply `BrBr` — a structure the same contract
+ *  forbids it from supplying. Measured: one target needed three turns to discover that workaround
+ *  and another never found it at all. The fault was ours, in this lookup.
+ *
+ *  MATCHED ON THE WHOLE NAME, never a word inside it. The metal lookup below matches `\bword\b`,
+ *  which is right for a salt ("sodium chloride" should show sodium as an ion) and would be a
+ *  disaster here: "hydrogen chloride" is HCl, "hydrogen peroxide" is H2O2, "bromine monochloride"
+ *  is BrCl. None of them is the element's free form.
+ *
+ *  WHAT IS DELIBERATELY ABSENT, because a bare atom is the RIGHT answer for it:
+ *    - every ion. "hydrogen ion", "proton", "hydride", "chloride", "bromide", "iodide" are charged
+ *      or mono-atomic species and resolve as themselves. Only the neutral element word is here, so
+ *      none of them can match.
+ *    - the noble gases. Helium through xenon ARE monatomic in their free form.
+ *    - the metals, which the lookup below already handles and which are monatomic as the element.
+ *    - an explicitly atomic form: "atomic hydrogen", "hydrogen atom", "bromine radical".
+ *    - sulfur and phosphorus. Their free forms are rings and cages whose formula depends on the
+ *      allotrope (S8, P4), so there is no single edit to make. Same reasoning as DIATOMIC_FORM in
+ *      chemistryRouteAudit.ts, which this deliberately mirrors.
+ *    - ozone, which is O3 and not oxygen's free form. */
+const DIATOMIC_ELEMENT_FORMS: Readonly<Record<string, string>> = {
+  hydrogen: '[H][H]', dihydrogen: '[H][H]', 'hydrogen gas': '[H][H]', 'molecular hydrogen': '[H][H]',
+  nitrogen: 'N#N', dinitrogen: 'N#N', 'nitrogen gas': 'N#N', 'molecular nitrogen': 'N#N',
+  oxygen: 'O=O', dioxygen: 'O=O', 'oxygen gas': 'O=O', 'molecular oxygen': 'O=O',
+  fluorine: 'FF', difluorine: 'FF', 'fluorine gas': 'FF', 'molecular fluorine': 'FF',
+  chlorine: 'ClCl', dichlorine: 'ClCl', 'chlorine gas': 'ClCl', 'molecular chlorine': 'ClCl',
+  bromine: 'BrBr', dibromine: 'BrBr', 'bromine gas': 'BrBr', 'molecular bromine': 'BrBr',
+  iodine: 'II', diiodine: 'II', 'iodine gas': 'II', 'molecular iodine': 'II',
+};
+
+/** The free form of a named diatomic element, or null for every other name. Whole-name match on a
+ *  normalised string, so only the element itself resolves here. */
+export function diatomicElementForName(name: string): string | null {
+  const key = String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return Object.hasOwn(DIATOMIC_ELEMENT_FORMS, key) ? DIATOMIC_ELEMENT_FORMS[key] : null;
+}
+
 function metalElementForName(name: string): string | null {
   const lower = name.toLowerCase();
   for (const [word, symbol] of METAL_WORDS) {
@@ -382,8 +451,19 @@ function showsIonicMetal(smiles: string, symbol: string): boolean {
  *  metal as an ion wins; a curated record with a bare neutral metal atom is not used for a
  *  salt name. */
 export async function resolveSpeciesName(rawName: string, deps: ChemistryIdentityDependencies, signal?: AbortSignal): Promise<SpeciesNameResolution> {
-  const name = typeof rawName === 'string' ? rawName.trim().slice(0, 200) : '';
+  const name = typeof rawName === 'string' ? rawName.trim().slice(0, MAX_CHEMICAL_NAME) : '';
   if (!name || !/\p{L}/u.test(name)) return { name, status: 'unresolved', feedback: 'Not a chemical name.' };
+  // Standard protected/building-block amino acids: the built-in dictionary (PubChem-sourced) first,
+  // so a solid-phase route resolves offline and regardless of network. Non-natural residues are not
+  // here and fall through to the resolvers / the author's SMILES.
+  const builtin = buildingBlockSmiles(name);
+  if (builtin) return { name, status: 'resolved', smiles: builtin, source: 'builtin' };
+  // An element whose free form is diatomic, answered here rather than asked of a reference: the
+  // chemistry is not in doubt and PubChem holds the ATOM under the same word.
+  const diatomic = diatomicElementForName(name);
+  if (diatomic) return { name, status: 'resolved', smiles: diatomic, source: 'builtin' };
+  // A resin-bound intermediate has no resolvable name: ask for a structure instead of retrying a name.
+  if (isResinBoundName(name)) return { name, status: 'unresolved', feedback: 'A resin-bound species has no resolvable name — give it as SMILES with the solid support written as a single `*` at the attachment atom (for example `*OC(=O)CN…`).' };
   const metal = metalElementForName(name);
   let pubchem: SpeciesNameResolution | null = null;
   try { pubchem = await pubchemByName(name, deps, signal); } catch { pubchem = null; }

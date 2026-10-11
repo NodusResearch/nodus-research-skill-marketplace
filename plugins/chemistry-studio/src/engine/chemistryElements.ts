@@ -3,7 +3,12 @@
  *  one place so a route audit and a reaction artifact describe the same element the same way. */
 export const ELEMENT_SYMBOLS: readonly string[] = ['', 'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr', 'Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te', 'I', 'Xe', 'Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn', 'Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr', 'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn', 'Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og'];
 
-export const elementSymbol = (atomicNumber: number): string => ELEMENT_SYMBOLS[atomicNumber] ?? `E${atomicNumber}`;
+/** A solid support — a resin with its linker, in a solid-phase synthesis — is written as one `*`
+ *  (atomic number 0) at its attachment atom. It is conserved like an element: a loading step
+ *  consumes a support species and a cleavage step releases one. */
+export const SUPPORT = 0;
+
+export const elementSymbol = (atomicNumber: number): string => atomicNumber === SUPPORT ? '(support)' : ELEMENT_SYMBOLS[atomicNumber] ?? `E${atomicNumber}`;
 
 const parseKey = (key: string): { z: number; isotope: number } => {
   const [z, isotope] = key.split(':').map(Number);
@@ -48,10 +53,12 @@ const CONVENTIONAL_FORMULAS: Record<string, string> = {
  *  are returned in the conventional formula a reader recognises. */
 export function formulaOf(composition: Record<string, number>): string {
   const rank = (key: string): number => { const { z } = parseKey(key); return z === 6 ? 0 : z === 1 ? 1 : 2; };
+  const supports = Object.entries(composition).filter(([key, count]) => count > 0 && parseKey(key).z === SUPPORT).reduce((n, [, count]) => n + count, 0);
   const hill = Object.entries(composition)
-    .filter(([, count]) => count > 0)
+    .filter(([key, count]) => count > 0 && parseKey(key).z !== SUPPORT)
     .sort((a, b) => rank(a[0]) - rank(b[0]) || elementLabel(a[0]).localeCompare(elementLabel(b[0])))
     .map(([key, count]) => `${elementLabel(key)}${count > 1 ? count : ''}`)
     .join('');
-  return CONVENTIONAL_FORMULAS[hill] ?? hill;
+  const formula = CONVENTIONAL_FORMULAS[hill] ?? hill;
+  return supports ? `${formula}–(support)${supports > 1 ? `×${supports}` : ''}` : formula;
 }

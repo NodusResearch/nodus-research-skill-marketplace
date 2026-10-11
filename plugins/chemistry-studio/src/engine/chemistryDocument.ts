@@ -1,3 +1,5 @@
+import type { SkeletonReport } from './chemistrySkeleton';
+
 export type ChemistryRule = 'sn2' | 'amide-resonance' | 'e2' | 'aldol' | 'diels-alder' | 'electron-flow';
 export type NewmanConformation = 'anti' | 'gauche' | 'eclipsed' | 'staggered';
 /**
@@ -195,9 +197,26 @@ export interface ChemistryInspectionSummary {
   heavyAtoms: number;
   /** Specified tetrahedral CIP centres plus specified E/Z bonds. */
   stereocentres: number;
+  /** The specified tetrahedral CIP descriptors, sorted — "R","S". A step that makes and breaks
+   *  bonds away from its stereocentres must carry the same multiset from one side to the other,
+   *  and comparing them is the only check that reaches an epimer: it has identical atom counts,
+   *  carries over as the same structure, and leaves every bond where it belongs. */
+  cipTags?: string[];
+  /** The same specified centres, in the molecule's own atom order and each with its atom index,
+   *  so a report can say WHICH centre changed rather than only how many did. `cipTags` stays
+   *  sorted because the inversion check compares it as a multiset; sorting destroys the position,
+   *  and the position is the only thing that locates a centre among a dozen of them. */
+  cipCentres?: Array<{ atom: number; tag: string }>;
   /** Tetrahedral centres and stereogenic double bonds the author left unspecified. */
   unspecifiedStereocentres: number;
   composition: Record<string, number>;
+  /** For a species written as a free acid whose stereocentre carries a nitrogen — a chiral
+   *  building block — the CIP descriptor at that centre, or 'unassigned' when the author left it
+   *  open. Absent for anything without such a centre. Reported, never judged: the letter that
+   *  corresponds to a given series flips when a sulfur-bearing branch outranks the carboxyl, so
+   *  the letter alone is not a verdict. It is here because a block of the opposite configuration
+   *  parses and balances exactly like the intended one, and nothing else in the check sees it. */
+  alphaConfiguration?: '(R)' | '(S)' | 'unassigned';
 }
 /** One step of a synthesis route, as the read-only route checker reports it. */
 export interface RouteSpeciesSummary extends ChemistryInspectionSummary {
@@ -239,6 +258,35 @@ export interface RouteStepAudit {
   /** Set when the equation balances only by assembling a product molecule from more than one
    *  substrate molecule — chemically impossible for a single transformation. */
   assemblyProblem?: string;
+  /** Why the per-molecule packing search gave up, when it did. Not set when the step's shape is
+   *  simply outside what packing models (a convergent coupling), which is not a gap in coverage. */
+  assemblyUnchecked?: string;
+  /** The C–C bonds this balanced step forms and breaks, read as a graph edit: the facts a
+   *  reviewer needs to judge a ring closure or a rearrangement, whether or not it refused. */
+  skeleton?: SkeletonReport;
+  /** Net bonds the step makes (+) and breaks (−) by element pair, e.g. { 'C–C': 1, 'C–Br': -1,
+   *  'O–O': -1 }: every bond type, not only those at carbon. Omitted when nothing changes. */
+  bonds?: Record<string, number>;
+  /** The request declared this step a rearrangement: a 1,2-shift or an unactivated new bond is
+   *  its stated outcome, not a refusal. Like `racemic`, nothing verifies the claim. */
+  rearrangement?: boolean;
+  /** The request declared this step a radical or C–H functionalisation: a new bond at an
+   *  unactivated carbon is its stated outcome. Nothing verifies the claim. */
+  radical?: boolean;
+  /** Set when a bond edit at carbon is one the step cannot explain: a 1,2-shift that was not
+   *  declared, or a new C–C or C–heteroatom bond at a carbon nothing activates. */
+  skeletonProblem?: string;
+  /** Set when the step balanced only because a species the author listed under Reactants was
+   *  treated as taking no part. The move itself is often right — an author files a solvent or a
+   *  catalyst with the reactants — but it used to happen in silence, and silence is wrong here:
+   *  the arithmetic cannot tell a condition that was never consumed from a reagent that WAS
+   *  consumed and whose product the author forgot to name. Those two readings differ, and the
+   *  author is the only one who knows which applies, so the step says what was assumed. */
+  refiledReactant?: string;
+  /** Set when a species anywhere in the step is a lone atom of an element whose free form is
+   *  diatomic — an inert atmosphere written `[N]` rather than `N#N`. It hides under Agents,
+   *  where nothing enters the balance and so nothing compares the structure with its name. */
+  monatomicSpecies?: string;
 }
 export interface RouteLinkAudit {
   from: number;
@@ -261,6 +309,12 @@ export interface RouteTargetAudit {
   formedAt: number | null;
   /** `unparsed` never blocks: the target came from the request, not from the route. */
   reason: 'formed' | 'stereo-mismatch' | 'not-formed' | 'unparsed';
+  /** What the route actually delivered at each centre the REQUEST left open, measured from the
+   *  product rather than taken from the answer's own account of it. A request that leaves a centre
+   *  open accepts either configuration, so the route is not refused for choosing one — but which
+   *  one it chose is the author's to accept or reject, and before this nothing said. Empty or
+   *  absent when the request specified every centre. */
+  openCentres?: Array<{ atom: number; delivered: string }>;
 }
 export interface RouteAudit {
   steps: RouteStepAudit[];
