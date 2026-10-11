@@ -27,6 +27,8 @@ import json
 import os
 
 MAX_TARGETS = 8
+MAX_REPAIR_ROUNDS = 3       # how many link bonds may be put back before we stop trying
+MAX_SUSPECT_BONDS = 24      # candidates examined per round, so a long target stays bounded
 MAX_DEPROTECT = 12          # how many groups may come off one fragment before we stop looking
 MAX_MATCHES = 50
 MIN_FRAGMENT_ATOMS = 3
@@ -175,54 +177,79 @@ def cut(mol, bonds):
     return out
 
 
-def deprotect(mol):
-    """(fragment, group names removed), by cutting each group off and keeping the unit's piece."""
+def strip_one(mol):
+    """(fragment, group name) with one protecting group cut off, or (mol, None) if none applies."""
     from rdkit import Chem
 
-    removed = []
-    for _ in range(MAX_DEPROTECT):
-        found = None
-        for name, patt in _compiled()["protectors"]:
-            if patt is None:
+    for name, patt in _compiled()["protectors"]:
+        if patt is None:
+            continue
+        for match in mol.GetSubstructMatches(patt, uniquify=True):
+            anchor, group = match[0], match[1]
+            bond = mol.GetBondBetweenAtoms(anchor, group)
+            if bond is None or bond.GetBondType().name != "SINGLE" or bond.IsInRing():
                 continue
-            for match in mol.GetSubstructMatches(patt, uniquify=True):
-                anchor, group = match[0], match[1]
-                bond = mol.GetBondBetweenAtoms(anchor, group)
-                if bond is None or bond.GetBondType().name != "SINGLE" or bond.IsInRing():
-                    continue
-                found = (name, anchor, bond.GetIdx())
-                break
-            if found:
-                break
-        if not found:
+            broken = Chem.FragmentOnBonds(mol, [bond.GetIdx()], addDummies=False)
+            mapping = []
+            pieces = Chem.GetMolFrags(broken, asMols=True, sanitizeFrags=False,
+                                     fragsMolAtomMapping=mapping)
+            keep = next((p for p, idxs in zip(pieces, mapping) if anchor in idxs), None)
+            if keep is None:
+                continue
+            try:
+                Chem.SanitizeMol(keep)
+            except Exception:
+                continue
+            return keep, name
+    return mol, None
+
+
+def deprotect(mol, forms=()):
+    """(fragment, group names removed, ids) — stripping only as far as it has to.
+
+    A group is taken off only when the fragment cannot be identified as it stands. Stripping first
+    and identifying afterwards destroyed units that genuinely contain one of these groups: the
+    library holds building blocks whose own structure is a methanesulfonamide, and the sulfonyl rule
+    tore it off and reported the plain unit instead — a different compound, silently. Auditing the
+    whole library found four of them.
+
+    So: identify, and only if nothing is named take one group off and ask again."""
+    removed = []
+    hits, where = identify(mol, forms) if forms else ([], {})
+    if hits:
+        return mol, removed, (hits, where)
+    for _ in range(MAX_DEPROTECT):
+        mol, name = strip_one(mol)
+        if name is None:
             break
-        name, anchor, bond = found
-        broken = Chem.FragmentOnBonds(mol, [bond], addDummies=False)
-        mapping = []
-        pieces = Chem.GetMolFrags(broken, asMols=True, sanitizeFrags=False,
-                                 fragsMolAtomMapping=mapping)
-        keep = next((p for p, idxs in zip(pieces, mapping) if anchor in idxs), None)
-        if keep is None:
-            break
-        try:
-            Chem.SanitizeMol(keep)
-        except Exception:
-            break
-        mol = keep
         removed.append(name)
-    return mol, removed
+        if forms:
+            hits, where = identify(mol, forms)
+            if hits:
+                break
+    return mol, removed, (hits, where)
 
 
 def identify(piece, forms):
-    """Every library id whose form covers ALL of the fragment's non-dummy atoms.
+    """Every library id whose form covers ALL of the fragment — its atoms AND its bonds.
 
-    Chirality is part of the question, not a refinement: without it the L and D forms of a unit are
-    indistinguishable and almost every fragment comes back ambiguous. Several ids means the library
-    holds forms that cannot be told apart, which is reported rather than guessed at."""
+    Covering the atoms is not enough, and auditing the whole library is what showed it. A query
+    written from an open-chain unit maps happily onto the atoms of a ring of the same size, because
+    a ring contains such a path; with only the atom set compared, cyclohexylglycine came back also
+    claimed by 2-aminooctanoic acid, and the bicyclic Tic by N-methylphenylalanine. Same formula,
+    same atom count, different compound. Requiring the bond count to agree as well makes the match
+    a true isomorphism: the matched bonds are a subset of the fragment's, so equal counts means
+    equal sets.
+
+    Chirality is part of the question too, not a refinement: without it the two configurations of a
+    unit are indistinguishable. Several ids means the library holds forms that genuinely cannot be
+    told apart, which is reported rather than guessed at."""
     real = {a.GetIdx() for a in piece.GetAtoms() if a.GetAtomicNum() > 0}
+    bonds = sum(1 for b in piece.GetBonds()
+                if b.GetBeginAtomIdx() in real and b.GetEndAtomIdx() in real)
     hits, where = [], {}
     for mid, query, count, condensed in forms:
-        if count != len(real) or mid in where:
+        if count != len(real) or query.GetNumBonds() != bonds or mid in where:
             continue
         for match in piece.GetSubstructMatches(query, uniquify=True, maxMatches=MAX_MATCHES,
                                                useChirality=True):
@@ -231,6 +258,65 @@ def identify(piece, forms):
                 where[mid] = condensed
                 break
     return hits, where
+
+
+def _resolve(mol, bonds, forms):
+    """Cut at `bonds` and identify each fragment: [(piece, original atoms, groups, hits, where)]."""
+    resolved = []
+    for piece, original in cut(mol, bonds):
+        piece, gone, (hits, where) = deprotect(piece, forms)
+        resolved.append((piece, original, gone, hits, where))
+    return resolved
+
+
+def _covered(resolved):
+    """Atoms that lie in an identified fragment.
+
+    The objective has to be atoms, not the NUMBER of fragments named. Merging a split unit back
+    together replaces one named half and one unknown half with a single named unit, so the count
+    does not move and a count-based objective rejects the very repair it was written for — measured:
+    the repair pass changed nothing until this was atoms."""
+    return sum(len(entry[1]) for entry in resolved if entry[3])
+
+
+def repair(mol, bonds, forms):
+    """Put back any link bond that turns out to lie INSIDE a unit.
+
+    The link pattern is a motif, and a few building blocks contain that motif in their own
+    structure — a unit built from two smaller ones joined the same way, or one carrying an internal
+    amide. Cutting there splits a unit in half, and the halves are then reported as two unknown
+    fragments: the atoms all balance, so nothing looks wrong unless the answer is known. Auditing
+    the whole library found four such units.
+
+    No way to tell from the bond alone which case it is, so this asks the library: uncut a bond next
+    to an unidentified fragment, and keep the change only if it names MORE fragments than before.
+    Greedy, bounded, and it cannot make the answer worse because a round that does not improve the
+    count is discarded."""
+    best = _resolve(mol, bonds, forms)
+    if not forms:
+        return bonds, best
+    for _ in range(MAX_REPAIR_ROUNDS):
+        unresolved = {i for entry in best if not entry[3] for i in entry[1]}
+        if not unresolved:
+            break
+        suspects = []
+        for idx in bonds:
+            bond = mol.GetBondWithIdx(idx)
+            if bond.GetBeginAtomIdx() in unresolved or bond.GetEndAtomIdx() in unresolved:
+                suspects.append(idx)
+            if len(suspects) >= MAX_SUSPECT_BONDS:
+                break
+        improved = None
+        for idx in suspects:
+            trial = [b for b in bonds if b != idx]
+            got = _resolve(mol, trial, forms)
+            if _covered(got) > _covered(best):
+                if improved is None or _covered(got) > _covered(improved[1]):
+                    improved = (trial, got)
+        if improved is None:
+            break
+        bonds, best = improved[0], improved[1]
+    return bonds, best
 
 
 def decompose(targets, library_dir=None):
@@ -246,16 +332,16 @@ def decompose(targets, library_dir=None):
         if mol is None:
             out.append({"input": raw, "error": "unparsable"})
             continue
-        bonds = link_bonds(mol)
+        found = link_bonds(mol)
+        bonds, resolved = repair(mol, found, forms)
         record = {"input": raw, "target": Chem.MolToSmiles(mol), "atoms": mol.GetNumAtoms(),
                   "linkBonds": len(bonds), "units": [], "unidentified": [],
-                  "protectingGroups": {}, "hasLibrary": bool(forms)}
+                  "protectingGroups": {}, "hasLibrary": bool(forms),
+                  **({"linkBondsInsideAUnit": len(found) - len(bonds)} if len(found) != len(bonds) else {})}
         covered = 0
-        for piece, original in cut(mol, bonds):
-            piece, gone = deprotect(piece)
+        for piece, original, gone, hits, where in resolved:
             for name in gone:
                 record["protectingGroups"][name] = record["protectingGroups"].get(name, 0) + 1
-            hits, where = identify(piece, forms) if forms else ([], {})
             smiles = Chem.MolToSmiles(piece)
             free = capped(piece)
             if hits:

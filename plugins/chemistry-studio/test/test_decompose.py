@@ -181,7 +181,7 @@ class Deprotecting(unittest.TestCase):
 
     def test_a_tert_butyl_ester_comes_off(self):
         mol = Chem.MolFromSmiles("CC(C)(C)OC(=O)C[C@@H](N)C(=O)O")
-        out, gone = decompose.deprotect(mol)
+        out, gone, _ = decompose.deprotect(mol)
         self.assertIn("tBu-on-O", gone)
         # the expectation is RDKit's own canonical output, not a string read off by eye: a chiral
         # tag means different things at different atom orderings, and comparing them by hand is how
@@ -190,7 +190,7 @@ class Deprotecting(unittest.TestCase):
 
     def test_a_carbamate_group_comes_off_in_two_steps_and_restores_the_hydrogen(self):
         mol = Chem.MolFromSmiles("CC(C)(C)OC(=O)N[C@@H](C)C(=O)O")
-        out, gone = decompose.deprotect(mol)
+        out, gone, _ = decompose.deprotect(mol)
         self.assertEqual(gone, ["tBu-on-O", "carbamate"])
         self.assertEqual(Chem.MolToSmiles(out), "C[C@H](N)C(=O)O")
 
@@ -201,20 +201,20 @@ class Deprotecting(unittest.TestCase):
                        "CC(C)(C)OC(=O)N[C@H](C)C(=O)O"):
             mol = Chem.MolFromSmiles(smiles)
             before = self.cip(mol)
-            out, gone = decompose.deprotect(mol)
+            out, gone, _ = decompose.deprotect(mol)
             self.assertTrue(gone, smiles)
             self.assertEqual(self.cip(out), before, smiles)
 
     def test_an_unprotected_fragment_is_returned_unchanged(self):
         mol = Chem.MolFromSmiles("C[C@@H](N)C(=O)O")
-        out, gone = decompose.deprotect(mol)
+        out, gone, _ = decompose.deprotect(mol)
         self.assertEqual(gone, [])
         self.assertEqual(Chem.MolToSmiles(out), "C[C@@H](N)C(=O)O")
 
     def test_a_ring_bond_is_never_cut(self):
         # the pattern can match inside a ring; cutting there would open it
         mol = Chem.MolFromSmiles("C1CCCCO1")
-        out, gone = decompose.deprotect(mol)
+        out, gone, _ = decompose.deprotect(mol)
         self.assertEqual(gone, [])
         self.assertEqual(out.GetNumAtoms(), mol.GetNumAtoms())
 
