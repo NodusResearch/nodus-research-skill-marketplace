@@ -11,6 +11,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { runConformanceSuite, conformanceFailures } from '../../../scripts/contract-v2.mjs';
 
 // `fileURLToPath`, not `.pathname`: on Windows a file URL's pathname is `/D:/…`, and
@@ -2192,6 +2194,89 @@ test('an unbalanced chemistry refusal cannot be cleared by refiling the invalid 
   assert.equal(step.refiledReactant, undefined);
   assert.equal(step.reactants.length, 2);
   assert.doesNotMatch(step.differences.join(' '), /to Agents/);
+});
+
+test('the application route-program tool rejects syntax and oversized programs before host access', async () => {
+  const host = stubHost();
+  host.python = { ensureRuntime: async () => { throw new Error('must not access Python'); } };
+  const worker = lib.createWorker(host);
+  for (const program of ['nonsense', 'M1 = start(smiles="CCO")\ntarget = M1', [
+    'M1 = start(smiles="CCO")',
+    ...Array.from({ length: 25 }, (_, i) => `M${i + 2} = apply(M${i + 1}, named="primary-alcohol-oxidation")`),
+    'target = M26',
+  ].join('\n')]) {
+    const result = await worker.invoke({ toolId: 'execute-route-program', input: { program }, locale: 'en' });
+    assert.equal(result.artifacts[0].data.continuous, false);
+    assert.ok(result.artifacts[0].data.blocked.length);
+    assert.equal(host.calls.length, 0);
+  }
+});
+
+test('a route-program runtime failure blocks the audit and leaves later lines unexecuted', async () => {
+  const host = stubHost();
+  let runs = 0;
+  host.python = { ensureRuntime: async () => ({ ready: false, detail: 'Python unavailable' }), run: async () => { runs++; } };
+  const result = await lib.createWorker(host).invoke({ toolId: 'execute-route-program', locale: 'en', input: {
+    program: 'M1 = start(smiles="CCO")\nM2 = apply(M1, named="primary-alcohol-oxidation")\nM3 = apply(M2, named="aldehyde-oxidation")\ntarget = M3',
+  } });
+  const data = result.artifacts[0].data;
+  assert.equal(data.continuous, false);
+  assert.match(data.blocked[0], /Line 2: Python unavailable/);
+  assert.equal(data.programTrace.lines[2].executed, false);
+  assert.equal(runs, 0);
+});
+
+test('cancellation ends a route program before resolution', async () => {
+  const controller = new AbortController();
+  controller.abort(new Error('cancel route program'));
+  const host = stubHost({ signal: controller.signal });
+  await assert.rejects(lib.createWorker(host).invoke({ toolId: 'execute-route-program', locale: 'en', input: {
+    program: 'M1 = start(smiles="CCO")\nM2 = apply(M1, named="primary-alcohol-oxidation")\ntarget = M2',
+  } }), /cancel route program/);
+  assert.equal(host.calls.length, 0);
+});
+
+test('the worker executes real Python and audits consumed default reagents as reactants', {
+  skip: !process.env.NODUS_CHEMISTRY_TEST_PYTHON,
+}, async () => {
+  fs.mkdirSync(path.join(scratch, 'python'), { recursive: true });
+  for (const name of fs.readdirSync(path.join(root, 'python')).filter(name => /\.(py|json)$/.test(name))) {
+    fs.copyFileSync(path.join(root, 'python', name), path.join(scratch, 'python', name));
+  }
+  const host = stubHost();
+  const runs = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async request => {
+      assert.ok(fs.existsSync(request.args[1]));
+      runs.push(JSON.parse(request.stdin));
+      const payload = Buffer.from(request.stdin).toString('base64');
+      // The same script and wire body as the managed host, executed without user data/network.
+      const code = 'import base64,runpy,sys; from io import StringIO; sys.stdin=StringIO(base64.b64decode(sys.argv[2]).decode()); runpy.run_path(sys.argv[1],run_name="__main__")';
+      const result = await promisify(execFile)(process.env.NODUS_CHEMISTRY_TEST_PYTHON, ['-I', '-c', code, request.args[1], payload], { timeout: request.timeoutMs, signal: host.signal });
+      return { code: 0, stdout: result.stdout, stderr: result.stderr };
+    },
+  };
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({ toolId: 'execute-route-program', input: {
+    program: 'M1 = start(smiles="CCOC(=O)c1ccccc1")\nM2 = apply(M1, named="ester-hydrolysis")\ntarget = M2',
+    target: 'O=C(O)c1ccccc1',
+  }, locale: 'en' });
+  const data = result.artifacts[0].data;
+  assert.equal(data.continuous, true, JSON.stringify(data.blocked));
+  assert.equal(data.steps[0].reactants.length, 2, 'the default water is consumed');
+  assert.equal(data.steps[0].agents.length, 0);
+  assert.ok(data.steps[0].products.some(entry => entry.byproduct));
+  assert.deepEqual(data.programTrace.lines[1].reactants.slice(1), ['O']);
+  assert.equal(runs.length, 1);
+  assert.doesNotMatch(result.artifacts[0].summary, /Route verified/);
+  const two = await worker.invoke({ toolId: 'execute-route-program', input: {
+    program: 'M1 = start(smiles="CCOC(=O)c1ccccc1")\nM2 = apply(M1, named="ester-hydrolysis")\nM3 = apply(M2, named="ester-formation", reagents=[smiles="CCO"])\ntarget = M3',
+    target: 'CCOC(=O)c1ccccc1',
+  }, locale: 'en' });
+  assert.equal(two.artifacts[0].data.continuous, true, JSON.stringify(two.artifacts[0].data.blocked));
+  assert.equal(two.artifacts[0].data.steps[1].reactants.length, 2, 'the supplied alcohol is consumed');
+  assert.equal(two.artifacts[0].data.steps[1].agents.length, 0);
 });
 
 test('creating a stereocentre is not reported as an inversion', async () => {

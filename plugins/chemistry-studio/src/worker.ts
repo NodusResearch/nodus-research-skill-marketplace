@@ -5,6 +5,10 @@ import { bindHost, completeText, host, type CapabilityHost } from './engine/host
 import { nameStructureBySmiles, resolveChemistryIntent, resolveNameReferences, resolveSpeciesName, type SpeciesNameResolution, type SpeciesStructureName, type ChemistryIdentityDependencies, MAX_CHEMICAL_NAME} from './engine/chemistryIdentity';
 import { chemistryDependencies } from './deps';
 import type { RouteLabelInput } from './engine/chemistryRouteAudit';
+import { parseRouteProgram } from './engine/routeProgram';
+import { executeRouteProgram } from './engine/routeProgramExec';
+import { createMoleculeOps } from './engine/routeProgramOps';
+import { routeProgramToAuditInput } from './engine/routeProgramToSteps';
 import { splitFences } from './engine/fences';
 import { chemistrySvgAuditSystem, chemistrySvgMode, isChemistrySvgRequest } from './engine/chatChemistrySvg';
 import { CHEMISTRY_INSTRUCTIONS } from './engine/instructions';
@@ -132,6 +136,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       // application's to choose on its own calls; a reply that names one is ignored, so a
       // prompt-injected `"opsinDir": "~/Downloads/kit"` cannot have a program run from there.
       if (chat?.nodeId) input = withoutHostFolders(input);
+      if (toolId === 'execute-route-program') return verifyRouteProgram(input as RouteProgramInput, referenceCache, resolvedNames, budget);
       if (toolId === 'resolve-names') return resolveNames(input, referenceCache, resolvedNames, budget);
       if (toolId === 'resolve-structure') return nameStructures(input, budget);
       if (toolId === 'inspect') return inspectMolecule(input);
@@ -957,6 +962,50 @@ async function verifySynthesisRoute(input: { steps?: string[]; carriers?: Array<
     ? `Route verified: ${audit.steps.length} step(s), every intermediate carried over unchanged`
     : `Route has ${audit.blocked.length} problem(s)`;
   return { artifacts: [{ artifactType: 'route-audit', artifactVersion: 1, summary, data: audit }], notices: [] };
+}
+
+interface RouteProgramInput {
+  program?: string;
+  target?: string;
+  indexDir?: string;
+  pubchemDir?: string;
+  opsinDir?: string;
+  localOnly?: boolean;
+}
+
+/** Application-invoked alternate input to the existing audit. The ordinary synthesis reply
+ *  contract stays in force; no model-generated file paths or automatic route format change. */
+async function verifyRouteProgram(input: RouteProgramInput, cache: ReferenceCache, resolvedNames: ResolvedNames, budget?: ChemistryCapBudget) {
+  const source = typeof input.program === 'string' ? input.program : '';
+  if (!source.trim() || source.length > 64000) throw new Error('Provide a route program of at most 64,000 characters.');
+  host().signal.throwIfAborted();
+  const parsed = parseRouteProgram(source);
+  const applies = parsed.program.lines.filter(line => line.kind === 'apply').length;
+  const diagnostics = parsed.diagnostics.map(d => `Line ${d.line}: ${d.message}`);
+  if (!applies) diagnostics.push('A route program needs at least one apply line.');
+  if (applies > 24) diagnostics.push('A route program may execute at most 24 transformations.');
+  const artifact = (data: unknown, summary: string) => ({ artifacts: [{ artifactType: 'route-audit', artifactVersion: 1, summary, data }], notices: [] });
+  if (diagnostics.length) return artifact({ steps: [], links: [], isolated: [], continuous: false, blocked: diagnostics }, 'Route program has syntax problems');
+
+  const ops = createMoleculeOps({ indexDir: input.indexDir, signal: host().signal, resolveName: async name => {
+    const response = await resolveNames({ ...input, names: [name] }, cache, resolvedNames, budget);
+    const entry = response.artifacts[0].data.results[0];
+    return entry?.status === 'resolved' && entry.smiles
+      ? { smiles: entry.smiles }
+      : { error: 'unresolved-name', message: `The name "${name}" has no unique reference structure.` };
+  } });
+  const trace = await executeRouteProgram(parsed.program, ops, { signal: host().signal });
+  const auditInput = routeProgramToAuditInput(trace, { target: input.target });
+  const audit = await chemistryDependencies().verifyRoute(auditInput, host().signal, budget);
+  if (!audit) throw new Error('The executed route could not be audited.');
+  if (trace.firstFailure !== null) {
+    const failed = trace.lines.find(line => line.line === trace.firstFailure);
+    audit.blocked.unshift(`Line ${trace.firstFailure}: ${failed?.failure?.message ?? 'The operation failed.'} Later lines were not executed.`);
+    audit.continuous = false;
+  }
+  return artifact({ ...audit, programTrace: trace }, audit.continuous
+    ? `Route program audited: ${audit.steps.length} transformation(s). Experimental feasibility is not established.`
+    : `Route program has ${audit.blocked.length} problem(s)`);
 }
 
 /** Look up proposed reactions and products in the local Open Reaction Database index. The

@@ -759,6 +759,11 @@ def _apply(payload, deadline):
     answer = {"ok": True, "product": chosen["product"], "coProducts": chosen["coProducts"],
               "formula": rdMolDescriptors.CalcMolFormula(Chem.MolFromSmiles(chosen["product"])),
               "productHandle": chosen["productHandle"], "marks": chosen["marks"]}
+    # Reaction slots consume molecules, including defaults such as water. They must enter the
+    # equation's reactant side; the caller's remaining reagents are conditions/agents.
+    answer["coReactants"] = [canon(Chem.MolToSmiles(m)) for m in filled]
+    given_reagents = [r for r in payload.get("reagents", []) if isinstance(r, str) and r.strip()]
+    answer["agents"] = [canon(r) for r in given_reagents[len(filled):]]
     if chosen["ring"]:
         answer["ring"] = {"size": chosen["ring"]["size"], "bridgeAtoms": chosen["ring"]["bridgeAtoms"]}
     if sites:

@@ -1,3 +1,7 @@
+# Chemistry Studio 2.6.0
+
+Adds a bounded route-program parser, forward interpreter and application tool `execute-route-program`, connected to the existing route audit. Programs stop at their first failure, retain line provenance and named-site handles, and do not establish experimental feasibility. All Python modules and transform data travel in the archive. Windows test paths use real file URLs. No permissions or migrations change.
+
 # Chemistry Studio 2.5.29
 
 Route auditing accepts pseudo-asymmetric descriptor changes caused by desymmetrisation while retaining the checks for real inversions. Chemistry refusals no longer produce refiling or side-flip advice, including when the original equation was unbalanced. No permissions or data migrations change.
