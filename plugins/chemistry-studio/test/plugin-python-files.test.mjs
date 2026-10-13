@@ -1,6 +1,6 @@
 // Everything under python/ that the worker imports must travel in the package.
 //
-//   node --test test/test-plugin-python-files.mjs
+//   node --test test/plugin-python-files.test.mjs
 //
 // Why this exists. `decompose.py` sat in python/ with 27 passing tests of its own and was never
 // listed in build.mjs, so it was absent from every package ever built. Nothing noticed, because
@@ -17,8 +17,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.dirname(here);
 const manifest = fs.readFileSync(path.join(root, 'build.mjs'), 'utf8');
 

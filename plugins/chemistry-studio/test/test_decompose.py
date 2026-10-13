@@ -334,5 +334,39 @@ class Dispatch(unittest.TestCase):
         self.assertEqual(len(out["decompositions"]), 1)
 
 
+class LibraryAndExplicitCaps(unittest.TestCase):
+    def test_explicit_nitrogen_regains_the_hydrogen_at_a_cut(self):
+        for fragment, expected in (("*[NH]C", "CN"), ("*[NH2+]C", "C[NH3+]")):
+            with self.subTest(fragment=fragment):
+                result = decompose.capped(Chem.MolFromSmiles(fragment))
+                self.assertEqual(result, expected)
+                self.assertTrue(all(a.GetNumRadicalElectrons() == 0 for a in Chem.MolFromSmiles(result).GetAtoms()))
+
+    def test_invalid_library_records_do_not_prevent_fragment_search(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "monomers.json")
+            for data in ([None], {"entries": [None, 4, {"id": "bad", "inChainForms": [None, {"smarts": 3}, {"smarts": "CCN", "condensed": 3}]}]}):
+                with open(path, "w") as fh:
+                    json.dump(data, fh)
+                decompose._libraries.clear()
+                result = decompose.decompose([chain(["gly", "gly", "gly"])], directory)[0]
+                self.assertFalse(result["hasLibrary"])
+                self.assertEqual(len(result["unidentified"]), 3)
+                self.assertTrue(all(piece.get("capped") for piece in result["unidentified"]))
+
+    def test_a_persistent_worker_reloads_a_changed_or_new_library(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(decompose.library(directory), [])
+            with open(os.path.join(directory, "monomers.json"), "w") as fh:
+                json.dump({"entries": [{"id": "gly", "inChainForms": forms_of(UNITS["gly"]["smiles"], UNITS["gly"]["attach"])}]}, fh)
+            first = decompose.library(directory)
+            self.assertEqual({entry[0] for entry in first}, {"gly"})
+            # Do not clear the process cache: this is what an installed persistent worker sees.
+            path = os.path.join(directory, "monomers.json")
+            with open(path, "w") as fh:
+                json.dump({"entries": []}, fh)
+            self.assertEqual(decompose.library(directory), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

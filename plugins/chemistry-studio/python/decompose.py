@@ -91,6 +91,10 @@ def capped(piece):
             cap.SetAtomMapNum(0)
             cap.SetNoImplicit(False)
         else:
+            # Bracketed nitrogens retain NoImplicit across the cut. Allow RDKit to restore the
+            # lost hydrogen, or an explicitly written amide yields a radical instead of an amine.
+            if len(neighbours) == 1 and neighbours[0].GetAtomicNum() == 7:
+                rw.GetAtomWithIdx(neighbours[0].GetIdx()).SetNoImplicit(False)
             drop.append(atom.GetIdx())
     for idx in sorted(drop, reverse=True):
         rw.RemoveAtom(idx)
@@ -119,26 +123,41 @@ def library(library_dir):
     Every form of every entry, not just the fully condensed one: a unit at the end of a chain keeps
     its free carboxyl and a side-chain attachment goes unused in a linear target, so one form per
     entry identifies neither. Empty when there is no library, which is not an error."""
-    if library_dir in _libraries:
-        return _libraries[library_dir]
     from rdkit import Chem
 
     forms = []
     path = os.path.join(library_dir or "", "monomers.json")
+    try:
+        stat = os.stat(path) if library_dir else None
+        stamp = (stat.st_mtime_ns, stat.st_size, stat.st_ino) if stat else None
+    except OSError:
+        stamp = None
+    previous = _libraries.get(library_dir)
+    if previous is not None and previous[0] == stamp:
+        return previous[1]
     if library_dir and os.path.isfile(path):
         try:
             with open(path) as fh:
                 data = json.load(fh)
         except (OSError, ValueError):
             data = {}
-        for entry in data.get("entries") or ():
-            for form in entry.get("inChainForms") or ():
-                query = Chem.MolFromSmarts(form.get("smarts") or "")
+        entries = data.get("entries") if isinstance(data, dict) else None
+        for entry in entries if isinstance(entries, list) else ():
+            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not entry["id"]:
+                continue
+            chain_forms = entry.get("inChainForms")
+            for form in chain_forms if isinstance(chain_forms, list) else ():
+                if not isinstance(form, dict) or not isinstance(form.get("smarts"), str):
+                    continue
+                condensed = form.get("condensed") or []
+                if not isinstance(condensed, list) or not all(isinstance(c, str) for c in condensed):
+                    continue
+                query = Chem.MolFromSmarts(form["smarts"])
                 if query is not None and query.GetNumAtoms() >= MIN_FRAGMENT_ATOMS:
                     forms.append((entry.get("id"), query, query.GetNumAtoms(),
-                                  tuple(form.get("condensed") or ())))
+                                  tuple(condensed)))
     forms.sort(key=lambda f: -f[2])
-    _libraries[library_dir] = forms
+    _libraries[library_dir] = (stamp, forms)
     return forms
 
 

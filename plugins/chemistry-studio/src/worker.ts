@@ -605,7 +605,7 @@ async function canonicalizeResolutions(resolutions: SpeciesNameResolution[], cac
 
 /** The inputs only the application supplies: directories read (or, for OPSIN, run from) and the
  *  switch that keeps a run off the network. */
-const HOST_FOLDER_INPUTS = ['pubchemDir', 'opsinDir', 'indexDir', 'indexDirs', 'stockDir', 'textbookDir', 'localOnly'] as const;
+const HOST_FOLDER_INPUTS = ['pubchemDir', 'opsinDir', 'indexDir', 'indexDirs', 'stockDir', 'textbookDir', 'monomerDir', 'localOnly'] as const;
 
 function withoutHostFolders<T extends object>(input: T): T {
   if (!input || typeof input !== 'object') return input;
@@ -1081,7 +1081,9 @@ async function proposeDisconnections(input: { indexDir?: string; targets?: strin
 async function decomposeTarget(input: { targets?: string[]; monomerDir?: string }) {
   const targets = Array.isArray(input?.targets) ? input.targets.filter(t => typeof t === 'string' && t.trim()).slice(0, 8) : [];
   if (targets.length === 0) throw new Error('A decomposition needs at least one target.');
+  host().signal.throwIfAborted();
   const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  host().signal.throwIfAborted();
   if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
   const run = await host().python.run({
     runtimeId: REACTIONS_RUNTIME_ID,
@@ -1095,10 +1097,14 @@ async function decomposeTarget(input: { targets?: string[]; monomerDir?: string 
     timeoutMs: 60_000,
   });
   if (run.code !== 0) throw new Error(pythonFailure('The decomposition failed', run));
+  host().signal.throwIfAborted();
   const data = JSON.parse(run.stdout) as {
     decompositions?: Array<{ units?: unknown[]; unidentified?: unknown[]; covered?: number; hasLibrary?: boolean }>;
   };
-  const entries = data.decompositions ?? [];
+  if (!Array.isArray(data.decompositions) || data.decompositions.length !== targets.length) {
+    throw new Error('The decomposition returned an incomplete reply.');
+  }
+  const entries = data.decompositions;
   const units = entries.reduce((sum, entry) => sum + (entry.units?.length ?? 0), 0);
   const loose = entries.reduce((sum, entry) => sum + (entry.unidentified?.length ?? 0), 0);
   const library = entries.some(entry => entry.hasLibrary);

@@ -2277,6 +2277,39 @@ test('the worker executes real Python and audits consumed default reagents as re
   assert.equal(two.artifacts[0].data.continuous, true, JSON.stringify(two.artifacts[0].data.blocked));
   assert.equal(two.artifacts[0].data.steps[1].reactants.length, 2, 'the supplied alcohol is consumed');
   assert.equal(two.artifacts[0].data.steps[1].agents.length, 0);
+  const decomposed = await worker.invoke({ toolId: 'decompose-target', input: {
+    targets: ['NCC(=O)NCC(=O)NCC(=O)O'],
+  }, locale: 'en' });
+  const pieces = decomposed.artifacts[0].data.decompositions[0];
+  assert.equal(pieces.linkBonds, 2);
+  assert.equal(pieces.unidentified.length, 3);
+  assert.ok(pieces.unidentified.every(piece => piece.capped === 'NCC(=O)O'));
+});
+
+test('chat input cannot choose a monomer directory, while the application can', async () => {
+  const host = stubHost();
+  const bodies = [];
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async request => {
+    bodies.push(JSON.parse(request.stdin));
+    return { code: 0, stderr: '', stdout: JSON.stringify({ decompositions: [{ units: [], unidentified: [] }] }) };
+  } };
+  const worker = lib.createWorker(host);
+  const input = { targets: ['CCO'], monomerDir: 'untrusted-folder' };
+  await worker.invoke({ toolId: 'decompose-target', locale: 'en', input, chat: { nodeId: 'assistant-node' } });
+  assert.equal(bodies[0].monomerDir, undefined);
+  await worker.invoke({ toolId: 'decompose-target', locale: 'en', input });
+  assert.equal(bodies[1].monomerDir, 'untrusted-folder');
+});
+
+test('a cancelled or incomplete decomposition is never reported as successful', async () => {
+  const controller = new AbortController();
+  controller.abort(new Error('cancel decomposition'));
+  await assert.rejects(lib.createWorker(stubHost({ signal: controller.signal })).invoke({
+    toolId: 'decompose-target', locale: 'en', input: { targets: ['CCO'] },
+  }), /cancel decomposition/);
+  const host = stubHost();
+  host.python = { ensureRuntime: async () => ({ ready: true }), run: async () => ({ code: 0, stderr: '', stdout: '{}' }) };
+  await assert.rejects(lib.createWorker(host).invoke({ toolId: 'decompose-target', locale: 'en', input: { targets: ['CCO'] } }), /incomplete reply/);
 });
 
 test('creating a stereocentre is not reported as an inversion', async () => {
