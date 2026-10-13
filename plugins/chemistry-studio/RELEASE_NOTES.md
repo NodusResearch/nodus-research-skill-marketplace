@@ -1,3 +1,7 @@
+# Chemistry Studio 2.7.0
+
+Adds optional target decomposition into capped building blocks, with local-library identification and unnamed-fragment fallback. Every Python module is included in the archive and packaging tests run on all platforms. Explicit nitrogens regain their cut-end hydrogen; changed libraries invalidate persistent-worker caches and malformed records are ignored. Monomer directories remain application-controlled; cancellation and incomplete replies cannot report success. No permissions or data migrations change.
+
 # Chemistry Studio 2.6.1
 
 Localises disconnection candidates to a named site and ranks proposals that change its environment. Reads retro-template SMARTS from the last TSV column, versions the pattern-screen cache, and rebuilds invalid caches. A saturated site-match prefix keeps the template so later symmetric matches are not silently lost. Malformed rows do not hide valid templates. No permissions or migrations change.
