@@ -26,11 +26,19 @@ const instructions = fs.readFileSync(path.join(root, 'skills/chemistry-studio/SK
 // route_program.py is imported by reactions_worker.py from its own directory, and
 // route_transforms.json is read beside it, so both have to travel in the archive or the
 // route-program op fails on an installed package while passing every test here.
+//
+// decompose.py is the same trap and was missed: it is imported the same way, its own tests pass
+// here, and it was simply absent from the package. Measured 2026-10-12, the first run in which
+// the decomposition was ever reached: "decomposition unavailable: The decomposition failed
+// (exit 1: ModuleNotFoundError: No module named 'decompose')", eight times in one suite. Anything
+// under python/ that the worker imports belongs in this list; test/test-plugin-python-files.mjs
+// now checks the list against the directory so the next one cannot be forgotten.
 const extraFiles = {
   'python/reactions_worker.py': 'python/reactions_worker.py',
   'python/compat_tables.py': 'python/compat_tables.py',
   'python/route_program.py': 'python/route_program.py',
   'python/route_transforms.json': 'python/route_transforms.json',
+  'python/decompose.py': 'python/decompose.py',
 };
 const lockRoot = path.join(root, 'runtimes');
 if (fs.existsSync(lockRoot)) {
