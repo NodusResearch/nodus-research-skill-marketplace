@@ -66,6 +66,11 @@ function sqrtExact(v) {
   const a = root(v.n), b = root(v.d);
   return a * a === v.n && b * b === v.d ? rational(a, b) : approximate(Math.sqrt(number(v)));
 }
+function quarterTurns(token, v, angles) {
+  if (angles !== "degrees" || !["sin", "cos", "tan"].includes(token) || v.approx !== void 0) return null;
+  const turns = op(v, rational(90n), "/");
+  return turns.d === 1n ? Number((turns.n % 4n + 4n) % 4n) : null;
+}
 function calculate(expression, add, angles) {
   if (typeof expression !== "string" || expression.length < 1 || expression.length > 240) fail("Expression must contain 1\u2013240 characters.");
   const tokens = expression.match(/\d+(?:\.\d+)?|[a-z]+|[+\-*/^()]/g) ?? [];
@@ -95,7 +100,12 @@ function calculate(expression, add, angles) {
       const x = number(arg.v), angle = angles === "degrees" ? x * Math.PI / 180 : x;
       if (token === "sqrt") v = sqrtExact(arg.v);
       else if (token === "abs") v = x < 0 ? neg(arg.v) : arg.v;
-      else {
+      else if (quarterTurns(token, arg.v, angles) !== null) {
+        /*! A whole number of right angles in degrees has an exact value; converting it to radians first leaves sin(180°) at 1.22e-16. */
+        const k = quarterTurns(token, arg.v, angles);
+        if (token === "tan" && k % 2 === 1) fail("Tangent is undefined or too close to a pole.");
+        v = rational(BigInt({ sin: [0, 1, 0, -1], cos: [1, 0, -1, 0], tan: [0, 0, 0, 0] }[token][k]));
+      } else {
         if (["ln", "log"].includes(token) && x <= 0) fail("Logarithms require a positive argument.");
         if (token === "tan" && Math.abs(Math.cos(angle)) < 1e-14) fail("Tangent is undefined or too close to a pole.");
         v = approximate({ sin: () => Math.sin(angle), cos: () => Math.cos(angle), tan: () => Math.tan(angle), ln: () => Math.log(x), log: () => Math.log10(x), exp: () => Math.exp(x) }[token]());

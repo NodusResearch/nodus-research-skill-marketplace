@@ -294,7 +294,31 @@ async function invertedConfiguration(reactants: RouteSpeciesSummary[], products:
   // are still compared by letter, among themselves only, as the whole step used to be: a matched
   // centre's letter no longer takes part, so a rank change at a placed centre cannot trip it.
   const unmatched = right.flatMap((product, p) => centres(product.graph).filter((b) => !used.has(`${p}:${b}`)).map((b) => product.graph.cip.get(b) ?? '?'));
-  if (!found.length && unplaced.length && unplaced.length === unmatched.length && [...unplaced].sort().join(',') !== [...unmatched].sort().join(',')) {
+  // A lowercase descriptor is a PSEUDO-ASYMMETRIC centre: CIP could only rank its branches by
+  // using the rest of the molecule's symmetry. So the letters are comparable across a step only
+  // while that symmetry holds on both sides — and the case says whether it did. Lowercase on one
+  // side against uppercase on the other means the ranking basis itself changed, which a remote
+  // edit does without any bond at the centre moving.
+  //
+  // Measured 2026-10-12 on a decalin-2,7-dione monoketalisation, verified with RDKit:
+  //   O=C1CC[C@H]2CCC(=O)C[C@H]2C1       -> (s), (s)   C2-symmetric, both centres pseudo
+  //   O=C1CC[C@H]2CCC3(C[C@H]2C1)OCCCO3  -> (S), (R)   one ketone ketalised, symmetry gone
+  // Nothing at either centre was touched. The step was refused for three fix rounds; one model
+  // gave up and another escaped by DELETING the cis ring fusion, which the route then passed
+  // without — and that fusion is why the later ring closure is geometrically possible.
+  //
+  // The case COUNT is what is compared, not merely the presence of a lowercase label, because an
+  // epimer at a pseudo-asymmetric centre is real and is caught only here: (r) -> (s) keeps one
+  // lowercase label on each side and must still be refused.
+  //
+  // The descriptor is carried parenthesised, "(s)", so the case is read from its letters; "?"
+  // (no descriptor) has none and counts as neither.
+  const pseudo = (tags: string[]) => tags.filter((tag) => {
+    const letters = tag.replace(/[^A-Za-z]/g, '');
+    return letters.length > 0 && letters === letters.toLowerCase();
+  }).length;
+  const rankingBasisMoved = pseudo(unplaced) !== pseudo(unmatched);
+  if (!found.length && !rankingBasisMoved && unplaced.length && unplaced.length === unmatched.length && [...unplaced].sort().join(',') !== [...unmatched].sort().join(',')) {
     found.push(`its reactants carry ${[...unplaced].sort().join(', ')} at centres that could not be matched one to one, and its products ${[...unmatched].sort().join(', ')}`);
   }
   if (!found.length) return '';
@@ -718,6 +742,12 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       totalSpecies += count;
       if (totalSpecies > maxTotal) throw new Error(`A route may name at most ${maxTotal} species.`);
       let balance = stepBalance(reactants, agents, products);
+      // Whether the refusals below overrode an equation whose ATOMS already balance. They are
+      // chemistry objections, not arithmetic ones, and the repairs further down (refiling a
+      // reactant as an agent, flipping a species to the other side) exist to close an equation
+      // that does not add up. Running them on a step refused for chemistry hands the author a
+      // second, contradictory instruction derived from a balance that was never the complaint.
+      const balancedBeforeRefusals = balance.balanced;
       // A free oxide or nitride is never the species the author meant, and it hands the solver a
       // degree of freedom that can make a wrong equation balance. Refuse the balance and name it,
       // rather than reporting a verdict the arithmetic supports and the chemistry does not.
@@ -759,11 +789,18 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
         ? await invertedConfiguration(reactants, products, nameOf)
         : '';
       if (inverted) balance = { ...balance, balanced: false, differences: [inverted] };
+      const mayRepairBalance = !balancedBeforeRefusals && freeAnions.length === 0 && !inverted;
       // A reactant-side species that takes no part in the only balance is a reagent or a
       // condition (a catalyst, a solvent) the author listed with the reactants: file it under
       // agents and check again, rather than refusing an otherwise balanced step. Products are
       // never moved — a product that takes no part is a real error.
-      if (!balance.balanced && reactants.length > 1) {
+      // Not attempted when the atoms already balanced and a refusal above overrode it: the solver
+      // will always find SOME other solution, and the one it finds drops a declared species.
+      // Measured 2026-10-12 on a decalin-2,7-dione monoketalisation refused for a (false)
+      // inversion: the retry closed the equation as "6 ethane-1,2-diol -> monoketal + 9 water",
+      // with the starting dione at coefficient 0, and told the author to move their own starting
+      // material to Agents. One model followed that for all three fix rounds and never recovered.
+      if (!balance.balanced && mayRepairBalance && reactants.length > 1) {
         const moved = agentsThatBalance(reactants, agents, products);
         if (moved) {
           const kept = reactants.filter((_, position) => !moved.includes(position));
@@ -791,7 +828,9 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // Still refused: when moving one species to the other side makes the step balance (water
       // written as a reactant in an oxidation that forms it), say so — the totals alone did not
       // tell the author which species or which way.
-      if (!balance.balanced && !balance.unchecked) {
+      // Same guard as the refiling retry: a step whose atoms balanced has nothing to tell the
+      // author about which species to move, and saying it anyway buries the real objection.
+      if (!balance.balanced && !balance.unchecked && mayRepairBalance) {
         const flip = agentRoleThatBalances(reactants, agents, products, nameOf) || sideFlipThatBalances(reactants, agents, products, nameOf);
         if (flip) balance.differences = balance.differences.map(entry => `${entry} ${flip}`);
       }

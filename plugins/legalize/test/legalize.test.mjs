@@ -320,3 +320,25 @@ test('a retrieval saved by the built-in still renders, with its attribution', as
   await assert.rejects(worker.renderLegacyResult({ fence: 'legal-result', payload: '<not json>', locale: 'en' }), /UNREADABLE/);
   await assert.rejects(worker.renderLegacyResult({ fence: 'genomics-result', payload: '{}', locale: 'en' }), /Unknown legacy fence/);
 });
+
+// An inserted article ("31 bis", "31 ter") is a different article, not a second heading for
+// Article 31. Asking for Article 31 of a code that has 31 bis used to match both headings and
+// fail as "not unique"; and once the heading is told apart, a request for "31 bis" must not
+// be grounded as a request for 31.
+test('an inserted bis or ter article is a separate article, in the text and in the request', () => {
+  const text = [
+    '##### Artículo 31.', '', 'Texto del treinta y uno.', '',
+    '##### Artículo 31 bis.', '', 'Texto del treinta y uno bis.', '',
+    '##### Artículo 31 ter.', '', 'Texto del treinta y uno ter.', '',
+    '##### Artículo 32.', '', 'Texto del treinta y dos.', '',
+  ].join('\n');
+  const plain = selectArticle(text, '31');
+  assert.match(plain, /treinta y uno\./);
+  assert.doesNotMatch(plain, /bis|ter\./);
+  assert.match(selectArticle(text, '31 bis'), /treinta y uno bis/);
+  assert.doesNotMatch(selectArticle(text, '31 bis'), /treinta y uno ter/);
+
+  const question = 'Muéstrame el artículo 31 bis del Código Penal de España';
+  assert.equal(parsePlan(JSON.stringify({ version: 1, country: 'es', query: 'Código Penal', article: '31 bis' }), question).article, '31 bis');
+  assert.throws(() => parsePlan(JSON.stringify({ version: 1, country: 'es', query: 'Código Penal', article: '31' }), question), /NOT_IN_MESSAGE/);
+});
