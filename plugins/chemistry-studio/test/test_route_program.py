@@ -22,6 +22,8 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "python"))
 
+from rdkit import Chem
+
 import reactions_worker
 import route_program
 
@@ -648,6 +650,180 @@ class ReversedIndexTemplate(unittest.TestCase):
         out = apply(molecule="O=[N+]([O-])c1ccccc1",
                     operation={"kind": "template", "id": "[C:1]>>[C:1]", "indexDir": self.index})
         self.assertEqual(out["error"], "unknown-template")
+
+
+class TemplateRows(unittest.TestCase):
+    """The templates file has gained a column before and will again.
+
+    Splitting into exactly three columns put a newer file's fourth column at the front of every
+    SMARTS, so every pattern failed to parse and the entire library was dropped — a store that read
+    as EMPTY rather than as unreadable, which is the worst way for this to fail. The pattern cannot
+    contain a tab, so the last field is the pattern whatever else is there."""
+
+    SMARTS = "[NH2;D1;+0:1]-[c:2]>>O=[N+;H0;D3:1](-[O-])-[c:2]"
+
+    def test_three_columns(self):
+        self.assertEqual(reactions_worker._template_row(f"12\t1\t{self.SMARTS}"),
+                         ("12", "1", self.SMARTS))
+
+    def test_four_columns_with_a_radius_between(self):
+        self.assertEqual(reactions_worker._template_row(f"12\t1\t2\t{self.SMARTS}"),
+                         ("12", "1", self.SMARTS))
+
+    def test_a_column_added_in_future_does_not_break_it(self):
+        self.assertEqual(reactions_worker._template_row(f"12\t1\t2\tsomething\t{self.SMARTS}"),
+                         ("12", "1", self.SMARTS))
+
+    def test_the_trailing_newline_is_not_part_of_the_pattern(self):
+        self.assertEqual(reactions_worker._template_row(f"12\t1\t2\t{self.SMARTS}\n")[2],
+                         self.SMARTS)
+
+    def test_the_pattern_from_either_shape_parses(self):
+        for line in (f"12\t1\t{self.SMARTS}", f"12\t1\t2\t{self.SMARTS}"):
+            smarts = reactions_worker._template_row(line)[2]
+            self.assertIsNotNone(Chem.MolFromSmarts(smarts.split(">>")[0]), line)
+
+
+class SiteEnvironment(unittest.TestCase):
+    """Telling a proposal that acted AT the named place from one that merely matched there.
+
+    The template filter decides which templates run, not where they are applied, so most surviving
+    proposals are disconnections elsewhere and they bury the one asked for. A disconnection at the
+    site destroys the site's own surroundings, so those surroundings cannot occur in the precursors.
+
+    The radius matters more than it looks: at one that is too small the environment recurs, survives
+    the disconnection intact, and every proposal reads as having acted elsewhere. Measured, that
+    threw away all 4,020 proposals on one target."""
+
+    CHAIN = "CCCCCCCCNC(=O)CCCCCCCC"
+
+    def test_the_environment_is_smaller_than_the_molecule_and_reparses(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        smiles = reactions_worker._environment(mol, {8}, 2)
+        self.assertIsNotNone(smiles)
+        env = Chem.MolFromSmiles(smiles)
+        self.assertIsNotNone(env, smiles)
+        self.assertLess(env.GetNumAtoms(), mol.GetNumAtoms())
+
+    def test_a_cut_neighbour_becomes_a_dummy_so_the_kept_atom_keeps_its_degree(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        env = Chem.MolFromSmiles(reactions_worker._environment(mol, {8}, 1))
+        self.assertTrue(any(a.GetAtomicNum() == 0 for a in env.GetAtoms()), Chem.MolToSmiles(env))
+
+    def test_an_empty_site_has_no_environment(self):
+        self.assertIsNone(reactions_worker._environment(Chem.MolFromSmiles(self.CHAIN), set(), 2))
+
+    def test_a_bigger_radius_keeps_more(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        sizes = [Chem.MolFromSmiles(reactions_worker._environment(mol, {8}, r)).GetNumAtoms()
+                 for r in (1, 2, 3)]
+        self.assertEqual(sizes, sorted(sizes))
+        self.assertLess(sizes[0], sizes[-1])
+
+    def test_the_query_occurs_exactly_once_in_the_molecule_it_came_from(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        query = reactions_worker._site_environment(mol, {8})
+        self.assertIsNotNone(query)
+        self.assertEqual(len(mol.GetSubstructMatches(query, uniquify=True, maxMatches=8)), 1)
+
+    def test_a_repetitive_environment_is_grown_until_it_is_unique(self):
+        # a symmetric chain: a small window around one methylene matches in many places, so the
+        # radius has to grow before the query says anything about WHICH one
+        mol = Chem.MolFromSmiles("OCCCCCCCCCCCCO")
+        small = Chem.MolFromSmarts(
+            reactions_worker._environment(mol, {6}, 1).replace("[*]", "[*,#1]"))
+        self.assertGreater(len(mol.GetSubstructMatches(small, uniquify=True, maxMatches=20)), 1)
+        grown = reactions_worker._site_environment(mol, {6})
+        if grown is not None:
+            self.assertEqual(len(mol.GetSubstructMatches(grown, uniquify=True, maxMatches=8)), 1)
+
+    def test_a_precursor_that_still_holds_the_environment_did_not_act_there(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        query = reactions_worker._site_environment(mol, {8})
+        # the molecule itself obviously still holds it
+        self.assertFalse(reactions_worker._acted_at_site(self.CHAIN, query))
+
+    def test_a_precursor_without_the_environment_did_act_there(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        query = reactions_worker._site_environment(mol, {8})
+        # the amide cut back to the amine and the acid: the environment is gone from both
+        self.assertTrue(reactions_worker._acted_at_site("CCCCCCCCN.OC(=O)CCCCCCCC", query))
+
+    def test_one_precursor_holding_it_is_enough_to_reject_the_whole_set(self):
+        mol = Chem.MolFromSmiles(self.CHAIN)
+        query = reactions_worker._site_environment(mol, {8})
+        self.assertFalse(reactions_worker._acted_at_site(f"CO.{self.CHAIN}", query))
+
+
+class DisconnectionSite(unittest.TestCase):
+    """Marking a target says WHERE a disconnection is wanted, which lets the retro pass skip the
+    templates that are found only somewhere else.
+
+    Tested on the two pure functions rather than through a whole pass, because a template library is
+    local data that never ships with the repository. The properties the saving rests on are here:
+    the marks are not carried into the molecule that gets searched, the site is the atoms they sat
+    on, and a template found only away from the site is rejected while the same template on an
+    unmarked target is kept."""
+
+    def test_an_unmarked_target_has_no_site_and_keeps_its_atoms(self):
+        mol, site, canonical = reactions_worker._site_of("CC(=O)OCC")
+        self.assertEqual(site, frozenset())
+        self.assertEqual(canonical[0], "CCOC(C)=O")
+        self.assertEqual(canonical[1], [])
+
+    def test_marks_give_the_site_and_are_stripped_from_the_molecule(self):
+        mol, site, canonical = reactions_worker._site_of("CC(=O)O[CH2:901]C")
+        self.assertEqual(len(site), 1)
+        # the molecule that is searched and reported carries no map numbers
+        self.assertEqual(canonical[0], "CCOC(C)=O")
+        self.assertEqual(mol.GetAtomWithIdx(next(iter(site))).GetSymbol(), "C")
+
+    def test_the_reported_site_indexes_the_canonical_target_not_the_input(self):
+        """The caller holds `target`, so the indices have to be its own."""
+        mol, site, (smiles, reported) = reactions_worker._site_of("CC(=O)O[CH2:901]C")
+        marked_atom = Chem.MolFromSmiles(smiles).GetAtomWithIdx(reported[0])
+        self.assertEqual(marked_atom.GetSymbol(), "C")
+        # the methylene of the ethyl: two heavy neighbours, two hydrogens
+        self.assertEqual(marked_atom.GetTotalNumHs(), 2)
+        self.assertEqual(sorted(n.GetSymbol() for n in marked_atom.GetNeighbors()), ["C", "O"])
+
+    def test_the_reported_site_is_every_marked_atom_and_no_other(self):
+        _, site, (smiles, reported) = reactions_worker._site_of("[CH3:901]C(=O)O[CH2:902]C")
+        self.assertEqual(len(site), 2)
+        self.assertEqual(len(reported), 2)
+        canonical = Chem.MolFromSmiles(smiles)
+        self.assertTrue(all(0 <= i < canonical.GetNumAtoms() for i in reported))
+
+    def test_without_a_site_any_place_counts(self):
+        mol, site, _ = reactions_worker._site_of("OCCCCCCO")
+        alcohol = Chem.MolFromSmarts("[OX2H1]")
+        self.assertTrue(reactions_worker._at_site(mol, alcohol, site))
+
+    def test_a_pattern_found_only_away_from_the_site_is_rejected(self):
+        # one end marked; the query is pinned to the OTHER kind of group, which is at neither end
+        mol, site, _ = reactions_worker._site_of("[OH:901]CCCCCCO")
+        self.assertEqual(len(site), 1)
+        self.assertTrue(reactions_worker._at_site(mol, Chem.MolFromSmarts("[OX2H1]"), site))
+        self.assertFalse(reactions_worker._at_site(mol, Chem.MolFromSmarts("[NX3]"), site))
+
+    def test_a_pattern_found_at_the_site_among_several_places_is_kept(self):
+        # a symmetric diol: the alcohol query matches twice, and only one match is at the mark
+        mol, site, _ = reactions_worker._site_of("[OH:901]CCCCCCO")
+        alcohol = Chem.MolFromSmarts("[OX2H1]")
+        self.assertEqual(len(mol.GetSubstructMatches(alcohol, uniquify=True)), 2)
+        self.assertTrue(reactions_worker._at_site(mol, alcohol, site))
+
+    def test_a_pattern_that_spans_the_site_counts_even_when_the_mark_is_not_its_anchor(self):
+        # the mark is on the carbon; the query starts at the oxygen and reaches it
+        mol, site, _ = reactions_worker._site_of("CC(=O)O[CH2:901]C")
+        ester = Chem.MolFromSmarts("[CX3](=O)[OX2][CX4]")
+        self.assertTrue(reactions_worker._at_site(mol, ester, site))
+
+    def test_a_target_that_does_not_parse_gives_no_molecule(self):
+        mol, site, canonical = reactions_worker._site_of("not a molecule")
+        self.assertIsNone(mol)
+        self.assertEqual(site, frozenset())
+        self.assertEqual(canonical, ())
 
 
 if __name__ == "__main__":

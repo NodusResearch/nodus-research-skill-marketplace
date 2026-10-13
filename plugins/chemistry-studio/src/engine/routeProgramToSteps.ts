@@ -50,11 +50,13 @@ export function routeProgramToAuditInput(trace: RouteProgramTrace, options: { ta
   const steps: string[] = [];
   const carriers: Array<string | null> = [];
   const labels: Array<RouteLabelInput[]> = [];
+  const producedRefs = new Set(trace.lines.filter(line => isStep(line) && line.executed && !line.failure).map(line => line.ref));
   for (const line of trace.lines) {
     if (!isStep(line)) continue;
     const ran = line.executed && !line.failure && typeof line.equation === 'string' && line.equation.length > 0;
     steps.push(ran ? line.equation! : '');
-    carriers.push(ran ? (line.reactants[0] ?? null) : null);
+    // The audit's carrier declaration means "made by an earlier step", not a purchased input.
+    carriers.push(ran && line.from !== null && producedRefs.has(line.from) ? (line.reactants[0] ?? null) : null);
     labels.push(ran ? (labelsFor(line) as RouteLabelInput[]) : []);
   }
   const target = options.target ?? (trace.firstFailure === null ? trace.product?.smiles : undefined) ?? undefined;

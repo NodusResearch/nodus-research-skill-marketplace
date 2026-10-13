@@ -20,7 +20,7 @@ await build({
   entryPoints: [path.join(root, 'src/engine/routeProgramOps.ts')],
   outfile: bundle, bundle: true, platform: 'node', format: 'cjs', target: 'node20', logLevel: 'silent',
   // import.meta.url is read for the script path only; the fake never runs it.
-  define: { 'import.meta.url': JSON.stringify('file:///plugins/chemistry-studio/src/engine/routeProgramOps.ts') },
+  define: { 'import.meta.url': JSON.stringify(new URL('../src/engine/routeProgramOps.ts', import.meta.url).href) },
 });
 const { createMoleculeOps, listTransforms, OFFER_MAX_HEAVY_ATOMS } = createRequire(import.meta.url)(bundle);
 

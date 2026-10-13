@@ -1,3 +1,15 @@
+# Chemistry Studio 2.6.1
+
+Localises disconnection candidates to a named site and ranks proposals that change its environment. Reads retro-template SMARTS from the last TSV column, versions the pattern-screen cache, and rebuilds invalid caches. A saturated site-match prefix keeps the template so later symmetric matches are not silently lost. Malformed rows do not hide valid templates. No permissions or migrations change.
+
+# Chemistry Studio 2.6.0
+
+Adds a bounded route-program parser, forward interpreter and application tool `execute-route-program`, connected to the existing route audit. Programs stop at their first failure, retain line provenance and named-site handles, and do not establish experimental feasibility. All Python modules and transform data travel in the archive. Windows test paths use real file URLs. No permissions or migrations change.
+
+# Chemistry Studio 2.5.29
+
+Route auditing accepts pseudo-asymmetric descriptor changes caused by desymmetrisation while retaining the checks for real inversions. Chemistry refusals no longer produce refiling or side-flip advice, including when the original equation was unbalanced. No permissions or data migrations change.
+
 # Chemistry Studio 2.5.28
 
 ## The lone-atom message says why it went unnoticed on the side it was found

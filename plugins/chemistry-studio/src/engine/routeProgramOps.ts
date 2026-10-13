@@ -226,6 +226,15 @@ export function createMoleculeOps(options: MoleculeOpsOptions = {}): MoleculeOps
       if (!parsed) return unavailable('The chemistry runtime returned a co-product that is not a structure.');
       coProducts.push(parsed);
     }
+    const extra: Pick<OpOutcome, 'coReactants' | 'agents'> = {};
+    for (const key of ['coReactants', 'agents'] as const) {
+      const value = reply.body[key];
+      if (value === undefined) continue;
+      if (!Array.isArray(value)) return unavailable(`The chemistry runtime returned ${key} in an unexpected shape.`);
+      const molecules = value.map(entry => asMolecule(entry));
+      if (molecules.some(entry => !entry)) return unavailable(`The chemistry runtime returned a ${key} entry that is not a structure.`);
+      extra[key] = molecules as Molecule[];
+    }
     issued += 1;
     lastMark = markAs;
     if (assigns) markByRef.set(assigns, markAs);
@@ -233,7 +242,7 @@ export function createMoleculeOps(options: MoleculeOpsOptions = {}): MoleculeOps
       const marks = Array.isArray(reply.body.marks) ? reply.body.marks.filter((entry): entry is number => typeof entry === 'number') : [];
       survivors.set(product.handle, new Set(marks));
     }
-    return { product, coProducts, reagents: resolved, provenance: op };
+    return { product, coProducts, reagents: resolved, ...extra, provenance: op };
   }
 
   async function offer(molecule: Molecule, _reagent: SpeciesRef): Promise<TemplateOffer[]> {
