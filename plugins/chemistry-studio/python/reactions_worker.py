@@ -634,7 +634,11 @@ _retro_screen = {}
 
 def _screen_cache_path(path):
     """Where the pattern screen of a templates file is cached: beside it, named for the file's
-    bytes and everything else the screen depends on, so a changed file or RDKit is a miss."""
+    bytes and everything else the screen depends on, so a changed file or RDKit is a miss.
+
+    The name carries SCREEN_FORMAT in the clear, not only inside the digest, so two builds that
+    read a templates line differently write two FILES rather than colliding on one — and which
+    build wrote which is readable from the directory listing."""
     import hashlib
     from rdkit import rdBase
 
@@ -642,8 +646,24 @@ def _screen_cache_path(path):
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
-    digest.update(f"screen-v1|{SCREEN_BITS}|{rdBase.rdkitVersion}".encode())
-    return f"{path}.screen-{digest.hexdigest()[:16]}.npz"
+    digest.update(f"screen-v{SCREEN_FORMAT}|{SCREEN_BITS}|{rdBase.rdkitVersion}".encode())
+    return f"{path}.screen-v{SCREEN_FORMAT}-{digest.hexdigest()[:16]}.npz"
+
+
+def _template_row(line):
+    """(count, rdchiral, smarts) from one templates-file line, whatever columns it carries.
+
+    A newer index writes a fourth column between `rdchiral` and the pattern, and splitting into
+    exactly three put that column at the front of the SMARTS, so every pattern failed to parse and
+    the whole library was silently dropped — a store that read as empty rather than as unreadable.
+    The SMARTS cannot contain a tab, so taking the LAST field is correct for every version of the
+    format, present and future."""
+    parts = line.rstrip("\r\n").split("\t")
+    if len(parts) < 3 or not parts[-1].strip():
+        raise ValueError("A template row needs counts and a SMARTS pattern.")
+    if int(parts[0]) < 0 or int(parts[1]) < 0:
+        raise ValueError("Template counts cannot be negative.")
+    return parts[0], parts[1], parts[-1]
 
 
 def _retro_templates(index_dir):
@@ -672,9 +692,12 @@ def _retro_templates(index_dir):
         if os.path.isfile(cache):
             with np.load(cache, allow_pickle=False) as data:
                 screen, valid = data["screen"], data["valid"]
-            if len(screen) == len(valid) and (not len(valid) or int(valid.max()) < len(lines)):
+            if (valid.ndim == 1 and valid.dtype.kind in "iu"
+                    and screen.shape == (len(valid), SCREEN_BITS // 64)
+                    and screen.dtype == np.uint64
+                    and (not len(valid) or (int(valid.min()) >= 0 and int(valid.max()) < len(lines)))):
                 for i in valid.tolist():
-                    count, rdchiral, smarts = lines[i].split("\t", 2)
+                    count, rdchiral, smarts = _template_row(lines[i])
                     rows.append([int(count), int(rdchiral), smarts, None])
                 _retro_cache[index_dir] = rows
                 _retro_screen[index_dir] = screen
@@ -683,7 +706,10 @@ def _retro_templates(index_dir):
         rows = []
     valid = []
     for i, line in enumerate(lines):
-        count, rdchiral, smarts = line.split("\t", 2)
+        try:
+            count, rdchiral, smarts = _template_row(line)
+        except (ValueError, IndexError):
+            continue
         query = Chem.MolFromSmarts(smarts.split(">>")[0])
         if query is not None:
             rows.append([int(count), int(rdchiral), smarts, query])
@@ -711,6 +737,13 @@ def _retro_templates(index_dir):
 
 
 SCREEN_BITS = 2048
+# How this build reads and screens a templates line. The cache holds INDICES into the file and
+# defers parsing, so it is only meaningful to a loader that selects the same lines: a build whose
+# patterns all parse and one whose patterns all fail must never share it. Measured 2026-10-12: a
+# cache written by the fixed loader was read by a build with the three-column split, which deferred
+# the parse, got None, and passed None to HasSubstructMatch — killing the disconnection search for
+# every target in seven runs. Bump this on any change to _template_row or _pattern_screen.
+SCREEN_FORMAT = 3
 
 
 def _pattern_bits(mol):
@@ -759,12 +792,167 @@ def _makes(reaction, target):
     return target in organic and len(organic) <= 2
 
 
+# How many places one template may be found in before the site filter gives up and keeps it. The
+# filter exists to make a large molecule cheap, so it must not itself become the expensive step.
+SITE_MAX_MATCHES = 200
+
+
+def _site_of(raw):
+    """(molecule, site atoms, (canonical smiles, site atoms in canonical order)).
+
+    For a target that may carry map numbers marking where to act.
+
+    A target written with atom map numbers says WHERE the disconnection is wanted. The numbers are
+    stripped from the molecule that is searched and reported, so the caller sees ordinary SMILES;
+    only the atom indices are kept. The molecule returned is the one the filter searches, and its
+    indices are the ones the site refers to — nothing downstream needs that correspondence, because
+    the application still runs on the whole molecule.
+
+    Measured: filtering the candidate templates to those found AT the site cuts 2,116 candidates to
+    310 for 0.6 s of filtering, and the pass as a whole from 170.7 s to 13.9 s, with the precursor
+    actually used still among the proposals. Applying to the whole molecule and not to a cut-down
+    copy is what makes that safe: no precursor has to be transplanted back."""
+    from rdkit import Chem
+
+    mol = Chem.MolFromSmiles(raw)
+    if mol is None:
+        return None, frozenset(), ()
+    site = frozenset(a.GetIdx() for a in mol.GetAtoms() if a.GetAtomMapNum())
+    for atom in mol.GetAtoms():
+        atom.SetAtomMapNum(0)
+    # The site is reported beside the CANONICAL target, so the indices have to be the canonical
+    # molecule's, not the order the caller happened to write. Without this a caller holding only
+    # `target` reads them against the wrong atoms: one measured case marked atom 262 and had 267
+    # reported back.
+    smiles = Chem.MolToSmiles(mol)
+    reported = site
+    try:
+        order = json.loads(mol.GetProp("_smilesAtomOutputOrder"))
+        where = {old: new for new, old in enumerate(order)}
+        reported = frozenset(where[i] for i in site if i in where)
+    except (KeyError, ValueError):
+        reported = frozenset()
+    return mol, site, (smiles, sorted(reported))
+
+
+# How far around the site the environment query reaches. It GROWS from the first until the
+# environment occurs exactly once: a radius at which it occurs twice does not identify the site, so
+# finding it in a precursor says nothing. Measured — at a fixed radius 2 one target kept 0 of 4,020
+# proposals because its site's environment recurs and survives the disconnection intact.
+SITE_ENV_MIN_RADIUS, SITE_ENV_MAX_RADIUS = 2, 7
+
+
+def _environment(mol, site, radius):
+    """The site's neighbourhood as a SMILES, cut ends capped, or None.
+
+    Every atom within `radius` keeps its original hydrogen count written out, so an atom that loses
+    neighbours here does not appear to gain hydrogens. Each neighbour just outside becomes a dummy,
+    which keeps the kept atom's degree. A touched aromatic ring is kept whole, transitively, because
+    a partial aromatic ring cannot be kekulised and the result would not parse."""
+    from rdkit import Chem
+
+    if not site:
+        return None
+    count = mol.GetNumAtoms()
+    distance = Chem.GetDistanceMatrix(mol)
+    keep = {i for i in range(count) if min(distance[i][s] for s in site) <= radius}
+    rings = [set(r) for r in mol.GetRingInfo().AtomRings()
+             if all(mol.GetAtomWithIdx(a).GetIsAromatic() for a in r)]
+    grew = True
+    while grew:
+        grew = False
+        for ring in rings:
+            if ring & keep and not ring <= keep:
+                keep |= ring
+                grew = True
+    caps = {nb.GetIdx() for i in keep for nb in mol.GetAtomWithIdx(i).GetNeighbors()
+            if nb.GetIdx() not in keep}
+    rw = Chem.RWMol(mol)
+    for i in keep:
+        atom = rw.GetAtomWithIdx(i)
+        atom.SetNumExplicitHs(mol.GetAtomWithIdx(i).GetTotalNumHs())
+        atom.SetNoImplicit(True)
+    for i in caps:
+        atom = rw.GetAtomWithIdx(i)
+        atom.SetAtomicNum(0)
+        atom.SetIsAromatic(False)
+        atom.SetFormalCharge(0)
+        atom.SetNumExplicitHs(0)
+        atom.SetNoImplicit(True)
+        atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+        atom.SetIsotope(0)
+    for bond in rw.GetBonds():
+        i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        if (i in caps) != (j in caps) and bond.GetIsAromatic():
+            bond.SetIsAromatic(False)
+            bond.SetBondType(Chem.BondType.SINGLE)
+    for i in sorted(set(range(count)) - keep - caps, reverse=True):
+        rw.RemoveAtom(i)
+    try:
+        out = rw.GetMol()
+        Chem.SanitizeMol(out)
+        return Chem.MolToSmiles(out, allHsExplicit=True)
+    except Exception:
+        return None
+
+
+def _site_environment(mol, site):
+    """A query that occurs exactly once in `mol`, around the site, or None if no radius gives one.
+
+    The caps are widened to "any atom or a hydrogen": a disconnection just outside the window leaves
+    the environment intact but may put a hydrogen where a cut neighbour was, and a cap that only
+    matched heavy atoms would call that a change at the site."""
+    from rdkit import Chem
+
+    for radius in range(SITE_ENV_MIN_RADIUS, SITE_ENV_MAX_RADIUS + 1):
+        smiles = _environment(mol, site, radius)
+        if smiles is None:
+            continue
+        query = Chem.MolFromSmarts(smiles.replace("[*]", "[*,#1]"))
+        if query is None:
+            continue
+        if len(mol.GetSubstructMatches(query, uniquify=True, maxMatches=8)) == 1:
+            return query
+    return None
+
+
+def _acted_at_site(side, query):
+    """Whether this precursor set no longer holds the site's environment.
+
+    A disconnection AT the site destroys that environment, so it cannot occur in the precursors; one
+    away from it leaves the environment standing in one of them. This is what separates the
+    proposals that answer the question asked from the ones that merely survived the template filter:
+    naming the site decides which templates run, not where they are applied."""
+    from rdkit import Chem
+
+    for frag in side.split("."):
+        mol = Chem.MolFromSmiles(frag)
+        if mol is not None and mol.HasSubstructMatch(query):
+            return False
+    return True
+
+
+def _at_site(mol, query, site):
+    """Whether `query` is found on `mol` in a place that touches `site` (any place, if no site)."""
+    if not site:
+        return mol.HasSubstructMatch(query)
+    matches = mol.GetSubstructMatches(query, uniquify=True, maxMatches=SITE_MAX_MATCHES)
+    for match in matches:
+        if site.intersection(match):
+            return True
+    # A saturated prefix cannot prove absence at a later symmetric match. Keep the template.
+    return len(matches) == SITE_MAX_MATCHES
+
+
 def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_seconds=None):
     """For each target: the recorded reactions that make it, and template disconnections ranked by
     (1) the disconnection itself being a recorded reaction, (2) every organic precursor being a
     common ORD reactant, (3) template popularity. A precursor set containing the target is dropped.
     With starting materials (a route's declared inputs), a proposal made only from them ranks first
-    among the unrecorded ones, then proposals whose precursors most resemble them."""
+    among the unrecorded ones, then proposals whose precursors most resemble them.
+
+    A target carrying atom map numbers is asking for disconnections AT those atoms: only templates
+    found in a place that touches them are tried. See `_site_of`."""
     from rdkit import Chem
     from rdkit.Chem import AllChem, DataStructs
 
@@ -794,12 +982,15 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_s
     deadline = time.monotonic() + budget_seconds if budget_seconds else None
     results = []
     for raw in targets:
-        target = _canon(raw)
+        mol, site, canonical = _site_of(raw)
+        target = canonical[0] if canonical else None
         entry = {"input": raw, "target": target, "madeBy": None, "proposals": []}
         if not target:
             results.append(entry)
             continue
-        mol = Chem.MolFromSmiles(target)
+        if site:
+            # indices into `target`, which is what the caller holds
+            entry["site"] = canonical[1]
         proposals = {}
         if mol is not None and templates:
             reactants = rdchiralReactants(target)
@@ -810,7 +1001,7 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_s
                 count, rdchiral, smarts, query = row
                 if query is None:
                     query = row[3] = Chem.MolFromSmarts(smarts.split(">>")[0])
-                if not mol.HasSubstructMatch(query):
+                if query is None or not _at_site(mol, query, site):
                     continue
                 try:
                     rxn = _rdchiral_cache.get(smarts)
@@ -830,6 +1021,20 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_s
                                        # which templates proposed it (most common first), so an index that
                                        # documents its templates (a textbook index) can cite their sources
                                        "templates": sorted(((best or {}).get("templates", []) + [(count, smarts)]), key=lambda t: -t[0])[:3]}
+        if site and proposals:
+            # Rank-saving, not search-saving: the template filter leaves proposals that matched at
+            # the site but were APPLIED elsewhere, and they bury the one that was asked for. If
+            # nothing survives, the unfiltered set is kept and said to be unfiltered — an empty
+            # answer is worse than a crowded one.
+            query = _site_environment(mol, site)
+            if query is not None:
+                kept = {k: v for k, v in proposals.items() if _acted_at_site(k, query)}
+                if kept:
+                    entry["atSite"] = len(kept)
+                    entry["awayFromSite"] = len(proposals) - len(kept)
+                    proposals = kept
+                else:
+                    entry["atSite"] = 0
         entry["_proposals"] = proposals
         results.append(entry)
 
