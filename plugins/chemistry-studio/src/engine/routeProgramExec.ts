@@ -91,8 +91,8 @@ async function runApply(line: ApplyLine, ops: MoleculeOps, bound: Map<MolRef, Mo
   const outcome = await ops.apply(request);
   if (isOpError(outcome)) return { trace: failed(line, outcome, [input.smiles]), input };
   bound.set(line.ref, outcome.product);
-  const reactants = [input.smiles];
-  const reagents = outcome.reagents.map((m) => m.smiles);
+  const reactants = [input.smiles, ...(outcome.coReactants ?? []).map(m => m.smiles)];
+  const reagents = (outcome.agents ?? outcome.reagents).map((m) => m.smiles);
   const products = [outcome.product.smiles, ...outcome.coProducts.map((m) => m.smiles)];
   return {
     trace: {

@@ -53,3 +53,6 @@ If Chemistry Studio abstains entirely and SVG Studio is enabled, Nodus asks for 
 Keep surrounding prose brief and accurate: it is shown alongside the drawing, so do not claim a structure was verified before the tool result says so.
 When there is no chemical identity in the request, ask for the complete name, PubChem CID or isomeric SMILES.
 This validation establishes agreement with the stated reference graph and the supported projection, rule or declared electron flow. It does not establish infallibility of chemical databases, every visual layout detail, experimental kinetics or product dominance.
+
+ROUTE PROGRAMS — APPLICATION TOOL
+For an explicitly supplied route program, the host can invoke `execute-route-program` with its program text and optional target SMILES. This alternate tool requires the managed chemistry Python runtime. It resolves named inputs through the same references, stops at the first failed operation, and sends generated equations and byproduct labels through the existing route audit. Syntax errors cause no runtime or reference access; absent runtime or unresolved names are failures, never invented intermediates. It accepts at most 24 transformations. Follow the ordinary appended synthesis contract for prose answers; do not switch format automatically. An executed transformation or balanced equation is not experimental evidence.

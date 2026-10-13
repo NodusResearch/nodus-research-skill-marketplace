@@ -39,7 +39,7 @@ test('a complete three-step trace maps to exact steps, labels, carriers and targ
   };
   const result = routeProgramToAuditInput(trace);
   assert.deepEqual(result.steps, ['R1>>R2', 'R2>>R3', 'R3>>R4']);
-  assert.deepEqual(result.carriers, ['R1', 'R2', 'R3']);
+  assert.deepEqual(result.carriers, [null, 'R2', 'R3']);
   assert.deepEqual(result.labels, [
     [{ role: 'reactant', smiles: 'R1' }, { role: 'product', smiles: 'R2' }],
     [{ role: 'reactant', smiles: 'R2' }, { role: 'product', smiles: 'R3' }],
@@ -60,7 +60,7 @@ test('a failure keeps failed and unexecuted lines as empty slots, with every arr
   assert.deepEqual(result.steps, ['R1>>R2', '', '', '']);
   assert.equal(result.carriers.length, result.steps.length);
   assert.equal(result.labels.length, result.steps.length);
-  assert.deepEqual(result.carriers, ['R1', null, null, null]);
+  assert.deepEqual(result.carriers, [null, null, null, null]);
   assert.deepEqual(result.labels.slice(1), [[], [], []]);
   assert.equal(programStepCount(trace), 4);
   assert.equal(result.target, undefined);

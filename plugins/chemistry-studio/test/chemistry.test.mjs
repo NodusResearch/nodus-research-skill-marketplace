@@ -11,6 +11,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { runConformanceSuite, conformanceFailures } from '../../../scripts/contract-v2.mjs';
 
 // `fileURLToPath`, not `.pathname`: on Windows a file URL's pathname is `/D:/…`, and
@@ -2119,6 +2121,162 @@ test('a step that inverts a stereocentre is refused, though its equation balance
   assert.ok(!why.includes('N-methylmethanamine'), why);
   // And the preserved route still says nothing at all.
   assert.ok(!kept.steps[0].differences.join(' ').includes('inverts a stereocentre'));
+});
+
+test('desymmetrising a molecule is not reported as an inversion', async () => {
+  // Measured 2026-10-12, and it cost two runs. cis-decalin-2,7-dione is C2-symmetric, so CIP can
+  // only rank the branches at its two ring-fusion carbons by using that symmetry and labels them
+  // PSEUDO-ASYMMETRIC, (s),(s). Ketalising one of the two ketones breaks the symmetry and the same
+  // two carbons re-rank to (S),(R) — with no bond at either centre touched. Verified with RDKit:
+  //   O=C1CC[C@H]2CCC(=O)C[C@H]2C1              -> (4,'s'), (10,'s')
+  //   O=C1CC[C@H]2CCC3(C[C@H]2C1)OCCCO3         -> (4,'S'), (9,'R')
+  // Neither centre can be placed by the parity match (their branches are alike), so the letter
+  // fallback compared s,s against R,S and refused the step. One model spent three fix rounds on it
+  // and gave up; another escaped by deleting the cis ring fusion, which the route then passed
+  // without — and that fusion is the reason the later ring closure is geometrically possible.
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const audit = await lib.auditRoute({
+    steps: ['O=C1CC[C@H]2CCC(=O)C[C@H]2C1.OCCCO>>O=C1CC[C@H]2CCC3(C[C@H]2C1)OCCCO3.O'],
+    labels: [[
+      label('reactant', 'cis-decalin-2,7-dione', 'O=C1CC[C@H]2CCC(=O)C[C@H]2C1'),
+      label('reactant', 'propane-1,3-diol', 'OCCCO'),
+      label('product', 'the monoketal', 'O=C1CC[C@H]2CCC3(C[C@H]2C1)OCCCO3'),
+      label('product', 'water', 'O', true),
+    ]],
+  });
+  const step = audit.steps[0];
+  assert.equal(step.balanced, true, JSON.stringify({ error: step.error, differences: step.differences }));
+  assert.ok(!step.differences.join(' ').includes('inverts a stereocentre'), step.differences.join(' '));
+  // And the advice that followed from the refusal is gone with it: the step keeps its reactants.
+  assert.equal(step.refiledReactant, undefined);
+});
+
+test('a step refused for chemistry is not also told to refile a reactant', async () => {
+  // The two repairs — refiling a reactant as an agent, and flipping a species to the other side —
+  // close an equation that does not ADD UP. A step refused for an inversion already adds up, so
+  // the solver is free to find any other solution, and the one it finds drops a declared species.
+  //
+  // Measured on the monoketalisation above when it was written with ethane-1,2-diol: the retry
+  // closed it as "6 ethane-1,2-diol -> monoketal + 9 water" with the starting dione at
+  // coefficient 0, and told the author to move their own starting material to Agents.
+  //
+  // Reproduced here with a REAL inversion at an ordinary (uppercase) centre, so the guard being
+  // tested is the refusal ordering and not the pseudo-asymmetry guard above. 3-phenylbutan-2-one
+  // is (S) and the ketal is written (R), which no protection does. The degeneracy is the same:
+  // the ketal is C12H16O2, and H == C + 2*O with C even is exactly when n glycol - m water
+  // reproduces a formula, here 6 glycol - 10 water.
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const audit = await lib.auditRoute({
+    steps: ['CC(=O)[C@@H](C)c1ccccc1.OCCO>>CC1(OCCO1)[C@H](C)c1ccccc1.O'],
+    labels: [[
+      label('reactant', '3-phenylbutan-2-one', 'CC(=O)[C@@H](C)c1ccccc1'),
+      label('reactant', 'ethane-1,2-diol', 'OCCO'),
+      label('product', 'the ketal', 'CC1(OCCO1)[C@H](C)c1ccccc1'),
+      label('product', 'water', 'O', true),
+    ]],
+  });
+  const step = audit.steps[0];
+  // Still refused, and for the right reason.
+  assert.equal(step.balanced, false);
+  assert.match(step.differences.join(' '), /inverts a stereocentre/);
+  // The contradictory second instruction is what must not appear.
+  assert.equal(step.refiledReactant, undefined, 'a chemistry refusal must not produce refiling advice');
+  const why = step.differences.join(' ');
+  assert.ok(!why.includes('to Agents'), why);
+  assert.ok(!why.includes('takes no part'), why);
+});
+
+test('an unbalanced chemistry refusal cannot be cleared by refiling the invalid species', async () => {
+  const audit = await lib.auditRoute({ steps: ['C.[O-2]>>C'] });
+  const step = audit.steps[0];
+  assert.equal(step.balanced, false);
+  assert.match(step.differences.join(' '), /free multiply-charged anion/);
+  assert.equal(step.refiledReactant, undefined);
+  assert.equal(step.reactants.length, 2);
+  assert.doesNotMatch(step.differences.join(' '), /to Agents/);
+});
+
+test('the application route-program tool rejects syntax and oversized programs before host access', async () => {
+  const host = stubHost();
+  host.python = { ensureRuntime: async () => { throw new Error('must not access Python'); } };
+  const worker = lib.createWorker(host);
+  for (const program of ['nonsense', 'M1 = start(smiles="CCO")\ntarget = M1', [
+    'M1 = start(smiles="CCO")',
+    ...Array.from({ length: 25 }, (_, i) => `M${i + 2} = apply(M${i + 1}, named="primary-alcohol-oxidation")`),
+    'target = M26',
+  ].join('\n')]) {
+    const result = await worker.invoke({ toolId: 'execute-route-program', input: { program }, locale: 'en' });
+    assert.equal(result.artifacts[0].data.continuous, false);
+    assert.ok(result.artifacts[0].data.blocked.length);
+    assert.equal(host.calls.length, 0);
+  }
+});
+
+test('a route-program runtime failure blocks the audit and leaves later lines unexecuted', async () => {
+  const host = stubHost();
+  let runs = 0;
+  host.python = { ensureRuntime: async () => ({ ready: false, detail: 'Python unavailable' }), run: async () => { runs++; } };
+  const result = await lib.createWorker(host).invoke({ toolId: 'execute-route-program', locale: 'en', input: {
+    program: 'M1 = start(smiles="CCO")\nM2 = apply(M1, named="primary-alcohol-oxidation")\nM3 = apply(M2, named="aldehyde-oxidation")\ntarget = M3',
+  } });
+  const data = result.artifacts[0].data;
+  assert.equal(data.continuous, false);
+  assert.match(data.blocked[0], /Line 2: Python unavailable/);
+  assert.equal(data.programTrace.lines[2].executed, false);
+  assert.equal(runs, 0);
+});
+
+test('cancellation ends a route program before resolution', async () => {
+  const controller = new AbortController();
+  controller.abort(new Error('cancel route program'));
+  const host = stubHost({ signal: controller.signal });
+  await assert.rejects(lib.createWorker(host).invoke({ toolId: 'execute-route-program', locale: 'en', input: {
+    program: 'M1 = start(smiles="CCO")\nM2 = apply(M1, named="primary-alcohol-oxidation")\ntarget = M2',
+  } }), /cancel route program/);
+  assert.equal(host.calls.length, 0);
+});
+
+test('the worker executes real Python and audits consumed default reagents as reactants', {
+  skip: !process.env.NODUS_CHEMISTRY_TEST_PYTHON,
+}, async () => {
+  fs.mkdirSync(path.join(scratch, 'python'), { recursive: true });
+  for (const name of fs.readdirSync(path.join(root, 'python')).filter(name => /\.(py|json)$/.test(name))) {
+    fs.copyFileSync(path.join(root, 'python', name), path.join(scratch, 'python', name));
+  }
+  const host = stubHost();
+  const runs = [];
+  host.python = {
+    ensureRuntime: async () => ({ ready: true }),
+    run: async request => {
+      assert.ok(fs.existsSync(request.args[1]));
+      runs.push(JSON.parse(request.stdin));
+      const payload = Buffer.from(request.stdin).toString('base64');
+      // The same script and wire body as the managed host, executed without user data/network.
+      const code = 'import base64,runpy,sys; from io import StringIO; sys.stdin=StringIO(base64.b64decode(sys.argv[2]).decode()); runpy.run_path(sys.argv[1],run_name="__main__")';
+      const result = await promisify(execFile)(process.env.NODUS_CHEMISTRY_TEST_PYTHON, ['-I', '-c', code, request.args[1], payload], { timeout: request.timeoutMs, signal: host.signal });
+      return { code: 0, stdout: result.stdout, stderr: result.stderr };
+    },
+  };
+  const worker = lib.createWorker(host);
+  const result = await worker.invoke({ toolId: 'execute-route-program', input: {
+    program: 'M1 = start(smiles="CCOC(=O)c1ccccc1")\nM2 = apply(M1, named="ester-hydrolysis")\ntarget = M2',
+    target: 'O=C(O)c1ccccc1',
+  }, locale: 'en' });
+  const data = result.artifacts[0].data;
+  assert.equal(data.continuous, true, JSON.stringify(data.blocked));
+  assert.equal(data.steps[0].reactants.length, 2, 'the default water is consumed');
+  assert.equal(data.steps[0].agents.length, 0);
+  assert.ok(data.steps[0].products.some(entry => entry.byproduct));
+  assert.deepEqual(data.programTrace.lines[1].reactants.slice(1), ['O']);
+  assert.equal(runs.length, 1);
+  assert.doesNotMatch(result.artifacts[0].summary, /Route verified/);
+  const two = await worker.invoke({ toolId: 'execute-route-program', input: {
+    program: 'M1 = start(smiles="CCOC(=O)c1ccccc1")\nM2 = apply(M1, named="ester-hydrolysis")\nM3 = apply(M2, named="ester-formation", reagents=[smiles="CCO"])\ntarget = M3',
+    target: 'CCOC(=O)c1ccccc1',
+  }, locale: 'en' });
+  assert.equal(two.artifacts[0].data.continuous, true, JSON.stringify(two.artifacts[0].data.blocked));
+  assert.equal(two.artifacts[0].data.steps[1].reactants.length, 2, 'the supplied alcohol is consumed');
+  assert.equal(two.artifacts[0].data.steps[1].agents.length, 0);
 });
 
 test('creating a stereocentre is not reported as an inversion', async () => {

@@ -161,6 +161,10 @@ export interface OpOutcome {
   coProducts: Molecule[];
   /** Reagent structures as the adapter resolved them, in the order the line gave them. */
   reagents: Molecule[];
+  /** Molecules actually consumed by reaction slots, including toolkit-declared defaults. */
+  coReactants?: Molecule[];
+  /** Supplied conditions not consumed by those slots. Absent on older adapters. */
+  agents?: Molecule[];
   /** Where the operation came from, for the report: a template id, a curated id, or free SMARTS. */
   provenance: Operation;
 }

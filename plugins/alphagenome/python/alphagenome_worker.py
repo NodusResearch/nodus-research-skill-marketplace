@@ -37,6 +37,21 @@ def summarize(output, plan):
             'modifications': 'Nodus selected the first eight tracks at most and averaged contiguous bins to at most 256 values per track. REF and ALT use the same bins. Original per-base values are not retained. Plots are Nodus visualizations of these reduced predictions; values are model signals, not clinical probabilities. Only a 16,384-base context is used; the user-supplied REF allele is not independently checked against GRCh38.'}
 
 
+def read_request(stream):
+    """The host writes the key on the first line of stdin and the worker's request after it.
+
+    The key is never part of the request JSON: the worker does not hold it, so the request
+    it sends cannot carry it. Reading the whole input as one JSON document fails on the key
+    line, which turned every prediction into a runtime failure.
+    """
+    raw = stream.read(4096)
+    key, newline, body = raw.partition('\n')
+    key = key.strip()
+    if not newline or not key:
+        raise ValueError('Missing credential')
+    return key, json.loads(body)
+
+
 def main():
     from alphagenome.models import dna_client
     from alphagenome.data import genome
@@ -45,7 +60,7 @@ def main():
         assert callable(dna_client.create) and hasattr(dna_client.ModelVersion, 'ALL_FOLDS')
         print(json.dumps({'ready': True}))
         return
-    request = json.loads(sys.stdin.read(4096))
+    api_key, request = read_request(sys.stdin)
     plan = request['plan']
     chromosome, position, ref, alt = plan['variant'].split(':')
     position = int(position)
@@ -53,7 +68,7 @@ def main():
         raise ValueError('Unsupported plan')
     interval = genome.Interval(chromosome=chromosome, start=position - 1 - 8192, end=position - 1 + 8192)
     variant = genome.Variant(chromosome=chromosome, position=position, reference_bases=ref, alternate_bases=alt)
-    model = dna_client.create(request['apiKey'], model_version=dna_client.ModelVersion.ALL_FOLDS, timeout=20)
+    model = dna_client.create(api_key, model_version=dna_client.ModelVersion.ALL_FOLDS, timeout=20)
     output = model.predict_variant(interval=interval, variant=variant, organism=dna_client.Organism.HOMO_SAPIENS,
                                    ontology_terms=[plan['tissue']], requested_outputs=[getattr(dna_client.OutputType, plan['output'])])
     print(json.dumps(summarize(output, plan), allow_nan=False))

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { groundPlan, validatePlanShape, validateResult, parsePlan, CITATION, NOTICE, REVISION, TERMS_VERSION } from './plan.js';
 import { resultView, summarize, noticeView } from './view.js';
-import { errorText, text } from './messages.js';
+import { errorText, localized, text } from './messages.js';
 import { decodeLegacyGenomics } from './legacy.js';
 
 /** AlphaGenome as a trusted capability worker.
@@ -148,7 +148,9 @@ export default function createWorker(host) {
       }
       if (actionId !== 'install-runtime') throw new Error(`Unknown action: ${actionId}`);
       const state = await stored();
-      if (!state.hasKey || !state.terms) throw new Error('GENOMICS_TERMS');
+      // Settings actions carry no locale, and whatever is thrown here is shown verbatim in the
+      // settings panel, so it is a sentence, not a code.
+      if (!state.hasKey || !state.terms) throw new Error(errorText(new Error(state.hasKey ? 'GENOMICS_TERMS' : 'GENOMICS_NO_KEY'), 'en'));
       const outcome = await host.python.ensureRuntime(RUNTIME_ID);
       if (!outcome.ready) {
         await host.storage.state.delete('runtime');
@@ -159,7 +161,8 @@ export default function createWorker(host) {
       const check = await host.python.run({ runtimeId: RUNTIME_ID, args: ['-I', SCRIPT, '--check'], timeoutMs: 120_000 });
       if (check.code !== 0) {
         await host.storage.state.delete('runtime');
-        throw new Error('GENOMICS_RUNTIME_FAILED');
+        const current = await settingsState();
+        return { ...current, status: { state: 'failed', label: localized('error.GENOMICS_RUNTIME_FAILED') } };
       }
       await host.storage.state.set('runtime', REVISION);
       return settingsState();
