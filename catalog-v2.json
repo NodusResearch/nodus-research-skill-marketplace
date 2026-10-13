@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-10-13T10:03:08.350Z",
+  "updatedAt": "2026-10-13T18:46:40.323Z",
   "plugins": [
     {
       "id": "alphagenome",
@@ -15,7 +15,7 @@
         "it": "Previsioni dell'effetto di varianti regolatorie dall'API ufficiale AlphaGenome, per ricerca non commerciale. Richiede una chiave propria e Python 3.10 o successivo.",
         "tr": "Resmi AlphaGenome API'sinden düzenleyici varyant etkisi tahminleri; ticari olmayan araştırma için. Kendi anahtarınızı ve Python 3.10 veya üstünü gerektirir."
       },
-      "version": "2.0.0",
+      "version": "2.0.1",
       "path": "plugins/alphagenome",
       "replaces": [
         "builtin-genomics"
@@ -27,28 +27,28 @@
         "linux-x64"
       ],
       "release": {
-        "tag": "alphagenome-v2.0.0",
+        "tag": "alphagenome-v2.0.1",
         "manifest": "release-manifest.json",
         "signature": "release-manifest.sig",
         "assets": [
           {
             "target": "darwin-arm64",
-            "asset": "alphagenome-2.0.0-darwin-arm64.nodus-plugin",
+            "asset": "alphagenome-2.0.1-darwin-arm64.nodus-plugin",
             "bytes": 47565
           },
           {
             "target": "darwin-x64",
-            "asset": "alphagenome-2.0.0-darwin-x64.nodus-plugin",
+            "asset": "alphagenome-2.0.1-darwin-x64.nodus-plugin",
             "bytes": 47595
           },
           {
             "target": "win32-x64",
-            "asset": "alphagenome-2.0.0-win32-x64.nodus-plugin",
+            "asset": "alphagenome-2.0.1-win32-x64.nodus-plugin",
             "bytes": 47355
           },
           {
             "target": "linux-x64",
-            "asset": "alphagenome-2.0.0-linux-x64.nodus-plugin",
+            "asset": "alphagenome-2.0.1-linux-x64.nodus-plugin",
             "bytes": 47765
           }
         ]
@@ -101,7 +101,7 @@
         "it": "Trova la legislazione nei repository per paese di legalize-dev, con la fonte ufficiale, la versione, la licenza e l'attribuzione.",
         "tr": "legalize-dev ülke depolarındaki mevzuatı resmi kaynağı, sürümü, lisansı ve atfıyla birlikte bulun."
       },
-      "version": "2.0.0",
+      "version": "2.0.1",
       "path": "plugins/legalize",
       "replaces": [
         "builtin-legal"
@@ -110,13 +110,13 @@
         "any"
       ],
       "release": {
-        "tag": "legalize-v2.0.0",
+        "tag": "legalize-v2.0.1",
         "manifest": "release-manifest.json",
         "signature": "release-manifest.sig",
         "assets": [
           {
             "target": "any",
-            "asset": "legalize-2.0.0-any.nodus-plugin",
+            "asset": "legalize-2.0.1-any.nodus-plugin",
             "bytes": 57411
           }
         ]
@@ -135,20 +135,20 @@
         "it": "Frazioni esatte, equazioni reali e matrici con passaggi calcolati e notazione matematica nativa.",
         "tr": "Hesaplanmış adımlar ve yerel matematik gösterimiyle kesin kesirler, reel denklemler ve matrisler."
       },
-      "version": "1.0.0",
+      "version": "1.0.1",
       "path": "plugins/math-studio",
       "replaces": [],
       "targets": [
         "any"
       ],
       "release": {
-        "tag": "math-studio-v1.0.0",
+        "tag": "math-studio-v1.0.1",
         "manifest": "release-manifest.json",
         "signature": "release-manifest.sig",
         "assets": [
           {
             "target": "any",
-            "asset": "math-studio-1.0.0-any.nodus-plugin",
+            "asset": "math-studio-1.0.1-any.nodus-plugin",
             "bytes": 29037
           }
         ]
