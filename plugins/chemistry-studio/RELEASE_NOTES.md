@@ -1,3 +1,7 @@
+# Chemistry Studio 2.5.29
+
+Route auditing accepts pseudo-asymmetric descriptor changes caused by desymmetrisation while retaining the checks for real inversions. Chemistry refusals no longer produce refiling or side-flip advice, including when the original equation was unbalanced. No permissions or data migrations change.
+
 # Chemistry Studio 2.5.28
 
 ## The lone-atom message says why it went unnoticed on the side it was found

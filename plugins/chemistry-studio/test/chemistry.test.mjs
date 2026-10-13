@@ -2184,6 +2184,16 @@ test('a step refused for chemistry is not also told to refile a reactant', async
   assert.ok(!why.includes('takes no part'), why);
 });
 
+test('an unbalanced chemistry refusal cannot be cleared by refiling the invalid species', async () => {
+  const audit = await lib.auditRoute({ steps: ['C.[O-2]>>C'] });
+  const step = audit.steps[0];
+  assert.equal(step.balanced, false);
+  assert.match(step.differences.join(' '), /free multiply-charged anion/);
+  assert.equal(step.refiledReactant, undefined);
+  assert.equal(step.reactants.length, 2);
+  assert.doesNotMatch(step.differences.join(' '), /to Agents/);
+});
+
 test('creating a stereocentre is not reported as an inversion', async () => {
   // Counts differ between the sides, which is ordinary chemistry: a centre was made, not flipped.
   // The gate only speaks when the number of specified centres is equal and the mix differs.

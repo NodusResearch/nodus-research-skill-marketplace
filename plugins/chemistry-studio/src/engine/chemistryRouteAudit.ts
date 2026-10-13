@@ -786,6 +786,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
         ? await invertedConfiguration(reactants, products, nameOf)
         : '';
       if (inverted) balance = { ...balance, balanced: false, differences: [inverted] };
+      const mayRepairBalance = !balancedBeforeRefusals && freeAnions.length === 0 && !inverted;
       // A reactant-side species that takes no part in the only balance is a reagent or a
       // condition (a catalyst, a solvent) the author listed with the reactants: file it under
       // agents and check again, rather than refusing an otherwise balanced step. Products are
@@ -796,7 +797,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // inversion: the retry closed the equation as "6 ethane-1,2-diol -> monoketal + 9 water",
       // with the starting dione at coefficient 0, and told the author to move their own starting
       // material to Agents. One model followed that for all three fix rounds and never recovered.
-      if (!balance.balanced && !balancedBeforeRefusals && reactants.length > 1) {
+      if (!balance.balanced && mayRepairBalance && reactants.length > 1) {
         const moved = agentsThatBalance(reactants, agents, products);
         if (moved) {
           const kept = reactants.filter((_, position) => !moved.includes(position));
@@ -826,7 +827,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // tell the author which species or which way.
       // Same guard as the refiling retry: a step whose atoms balanced has nothing to tell the
       // author about which species to move, and saying it anyway buries the real objection.
-      if (!balance.balanced && !balance.unchecked && !balancedBeforeRefusals) {
+      if (!balance.balanced && !balance.unchecked && mayRepairBalance) {
         const flip = agentRoleThatBalances(reactants, agents, products, nameOf) || sideFlipThatBalances(reactants, agents, products, nameOf);
         if (flip) balance.differences = balance.differences.map(entry => `${entry} ${flip}`);
       }
