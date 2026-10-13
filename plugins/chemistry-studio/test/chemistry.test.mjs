@@ -2121,6 +2121,69 @@ test('a step that inverts a stereocentre is refused, though its equation balance
   assert.ok(!kept.steps[0].differences.join(' ').includes('inverts a stereocentre'));
 });
 
+test('desymmetrising a molecule is not reported as an inversion', async () => {
+  // Measured 2026-10-12, and it cost two runs. cis-decalin-2,7-dione is C2-symmetric, so CIP can
+  // only rank the branches at its two ring-fusion carbons by using that symmetry and labels them
+  // PSEUDO-ASYMMETRIC, (s),(s). Ketalising one of the two ketones breaks the symmetry and the same
+  // two carbons re-rank to (S),(R) — with no bond at either centre touched. Verified with RDKit:
+  //   O=C1CC[C@H]2CCC(=O)C[C@H]2C1              -> (4,'s'), (10,'s')
+  //   O=C1CC[C@H]2CCC3(C[C@H]2C1)OCCCO3         -> (4,'S'), (9,'R')
+  // Neither centre can be placed by the parity match (their branches are alike), so the letter
+  // fallback compared s,s against R,S and refused the step. One model spent three fix rounds on it
+  // and gave up; another escaped by deleting the cis ring fusion, which the route then passed
+  // without — and that fusion is the reason the later ring closure is geometrically possible.
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const audit = await lib.auditRoute({
+    steps: ['O=C1CC[C@H]2CCC(=O)C[C@H]2C1.OCCCO>>O=C1CC[C@H]2CCC3(C[C@H]2C1)OCCCO3.O'],
+    labels: [[
+      label('reactant', 'cis-decalin-2,7-dione', 'O=C1CC[C@H]2CCC(=O)C[C@H]2C1'),
+      label('reactant', 'propane-1,3-diol', 'OCCCO'),
+      label('product', 'the monoketal', 'O=C1CC[C@H]2CCC3(C[C@H]2C1)OCCCO3'),
+      label('product', 'water', 'O', true),
+    ]],
+  });
+  const step = audit.steps[0];
+  assert.equal(step.balanced, true, JSON.stringify({ error: step.error, differences: step.differences }));
+  assert.ok(!step.differences.join(' ').includes('inverts a stereocentre'), step.differences.join(' '));
+  // And the advice that followed from the refusal is gone with it: the step keeps its reactants.
+  assert.equal(step.refiledReactant, undefined);
+});
+
+test('a step refused for chemistry is not also told to refile a reactant', async () => {
+  // The two repairs — refiling a reactant as an agent, and flipping a species to the other side —
+  // close an equation that does not ADD UP. A step refused for an inversion already adds up, so
+  // the solver is free to find any other solution, and the one it finds drops a declared species.
+  //
+  // Measured on the monoketalisation above when it was written with ethane-1,2-diol: the retry
+  // closed it as "6 ethane-1,2-diol -> monoketal + 9 water" with the starting dione at
+  // coefficient 0, and told the author to move their own starting material to Agents.
+  //
+  // Reproduced here with a REAL inversion at an ordinary (uppercase) centre, so the guard being
+  // tested is the refusal ordering and not the pseudo-asymmetry guard above. 3-phenylbutan-2-one
+  // is (S) and the ketal is written (R), which no protection does. The degeneracy is the same:
+  // the ketal is C12H16O2, and H == C + 2*O with C even is exactly when n glycol - m water
+  // reproduces a formula, here 6 glycol - 10 water.
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const audit = await lib.auditRoute({
+    steps: ['CC(=O)[C@@H](C)c1ccccc1.OCCO>>CC1(OCCO1)[C@H](C)c1ccccc1.O'],
+    labels: [[
+      label('reactant', '3-phenylbutan-2-one', 'CC(=O)[C@@H](C)c1ccccc1'),
+      label('reactant', 'ethane-1,2-diol', 'OCCO'),
+      label('product', 'the ketal', 'CC1(OCCO1)[C@H](C)c1ccccc1'),
+      label('product', 'water', 'O', true),
+    ]],
+  });
+  const step = audit.steps[0];
+  // Still refused, and for the right reason.
+  assert.equal(step.balanced, false);
+  assert.match(step.differences.join(' '), /inverts a stereocentre/);
+  // The contradictory second instruction is what must not appear.
+  assert.equal(step.refiledReactant, undefined, 'a chemistry refusal must not produce refiling advice');
+  const why = step.differences.join(' ');
+  assert.ok(!why.includes('to Agents'), why);
+  assert.ok(!why.includes('takes no part'), why);
+});
+
 test('creating a stereocentre is not reported as an inversion', async () => {
   // Counts differ between the sides, which is ordinary chemistry: a centre was made, not flipped.
   // The gate only speaks when the number of specified centres is equal and the mix differs.
