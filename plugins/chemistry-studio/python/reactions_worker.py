@@ -658,7 +658,11 @@ def _template_row(line):
     the whole library was silently dropped — a store that read as empty rather than as unreadable.
     The SMARTS cannot contain a tab, so taking the LAST field is correct for every version of the
     format, present and future."""
-    parts = line.rstrip("\n").split("\t")
+    parts = line.rstrip("\r\n").split("\t")
+    if len(parts) < 3 or not parts[-1].strip():
+        raise ValueError("A template row needs counts and a SMARTS pattern.")
+    if int(parts[0]) < 0 or int(parts[1]) < 0:
+        raise ValueError("Template counts cannot be negative.")
     return parts[0], parts[1], parts[-1]
 
 
@@ -688,7 +692,10 @@ def _retro_templates(index_dir):
         if os.path.isfile(cache):
             with np.load(cache, allow_pickle=False) as data:
                 screen, valid = data["screen"], data["valid"]
-            if len(screen) == len(valid) and (not len(valid) or int(valid.max()) < len(lines)):
+            if (valid.ndim == 1 and valid.dtype.kind in "iu"
+                    and screen.shape == (len(valid), SCREEN_BITS // 64)
+                    and screen.dtype == np.uint64
+                    and (not len(valid) or (int(valid.min()) >= 0 and int(valid.max()) < len(lines)))):
                 for i in valid.tolist():
                     count, rdchiral, smarts = _template_row(lines[i])
                     rows.append([int(count), int(rdchiral), smarts, None])
@@ -699,7 +706,10 @@ def _retro_templates(index_dir):
         rows = []
     valid = []
     for i, line in enumerate(lines):
-        count, rdchiral, smarts = _template_row(line)
+        try:
+            count, rdchiral, smarts = _template_row(line)
+        except (ValueError, IndexError):
+            continue
         query = Chem.MolFromSmarts(smarts.split(">>")[0])
         if query is not None:
             rows.append([int(count), int(rdchiral), smarts, query])
@@ -733,7 +743,7 @@ SCREEN_BITS = 2048
 # cache written by the fixed loader was read by a build with the three-column split, which deferred
 # the parse, got None, and passed None to HasSubstructMatch — killing the disconnection search for
 # every target in seven runs. Bump this on any change to _template_row or _pattern_screen.
-SCREEN_FORMAT = 2
+SCREEN_FORMAT = 3
 
 
 def _pattern_bits(mol):
@@ -901,7 +911,7 @@ def _site_environment(mol, site):
         query = Chem.MolFromSmarts(smiles.replace("[*]", "[*,#1]"))
         if query is None:
             continue
-        if len(mol.GetSubstructMatches(query, uniquify=True, maxMatches=8)) <= 1:
+        if len(mol.GetSubstructMatches(query, uniquify=True, maxMatches=8)) == 1:
             return query
     return None
 
@@ -926,10 +936,12 @@ def _at_site(mol, query, site):
     """Whether `query` is found on `mol` in a place that touches `site` (any place, if no site)."""
     if not site:
         return mol.HasSubstructMatch(query)
-    for match in mol.GetSubstructMatches(query, uniquify=True, maxMatches=SITE_MAX_MATCHES):
+    matches = mol.GetSubstructMatches(query, uniquify=True, maxMatches=SITE_MAX_MATCHES)
+    for match in matches:
         if site.intersection(match):
             return True
-    return False
+    # A saturated prefix cannot prove absence at a later symmetric match. Keep the template.
+    return len(matches) == SITE_MAX_MATCHES
 
 
 def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_seconds=None):

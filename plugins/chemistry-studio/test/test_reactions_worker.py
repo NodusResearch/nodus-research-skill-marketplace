@@ -148,5 +148,32 @@ class ScreenCacheKey(unittest.TestCase):
             self.assertIn(f"screen-v{W.SCREEN_FORMAT}", key, "the cache name must carry the format version")
 
 
+class BoundedAndDamagedInputs(unittest.TestCase):
+    def test_a_site_past_the_match_cap_does_not_drop_a_template(self):
+        mol = Chem.MolFromSmiles(".".join(["C"] * (W.SITE_MAX_MATCHES + 5)))
+        query = Chem.MolFromSmarts("[C]")
+        self.assertTrue(W._at_site(mol, query, {mol.GetNumAtoms() - 1}))
+        self.assertFalse(W._at_site(mol, Chem.MolFromSmarts("[N]"), {mol.GetNumAtoms() - 1}))
+
+    def test_malformed_rows_do_not_hide_the_valid_template(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = _index(tmp, ["", "bad", "x\t3\tbad", "-1\t3\tbad", f"7\t3\t{ACETYLATION}"])
+            self.assertEqual(len(W._retro_templates(index)), 1)
+            self.assertTrue(W._disconnect(index, [ASPIRIN], 4)[0]["proposals"])
+
+    def test_invalid_cache_indices_or_shape_are_rebuilt(self):
+        import numpy as np
+        for valid, screen in ((np.array([-1]), np.zeros((1, 32), dtype=np.uint64)),
+                              (np.array([0]), np.zeros((1, 1), dtype=np.uint64)),
+                              (np.array([0.0]), np.zeros((1, 32), dtype=np.uint64))):
+            with self.subTest(valid=valid, shape=screen.shape), tempfile.TemporaryDirectory() as tmp:
+                index = _index(tmp, [f"7\t3\t{ACETYLATION}"])
+                cache = W._screen_cache_path(os.path.join(tmp, "retro-templates.tsv.zst"))
+                np.savez(cache, valid=valid, screen=screen)
+                rows = W._retro_templates(index)
+                self.assertEqual(len(rows), 1)
+                self.assertIsNotNone(rows[0][3], "an invalid cache must be rebuilt")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
