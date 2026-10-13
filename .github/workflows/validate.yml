@@ -8,6 +8,8 @@ jobs:
   # release workflow's build matrix reached it — after a merge, with a publication waiting
   # on it. This job is those same tests on the platforms the packages are released for.
   package-tests:
+    env:
+      NODUS_CHEMISTRY_TEST_PYTHON: python
     strategy:
       fail-fast: false
       matrix:
@@ -19,8 +21,14 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r scripts/chemistry-test-requirements.txt
       - name: Capability package tests
         run: npm run test:plugins
+      - name: Deterministic chemistry Python tests
+        run: node scripts/test-chemistry-python.mjs
 
   validate:
     runs-on: ubuntu-latest

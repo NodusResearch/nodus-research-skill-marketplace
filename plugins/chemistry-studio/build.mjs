@@ -23,7 +23,15 @@ const root = fileURLToPath(new URL('.', import.meta.url));
 // own instructions are compiled in rather than duplicated by hand.
 const instructions = fs.readFileSync(path.join(root, 'skills/chemistry-studio/SKILL.md'), 'utf8').trim();
 
-const extraFiles = { 'python/reactions_worker.py': 'python/reactions_worker.py', 'python/compat_tables.py': 'python/compat_tables.py' };
+// route_program.py is imported by reactions_worker.py from its own directory, and
+// route_transforms.json is read beside it, so both have to travel in the archive or the
+// route-program op fails on an installed package while passing every test here.
+const extraFiles = {
+  'python/reactions_worker.py': 'python/reactions_worker.py',
+  'python/compat_tables.py': 'python/compat_tables.py',
+  'python/route_program.py': 'python/route_program.py',
+  'python/route_transforms.json': 'python/route_transforms.json',
+};
 const lockRoot = path.join(root, 'runtimes');
 if (fs.existsSync(lockRoot)) {
   for (const target of fs.readdirSync(lockRoot).sort()) {

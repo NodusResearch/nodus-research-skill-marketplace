@@ -1,0 +1,4 @@
+rdkit==2026.3.6
+numpy==2.3.5
+rdchiral==1.1.0
+zstandard==0.25.0

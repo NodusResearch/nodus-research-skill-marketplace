@@ -1642,6 +1642,15 @@ def _opsin_local(opsin_dir, names):
 
 
 def handle(request):
+    if "routeProgram" in request:
+        # -I keeps this file's directory off sys.path, so the module beside it is put there, as
+        # _compat_tables does for its own table.
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import route_program
+
+        return {"routeProgram": route_program.handle(request.get("routeProgram") or {})}
     if "stock" in request:
         stock_dir = request.get("stockDir")
         ready, order = _load_stock(stock_dir, "stock"), _load_stock(stock_dir, "order")
