@@ -1,4 +1,4 @@
-import { COUNTRIES, normalize } from './countries.js';
+import { ARTICLE_SUFFIX, COUNTRIES, normalize } from './countries.js';
 
 /** Parses a chat request block and holds it to the grounding rule. */
 export function parsePlan(source, question) {
@@ -35,7 +35,7 @@ export function groundPlan(plan, question) {
   const namedCountry = country.aliases.some(alias => haystack.includes(` ${normalize(alias)} `))
     || new RegExp(`(?:pa[ií]s|country)\\s*[:=]\\s*${country.code}\\b`, 'i').test(question);
   const namedArticle = !grounded.article
-    || new RegExp(`(?:art[ií]culo|article|art\\.?|section|§)\\s*${grounded.article.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu').test(question);
+    || new RegExp(`(?:art[ií]culo|article|art\\.?|section|§)\\s*${grounded.article.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])(?!\\s+${ARTICLE_SUFFIX}(?![\\p{L}\\p{N}]))`, 'iu').test(question);
   if (!namedCountry || !haystack.includes(` ${normalize(grounded.query)} `) || !namedArticle) throw new Error('LEGALIZE_NOT_IN_MESSAGE');
   return grounded;
 }

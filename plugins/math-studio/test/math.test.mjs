@@ -96,3 +96,11 @@ test("cancellation, unknown tool and tampered stored data", async () => {
   controller.abort();
   await assert.rejects(worker.invoke({ toolId: "compute", input: fixtures[0] }));
 });
+// A whole number of right angles in degrees is exact. Converting 180° to radians first made
+// sin(180°) come out as 1.22464679915e-16 and cos(90°) as 6.12323399574e-17.
+for (const [expression, expected] of [["sin(180)", "0"], ["cos(90)", "0"], ["cos(-90)", "0"], ["sin(270)", "-1"], ["cos(180)", "-1"], ["tan(180)", "0"], ["sin(360*5+90)", "1"]]) test(`degrees ${expression} is exact`, () => {
+  const r = calc(expression, { angles: "degrees" });
+  assert.equal(r.result, expected);
+  assert.equal(r.exact, true);
+});
+test("tangent of a whole odd number of right angles is still a pole", () => assert.throws(() => calc("tan(-90)", { angles: "degrees" }), /pole/));
