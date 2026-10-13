@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "mathematics",
   "provides": "math-studio:mathematics",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Bounded mathematical computation and native formula presentation without host I/O.",
   "runtime": {
     "kind": "nodus-trusted-worker-v1",

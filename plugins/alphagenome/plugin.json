@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "alphagenome",
   "name": "AlphaGenome",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "NodusResearch",
   "description": "Regulatory variant effect predictions from the official AlphaGenome API, for non-commercial research.",
   "license": "AGPL-3.0-only",

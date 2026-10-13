@@ -1,3 +1,9 @@
+# Legalize 2.0.1
+
+One fix from an audit. An article whose number is followed by a suffix is no longer matched by a
+question or a heading naming the base number alone, so the text returned is the article that was
+asked for. Nothing else about retrieval, sources or attribution changes.
+
 # Legalize 2.0.0
 
 Legalize is now an installable capability package rather than part of the Nodus

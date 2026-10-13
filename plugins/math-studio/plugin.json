@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "math-studio",
   "name": "Math Studio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "NodusResearch",
   "description": "Exact rational arithmetic, real equations and small matrices with computed steps and native mathematical views.",
   "license": "AGPL-3.0-only",

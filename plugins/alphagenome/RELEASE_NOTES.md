@@ -1,3 +1,12 @@
+# AlphaGenome 2.0.1
+
+Two fixes from an audit, neither changing what a prediction returns.
+
+The adapter reads the key the host writes ahead of the request instead of consuming all of
+standard input, so a key supplied that way is found. A settings check that fails now reports a
+sentence in the settings panel rather than an internal code, and a failed runtime check returns a
+status instead of throwing.
+
 # AlphaGenome 2.0.0
 
 AlphaGenome is now an installable capability package rather than part of the Nodus
