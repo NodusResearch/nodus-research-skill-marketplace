@@ -634,7 +634,11 @@ _retro_screen = {}
 
 def _screen_cache_path(path):
     """Where the pattern screen of a templates file is cached: beside it, named for the file's
-    bytes and everything else the screen depends on, so a changed file or RDKit is a miss."""
+    bytes and everything else the screen depends on, so a changed file or RDKit is a miss.
+
+    The name carries SCREEN_FORMAT in the clear, not only inside the digest, so two builds that
+    read a templates line differently write two FILES rather than colliding on one — and which
+    build wrote which is readable from the directory listing."""
     import hashlib
     from rdkit import rdBase
 
@@ -642,8 +646,8 @@ def _screen_cache_path(path):
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
-    digest.update(f"screen-v1|{SCREEN_BITS}|{rdBase.rdkitVersion}".encode())
-    return f"{path}.screen-{digest.hexdigest()[:16]}.npz"
+    digest.update(f"screen-v{SCREEN_FORMAT}|{SCREEN_BITS}|{rdBase.rdkitVersion}".encode())
+    return f"{path}.screen-v{SCREEN_FORMAT}-{digest.hexdigest()[:16]}.npz"
 
 
 def _template_row(line):
@@ -723,6 +727,13 @@ def _retro_templates(index_dir):
 
 
 SCREEN_BITS = 2048
+# How this build reads and screens a templates line. The cache holds INDICES into the file and
+# defers parsing, so it is only meaningful to a loader that selects the same lines: a build whose
+# patterns all parse and one whose patterns all fail must never share it. Measured 2026-10-12: a
+# cache written by the fixed loader was read by a build with the three-column split, which deferred
+# the parse, got None, and passed None to HasSubstructMatch — killing the disconnection search for
+# every target in seven runs. Bump this on any change to _template_row or _pattern_screen.
+SCREEN_FORMAT = 2
 
 
 def _pattern_bits(mol):
