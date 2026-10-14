@@ -90,6 +90,11 @@ CURATED = {
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
 CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge")
 
+# A family verb names the intent and dispatches to the member that fits the molecule, so it has no
+# SMARTS, no single site, and no one product to claim -- the member it picks has all three. Listed
+# apart from CURATED for exactly that reason; FamilyVerbs below covers what it does instead.
+FAMILIES = ("n-deprotect",)
+
 KETONE_REDUCTION_SMARTS = "[#6:1][C:2](=[O:3])[#6:4]>>[#6:1][CH1:2]([OH:3])[#6:4]"
 HYDROGENATION_SMARTS = "[CX3:1]=[CX3:2]>>[C:1][C:2]"
 
@@ -100,11 +105,16 @@ class CuratedSet(unittest.TestCase):
         self.assertTrue(listed["ok"])
         ids = [t["id"] for t in listed["transforms"]]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids), set(CURATED) | set(CLOSURES))
+        self.assertEqual(set(ids), set(CURATED) | set(CLOSURES) | set(FAMILIES))
         for entry in listed["transforms"]:
             self.assertEqual(sorted(entry), ["id", "site", "siteSlots", "summary"])
             self.assertTrue(entry["summary"].endswith("."), entry)
-            if entry["id"] in CLOSURES:
+            if entry["id"] in FAMILIES:
+                # It declares no site: which group it acts on depends on the molecule in hand.
+                self.assertIsNone(entry["site"])
+                self.assertEqual(entry["siteSlots"], [])
+                self.assertTrue(route_program._tables()["byId"][entry["id"]]["family"])
+            elif entry["id"] in CLOSURES:
                 # A closure declares the two sites it joins and no single site of its own.
                 self.assertIsNone(entry["site"])
                 self.assertEqual(len(entry["siteSlots"]), 2)
@@ -1021,3 +1031,164 @@ class DisconnectionSite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class SuppliedConditions(unittest.TestCase):
+    """A transformation may declare the conditions it implies, and they must not enter the balance.
+
+    Why, from the independent chemistry review on 2026-10-14 (claude-opus-5, blind to the app's
+    verdict): it raised against BOTH reviewed routes that every acidic deprotection delivers the
+    amine as its ammonium salt and the following coupling "as written contains no base, so the
+    amine is non-nucleophilic". The route was unrunnable while the engine called it correct.
+
+    The fix has to land in the AGENT slot, not a reaction slot. A reaction slot is balance-bearing
+    -- `cbz-removal` says so in its own summary, "the hydrogen is written as a reactant so the
+    equation balances" -- so a base put there would unbalance every coupling unless the protonated
+    base were also written as a product, which is a far larger change. The balancer's own error
+    text names the right place: "If they are catalysts and not consumed, list them under Agents
+    instead."
+    """
+
+    CHAIN = "COC(=O)CN"                                    # a growing chain, free amine
+    BOC_ALA = "CC(C)(C)OC(=O)N[C@@H](C)C(=O)O"             # the incoming residue
+
+    def test_the_coupling_supplies_a_base_as_an_agent(self):
+        out = apply(molecule=self.CHAIN, operation={"kind": "named", "id": "n-peptide-coupling"},
+                    reagents=[self.BOC_ALA])
+        self.assertTrue(out["ok"], out)
+        # The acid fills the declared slot, so it is a co-REACTANT and balance-bearing.
+        self.assertEqual(len(out["coReactants"]), 1, out["coReactants"])
+        # The base is a condition: present, and in the slot the balance ignores.
+        self.assertEqual(out["agents"], ["CCN(C(C)C)C(C)C"], out["agents"])
+        self.assertNotIn("CCN(C(C)C)C(C)C", out["coReactants"])
+
+    def test_a_caller_reagent_beyond_the_slots_still_becomes_an_agent(self):
+        """The supplied conditions are appended to the caller's surplus, not substituted for it."""
+        out = apply(molecule=self.CHAIN, operation={"kind": "named", "id": "n-peptide-coupling"},
+                    reagents=[self.BOC_ALA, "CO"])
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["agents"], ["CO", "CCN(C(C)C)C(C)C"], out["agents"])
+
+    def test_a_transformation_without_conditions_declares_no_agents(self):
+        out = apply(molecule="CC(C)(C)OC(=O)NCC(=O)OC", operation={"kind": "named", "id": "boc-removal"})
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["agents"], [], out["agents"])
+
+
+class FamilyVerbs(unittest.TestCase):
+    """A family verb names the intent and the toolkit picks the member the molecule fits.
+
+    Why, measured 2026-10-14: this is the ONE error that survived turning thinking off. A route
+    installed Cbz on line 3 and asked for `boc-removal` on line 4; the verb matched nothing, and
+    because a statement that produces nothing leaves every later statement without an input, that
+    single line left 15 of 17 steps unbuilt. The model was being asked to remember which group it
+    had installed three lines earlier, which is bookkeeping -- the work this toolkit exists to take
+    over, and the work the reasoning tokens were being spent on.
+
+    Dispatch adds no chemistry: each member is a curated verb with its own tests above.
+    """
+
+    GLY_OME = "COC(=O)CN"
+
+    def deprotect(self, molecule):
+        return apply(molecule=molecule, operation={"kind": "named", "id": "n-deprotect"})
+
+    def test_it_picks_the_group_the_molecule_actually_carries(self):
+        for label, molecule, phrase in (
+            ("cbz", "O=C(OCc1ccccc1)NCC(=O)OC", "cbz carbamate"),
+            ("boc", "CC(C)(C)OC(=O)NCC(=O)OC", "boc carbamate"),
+            ("fmoc", "O=C(OCC1c2ccccc2-c2ccccc21)NCC(=O)OC", "fmoc carbamate"),
+        ):
+            with self.subTest(label):
+                out = self.deprotect(molecule)
+                self.assertTrue(out.get("ok"), out)
+                # The member's own site, not the family's: the family declares none.
+                self.assertEqual(out["site"]["phrase"], phrase)
+                self.assertEqual(out["product"], self.GLY_OME)
+
+    def test_two_different_groups_are_refused_rather_than_guessed(self):
+        # Fmoc-Lys(Boc)-OH, from the user's own prompts. Which group the route means is intent, and
+        # inferring it would be wrong silently -- the rule the site resolver already follows.
+        out = self.deprotect("O=C(OCC1c2ccccc2-c2ccccc21)N[C@@H](CCCCNC(=O)OC(C)(C)C)C(=O)O")
+        self.assertEqual(out["error"], "ambiguous-site")
+        self.assertIn("fmoc carbamate", out["message"])
+        self.assertIn("boc carbamate", out["message"])
+        # It must name the verbs that WOULD settle it, or the author has nowhere to go.
+        self.assertIn("fmoc-removal", out["message"])
+        self.assertIn("boc-removal", out["message"])
+
+    def test_no_protecting_group_says_so(self):
+        out = self.deprotect(self.GLY_OME)
+        self.assertEqual(out["error"], "absent-site")
+        self.assertIn("none of the groups", out["message"])
+
+    def test_the_specific_removals_still_work_on_their_own(self):
+        """The family is an addition, not a replacement: naming the member must keep working."""
+        out = apply(molecule="CC(C)(C)OC(=O)NCC(=O)OC",
+                    operation={"kind": "named", "id": "boc-removal"})
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"], self.GLY_OME)
+
+    def test_a_wrong_specific_removal_still_fails_loudly(self):
+        """Dispatch must not make a mis-named member silently succeed -- that would hide the bug
+        this verb exists to prevent, rather than fix it."""
+        out = apply(molecule="O=C(OCc1ccccc1)NCC(=O)OC",
+                    operation={"kind": "named", "id": "boc-removal"})
+        self.assertEqual(out["error"], "absent-site")
+
+
+class EveryMatchingSite(unittest.TestCase):
+    """`site="every ester"` is one transformation at every place that phrase matches.
+
+    Why, measured 2026-10-14 on chainP-8: a route masked two side-chain hydroxyls and wrote ONE
+    `ester-hydrolysis` to free both. That is correct chemistry -- one saponification takes both --
+    against a grammar of one site per line, so the toolkit refused a route that was right and the
+    run ended with the refusal unread.
+
+    Implemented as consecutive single applications, so each pass contributes its own co-reactants
+    and co-products and the equation balances over all of them without anything here knowing that
+    two esters consume two waters. Verified against the real balancer: balanced, charge-balanced,
+    no differences.
+    """
+
+    DIACETATE = "CC(=O)OCC(COC(C)=O)NC(=O)OC(C)(C)C"   # two acetates on one Boc-protected backbone
+
+    def test_one_line_takes_both_esters(self):
+        out = apply(molecule=self.DIACETATE, operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site="every ester", carry="largest")
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["appliedTimes"], 2)
+        # The backbone continues and the Boc is untouched; both acetates leave.
+        self.assertEqual(out["product"], "CC(C)(C)OC(=O)NC(CO)CO")
+        self.assertEqual(out["coProducts"], ["CC(=O)O", "CC(=O)O"])
+        # Two hydrolyses consume two waters. This is what makes the derived equation balance.
+        self.assertEqual(out["coReactants"], ["O", "O"])
+
+    def test_without_every_the_refusal_stands(self):
+        """The ambiguity refusal must NOT be weakened: it is the guard against a silent guess, and
+        `every` is an opt-in that says all of them, never a way to pick one."""
+        out = apply(molecule=self.DIACETATE, operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site="ester", carry="largest")
+        self.assertEqual(out["error"], "ambiguous-site")
+        self.assertIn("2 places matching", out["message"])
+
+    def test_a_single_place_is_unchanged_by_every(self):
+        out = apply(molecule="CCOC(=O)c1ccccc1", operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site="every ester")
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"], "O=C(O)c1ccccc1")
+        self.assertEqual(out["coProducts"], ["CCO"])
+        self.assertNotIn("appliedTimes", out)
+
+    def test_a_phrase_that_matches_nothing_says_so(self):
+        out = apply(molecule="CCO", operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site="every ester")
+        self.assertIn(out["error"], ("absent-site", "no-match"))
+
+    def test_each_and_all_are_the_same_request(self):
+        for word in ("all esters", "each ester"):
+            with self.subTest(word):
+                out = apply(molecule=self.DIACETATE, operation={"kind": "named", "id": "ester-hydrolysis"},
+                            site=word, carry="largest")
+                self.assertTrue(out.get("ok"), out)
+                self.assertEqual(out["appliedTimes"], 2)

@@ -4178,3 +4178,32 @@ test('a call from a reply never reaches the local OPSIN or mirror folder the rep
   await worker.invoke({ invocationId: 'hp2', toolId: 'compile', locale: 'en', input: { plan: plan(), question: 'Draw ethanol.', opsinDir: '/opsin' } });
   assert.equal(sent.filter((request) => request.opsinDir === '/opsin').length, 1, 'a host call keeps its local OPSIN');
 });
+
+// The conditions a transformation supplies ride in the AGENT slot, and the balance must not see
+// them. Measured 2026-10-14: the independent review found that a coupling written with no base is
+// unrunnable, and the fix is only safe if adding the base leaves every verdict untouched. A
+// reaction slot would NOT be safe — `cbz-removal` writes its hydrogen as a reactant precisely so
+// the equation balances — so this pins the distinction rather than the convenience.
+test('a supplied base in the agent slot does not enter the balance', async () => {
+  const chain = 'COC(=O)CN';
+  const acid = 'C[C@H](NC(=O)OC(C)(C)C)C(=O)O';
+  const product = 'COC(=O)CNC(=O)[C@H](C)NC(=O)OC(C)(C)C';
+  const base = 'CCN(C(C)C)C(C)C';
+  const bare = await lib.auditRoute({ steps: [`${chain}.${acid}>>${product}.O`], target: product });
+  const withBase = await lib.auditRoute({ steps: [`${chain}.${acid}>${base}>${product}.O`], target: product });
+  for (const [label, audit] of [['bare', bare], ['with the base', withBase]]) {
+    assert.equal(audit.steps[0].balanced, true, `${label}: ${audit.steps[0].differences.join(' | ')}`);
+    assert.equal(audit.steps[0].chargeBalanced, true, label);
+    assert.deepEqual(audit.steps[0].differences, [], label);
+    assert.equal(audit.target?.reason, 'formed', label);
+  }
+  // Identical verdicts, and the same bond ledger: the base changed nothing it should not.
+  assert.deepEqual(withBase.steps[0].bonds, bare.steps[0].bonds);
+  // The base is still THERE — an agent that vanished would also pass the assertions above.
+  assert.ok((withBase.steps[0].agents ?? []).some((a) => a.canonicalSmiles === base),
+    'the base must appear on the step as an agent');
+  // Control: the probe can tell. Drop the water and the same balancer objects.
+  const broken = await lib.auditRoute({ steps: [`${chain}.${acid}>${base}>${product}`], target: product });
+  assert.equal(broken.steps[0].balanced, false, 'the control must fail, or this test proves nothing');
+  assert.match(broken.steps[0].differences.join(' '), /H2O|H:/);
+});

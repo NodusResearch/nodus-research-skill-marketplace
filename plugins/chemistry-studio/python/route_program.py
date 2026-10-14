@@ -541,8 +541,14 @@ def _operation(payload, deadline):
     closure, and names what each of its two sites must be. `flexible` — the reactant order being
     negotiable — holds only for a reversed index template, which was not authored for this
     toolkit's carried-molecule-first convention."""
-    def built(rxn, reagents, site=None, site_slots=(), flexible=False, carries=None):
+    def built(rxn, reagents, site=None, site_slots=(), flexible=False, carries=None, agents=()):
         return {"rxn": rxn, "reagents": list(reagents), "site": site,
+                # Conditions the toolkit supplies, as SMILES. They go to the equation's AGENT slot,
+                # never a reaction slot, so they do not enter the balance — verified against the
+                # balancer on 2026-10-14, which says so itself: "If they are catalysts and not
+                # consumed, list them under Agents instead." A species whose atoms end up in a
+                # product is a reagent and belongs in `reagents`, not here.
+                "agents": [a for a in agents if isinstance(a, str) and a.strip()],
                 "siteSlots": [p for p in site_slots if isinstance(p, str)], "flexible": flexible,
                 # `carries` is a template map number, and only a curated transformation may set
                 # one: an index template or a caller's raw SMARTS was not authored against this
@@ -564,7 +570,8 @@ def _operation(payload, deadline):
         if rxn is None:
             return _fail("unavailable", f"The curated SMARTS for {transform['id']} does not parse in this RDKit.")
         return built(rxn, transform.get("reagents") or [], transform.get("site"),
-                     transform.get("siteSlots") or (), carries=transform.get("carries"))
+                     transform.get("siteSlots") or (), carries=transform.get("carries"),
+                     agents=transform.get("agents") or ())
     if kind == "smarts":
         smarts = operation.get("smarts")
         if not isinstance(smarts, str) or not smarts.strip():
@@ -625,7 +632,7 @@ def _requested_sites(payload):
     return [spec for spec in asked] if isinstance(asked, list) else [asked]
 
 
-def _resolve_site(spec, mol, marks, tables):
+def _resolve_site(spec, mol, marks, tables, one_of_many=False):
     """One site spec as {"phrase", "mark"?, "atoms"}, or a failure.
 
     Zero matches is `absent-site` and more than one is `ambiguous-site`, both of them errors: a
@@ -666,8 +673,11 @@ def _resolve_site(spec, mol, marks, tables):
         places = _site_matches(mol, tables["sites"][canonical])
         if not places:
             return _fail("absent-site", f"The carried molecule has no {canonical}.")
-        if len(places) > 1:
+        if len(places) > 1 and not one_of_many:
             return _fail("ambiguous-site", f"The carried molecule has {len(places)} places matching {canonical!r}; name a narrower site or a mark.")
+        # Several places and `one_of_many`: take the first. Safe ONLY inside the every-loop, which
+        # comes back for the rest -- on its own this would be the silent guess the refusal exists to
+        # prevent. RDKit's match order is stable, so which one goes first does not vary run to run.
         return {"phrase": canonical, "atoms": places[0]}
     if kind == "handle":
         mark = spec.get("mark")
@@ -681,6 +691,51 @@ def _resolve_site(spec, mol, marks, tables):
             return _fail("ambiguous-site", f"Mark {mark} sits in {pieces} separate places, so it cannot say where to act.")
         return {"phrase": None, "mark": mark, "atoms": atoms}
     return _fail("unparsable", f"Site kind {kind!r} is not one of phrase or handle.")
+
+
+def _family_member(operation, mol, tables):
+    """The member of a family verb that fits the molecule in hand: an id, None, or a failure.
+
+    A family verb names the INTENT ("remove the amine's protecting group") and the toolkit decides
+    WHICH curated removal that is, by looking at the molecule. Added 2026-10-14 for the one error
+    that survived turning thinking off: a route installed Cbz on line 3 and asked for boc-removal on
+    line 4, and because a statement that produces nothing leaves every later statement without an
+    input, that single wrong verb left 15 of 17 steps unbuilt. The model was being asked to remember
+    which group it had installed three lines earlier -- bookkeeping, which is exactly the work this
+    toolkit exists to take over, and exactly what the reasoning tokens were being spent on.
+
+    Dispatch only: every member is an existing curated verb, so no new chemistry enters here and
+    each member keeps the tests it already had.
+
+    Two groups present is a REFUSAL, not a choice. `Fmoc-Lys(Boc)-OH` carries both, and which one
+    the route means is the author's intent, not something to infer -- the same rule the site
+    resolver follows, for the same reason: guessing would be wrong silently."""
+    if not isinstance(operation, dict) or operation.get("kind") != "named":
+        return None
+    transform = tables["byId"].get(operation.get("id"))
+    members = (transform or {}).get("family") or []
+    if not members:
+        return None
+    present, absent = [], []
+    for member_id in members:
+        phrase = (tables["byId"].get(member_id) or {}).get("site")
+        smarts = tables["sites"].get(phrase) if phrase else None
+        if not smarts:
+            continue
+        absent.append(phrase)
+        if _site_matches(mol, smarts):
+            present.append((member_id, phrase))
+    if not present:
+        return _fail("absent-site",
+                     f"The carried molecule has none of the groups {transform['id']!r} removes "
+                     f"({', '.join(absent)}), so there is nothing for it to take off.")
+    if len(present) > 1:
+        return _fail("ambiguous-site",
+                     f"The carried molecule has {len(present)} different protecting groups "
+                     f"({', '.join(phrase for _, phrase in present)}), so {transform['id']!r} cannot "
+                     f"tell which one you mean; name the removal you want "
+                     f"({', '.join(member for member, _ in present)}).")
+    return present[0][0]
 
 
 def _which_apply(mol, reagents, deadline, limit=6):
@@ -709,7 +764,9 @@ def _which_apply(mol, reagents, deadline, limit=6):
             _check(deadline)
         except _OutOfBudget:
             break
-        rxn = _reaction(transform["smarts"])
+        # A family verb has no SMARTS of its own -- it dispatches to members that do -- so it is
+        # not a candidate to probe. Reading the key directly raised KeyError the moment one existed.
+        rxn = _reaction(transform["smarts"]) if transform.get("smarts") else None
         if rxn is None:
             continue
         try:
@@ -774,6 +831,14 @@ def _apply(payload, deadline):
     if mark_as is not None and not _is_mark(mark_as):
         return _fail("unparsable", f"markAs must be a whole number from {MARK_MIN} to {MARK_MAX}.")
 
+    # The molecule is parsed by here, which is what a family verb needs in order to choose. The
+    # payload is copied rather than mutated: the caller's dict is not ours to rewrite.
+    member = _family_member(payload.get("operation"), mol, tables)
+    if isinstance(member, dict):
+        return member
+    if member:
+        payload = {**payload, "operation": {**payload["operation"], "id": member}}
+
     built = _operation(payload, deadline)
     if "error" in built:
         return built
@@ -799,7 +864,7 @@ def _apply(payload, deadline):
 
     sites = []
     for spec in specs:
-        site = _resolve_site(spec, mol, marks, tables)
+        site = _resolve_site(spec, mol, marks, tables, one_of_many=bool(payload.get("everyPass")))
         if "error" in site:
             # The declared site of a curated verb is checked against the carried molecule, so
             # "no carboxylic acid" is as often a sign that the WRONG VERB was named as that the
@@ -921,7 +986,11 @@ def _apply(payload, deadline):
     # equation's reactant side; the caller's remaining reagents are conditions/agents.
     answer["coReactants"] = [canon(Chem.MolToSmiles(m)) for m in filled]
     given_reagents = [r for r in payload.get("reagents", []) if isinstance(r, str) and r.strip()]
-    answer["agents"] = [canon(r) for r in given_reagents[len(filled):]]
+    # The caller's surplus reagents, then the conditions the transformation itself implies. Both are
+    # agents: present in the equation, absent from the balance. Said rather than assumed, because a
+    # route whose coupling carries no base reads as one that will not run — the independent review
+    # on 2026-10-14 raised exactly that against both reviewed routes.
+    answer["agents"] = [canon(r) for r in given_reagents[len(filled):]] + [canon(a) for a in built.get("agents") or []]
     if chosen["ring"]:
         answer["ring"] = {"size": chosen["ring"]["size"], "bridgeAtoms": chosen["ring"]["bridgeAtoms"]}
     if sites:
@@ -971,6 +1040,95 @@ def _transforms():
                                        for t in _tables()["order"]]}
 
 
+EVERY_PREFIXES = ("every ", "all ", "each ")
+EVERY_LIMIT = 8
+
+
+def _every_phrase(payload):
+    """The bare site phrase behind an `every <phrase>` request, or None.
+
+    No parser change is needed for this: `site=` already passes any quoted string through as a
+    phrase, so the whole form lives in the toolkit and the contract. The cap exists because the loop
+    stops on "no match left", and a transformation that recreates its own site would otherwise run
+    until the budget did."""
+    site = payload.get("site")
+    if isinstance(site, dict):
+        site = site.get("phrase")
+    if isinstance(site, list) and len(site) == 1 and isinstance(site[0], (str, dict)):
+        site = site[0].get("phrase") if isinstance(site[0], dict) else site[0]
+    if not isinstance(site, str):
+        return None
+    lowered = _norm(site)
+    for prefix in EVERY_PREFIXES:
+        if not lowered.startswith(prefix):
+            continue
+        rest = lowered[len(prefix):].strip()
+        if not rest:
+            return None
+        # "every ester" and "all esters" are the same request, and refusing the plural would cost a
+        # fix round over grammar. Safe to depluralise: no site phrase ends in s, and no phrase plus
+        # an s is another phrase (checked against the table, 2026-10-14).
+        known = _tables()["sitesByNorm"]
+        if rest not in known and rest.endswith("s") and rest[:-1] in known:
+            return rest[:-1]
+        return rest
+    return None
+
+
+def _apply_every(payload, deadline, phrase):
+    """One transformation at EVERY place its phrase matches, as consecutive single applications.
+
+    Why it exists, measured 2026-10-14 on chainP-8: a route masked two side-chain hydroxyls and then
+    wrote ONE `ester-hydrolysis` to free both. That is correct chemistry -- one saponification takes
+    both -- against a grammar of one site per line, so the toolkit refused a route that was right,
+    and the run ended with the refusal unread.
+
+    Deliberately a loop over the single-site path rather than a multi-site reaction: every pass
+    contributes its own co-reactants and co-products, so the equation balances by construction. A
+    two-ester hydrolysis consumes two waters and releases two alcohols, and nothing here has to know
+    that -- it falls out of applying twice."""
+    passes = []
+    molecule = payload.get("molecule")
+    handle_in = payload.get("moleculeHandle")
+    for _ in range(EVERY_LIMIT):
+        _check(deadline)
+        step = {k: v for k, v in payload.items() if k not in ("site", "molecule", "moleculeHandle")}
+        step["site"] = phrase
+        step["everyPass"] = True
+        # The first pass starts from what the caller gave; each later pass continues from the
+        # product, carrying the handle so marks survive.
+        if passes:
+            step["moleculeHandle"] = passes[-1].get("productHandle") or passes[-1]["product"]
+        elif handle_in:
+            step["moleculeHandle"] = handle_in
+        else:
+            step["molecule"] = molecule
+        out = _apply(step, deadline)
+        if "error" in out:
+            # Out of places is how the loop ENDS, once something has been done. Any other failure,
+            # or a failure on the first pass, is the caller's answer.
+            if passes and out["error"] in ("absent-site", "no-match"):
+                break
+            return out
+        passes.append(out)
+        if not out.get("site"):
+            break
+    if not passes:
+        return _fail("no-match", f"Nothing matched {phrase!r} on the carried molecule.")
+    if len(passes) == 1:
+        return passes[0]
+    last = dict(passes[-1])
+    # The route follows the last product; everything each pass consumed and released is kept, which
+    # is what makes the derived equation balance over all of them at once.
+    last["coProducts"] = [sp for one in passes for sp in one.get("coProducts") or []]
+    last["coReactants"] = [sp for one in passes for sp in one.get("coReactants") or []]
+    last["agents"] = passes[0].get("agents") or []
+    last["site"] = passes[0].get("site")
+    last["sites"] = [one["site"] for one in passes if one.get("site")]
+    last["appliedTimes"] = len(passes)
+    return last
+
+
 def handle(payload):
     if not isinstance(payload, dict):
         return _fail("unparsable", "The routeProgram request is not an object.")
@@ -984,7 +1142,9 @@ def handle(payload):
         if op == "describe":
             return _describe(payload, deadline)
         if op == "apply":
-            return _apply(payload, deadline)
+            # `site="every ester"` is one transformation at every place that phrase matches.
+            every = _every_phrase(payload)
+            return _apply_every(payload, deadline, every) if every else _apply(payload, deadline)
         return _fail("unparsable", f"op {op!r} is not one of apply, describe or transforms.")
     except _OutOfBudget:
         return _fail("budget", f"Stopped after the {budget:g} s budget without an answer.")

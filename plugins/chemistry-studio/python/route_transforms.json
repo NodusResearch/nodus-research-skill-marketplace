@@ -56,7 +56,7 @@
     },
     {
       "id": "ester-formation",
-      "summary": "Esterify a carboxylic acid with an alcohol, releasing water.",
+      "summary": "Esterify a carboxylic acid with an alcohol. The water is the formal condensation byproduct and balances the equation; with a carbodiimide its elements are taken up as the urea instead, so do not also list that urea. On a substrate that also carries a basic amine, acid conditions deliver the ammonium salt rather than the free base, and a following acylation needs a stoichiometric base.",
       "site": "carboxylic acid",
       "smarts": "[#6:1][C:2](=[O:3])[OX2H1:4].[O;H1;X2:5][#6;X4:6]>>[#6:1][C:2](=[O:3])[O:5][#6:6].[OH2:4]",
       "reagents": [
@@ -68,7 +68,7 @@
     },
     {
       "id": "amide-formation",
-      "summary": "Couple a carboxylic acid with an amine to the amide (a coupling agent or the acyl chloride), releasing water.",
+      "summary": "Couple a carboxylic acid with an amine to the amide (a coupling agent or the acyl chloride). The water is the formal condensation byproduct and balances the equation; with a carbodiimide its elements are taken up as the urea instead, so do not also list that urea.",
       "site": "carboxylic acid",
       "smarts": "[#6:1][C:2](=[O:3])[OX2H1:4].[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):5]>>[#6:1][C:2](=[O:3])[N:5].[OH2:4]",
       "reagents": [
@@ -92,7 +92,7 @@
     },
     {
       "id": "n-acylation",
-      "summary": "Acylate a free amine with an acyl chloride, releasing HCl.",
+      "summary": "Acylate a free amine with an acyl chloride, releasing HCl. The HCl is taken up by a stoichiometric base the toolkit supplies, without which it salts the amine and stops the reaction.",
       "site": "free amine",
       "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[#6:2][C:3](=[O:4])[Cl:5]>>[N:1][C:3](=[O:4])[#6:2].[ClH:5]",
       "reagents": [
@@ -255,6 +255,16 @@
       ]
     },
     {
+      "id": "n-deprotect",
+      "summary": "Remove the carbamate protecting group from the amine, whichever one is there: the toolkit picks fmoc-removal, boc-removal or cbz-removal by what the carried molecule actually carries, so a route never has to track which group it installed. It refuses when the molecule carries two different ones, and then you name the specific removal.",
+      "site": null,
+      "family": [
+        "fmoc-removal",
+        "boc-removal",
+        "cbz-removal"
+      ]
+    },
+    {
       "id": "fmoc-removal",
       "summary": "Remove an Fmoc carbamate from the amine (piperidine), releasing dibenzofulvene and carbon dioxide.",
       "site": "fmoc carbamate",
@@ -264,7 +274,7 @@
     },
     {
       "id": "boc-removal",
-      "summary": "Remove a Boc carbamate from the amine (TFA or HCl), releasing isobutylene and carbon dioxide.",
+      "summary": "Remove a Boc carbamate from the amine (TFA or HCl), releasing isobutylene and carbon dioxide. The acid delivers the amine as its ammonium salt, which is not nucleophilic until a base liberates it; the following acylation is supplied with a stoichiometric base.",
       "site": "boc carbamate",
       "smarts": "[NX3;H1:1][CX3:2](=[OX1:3])[OX2:4][CX4:5]([CH3:6])([CH3:7])[CH3:8]>>[NX3;H2:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:6]=[CX3:5]([CH3:7])[CH3:8]",
       "reagents": [],
@@ -298,7 +308,7 @@
     },
     {
       "id": "tert-butyl-ester-removal",
-      "summary": "Cleave a tert-butyl ester to the carboxylic acid (TFA), releasing isobutylene.",
+      "summary": "Cleave a tert-butyl ester to the carboxylic acid (TFA), releasing isobutylene. On a substrate that also carries a free amine the acid delivers it as the ammonium salt, which a following acylation must liberate with a base.",
       "site": "tert-butyl ester",
       "smarts": "[CX3:1](=[OX1:2])[OX2:3][CX4:4]([CH3:5])([CH3:6])[CH3:7]>>[CX3:1](=[OX1:2])[OX2H1:3].[CH2:5]=[CX3:4]([CH3:6])[CH3:7]",
       "reagents": [],
@@ -306,7 +316,7 @@
     },
     {
       "id": "n-carbamoylation",
-      "summary": "Protect a free amine as its carbamate with a chloroformate (Cbz-Cl, Fmoc-Cl), releasing HCl.",
+      "summary": "Protect a free amine as its carbamate with a chloroformate (Cbz-Cl, Fmoc-Cl), releasing HCl. The HCl is taken up by a stoichiometric base the toolkit supplies, without which it salts the amine and stops the reaction.",
       "site": "free amine",
       "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[Cl:2][CX3:3](=[OX1:4])[OX2:5][#6:6]>>[N:1][CX3:3](=[OX1:4])[OX2:5][#6:6].[ClH:2]",
       "reagents": [
@@ -318,7 +328,7 @@
     },
     {
       "id": "n-peptide-coupling",
-      "summary": "Acylate the carried molecule's free amine with a carboxylic acid (a coupling agent such as DCC/HOBt), releasing water. The C-to-N direction: the growing chain is carried and the incoming acid is the reagent.",
+      "summary": "Acylate the carried molecule's free amine with a carboxylic acid (a coupling agent such as DCC/HOBt with a stoichiometric tertiary base). The C-to-N direction: the growing chain is carried and the incoming acid is the reagent. The water is the formal condensation byproduct and balances the equation; with a carbodiimide its elements are taken up as the urea instead, so do not also list that urea.",
       "site": "free amine",
       "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[#6:2][C:3](=[O:4])[OX2H1:5]>>[N:1][C:3](=[O:4])[#6:2].[OH2:5]",
       "carries": 1,
@@ -327,6 +337,9 @@
           "role": "carboxylic acid",
           "default": null
         }
+      ],
+      "agents": [
+        "CCN(C(C)C)C(C)C"
       ]
     }
   ]
