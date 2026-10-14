@@ -10,9 +10,9 @@
     "tr": "Resmi AlphaGenome API'sinden düzenleyici varyant etkisi tahminleri; ticari olmayan araştırma için. Kendi anahtarınızı ve Python 3.10 veya üstünü gerektirir."
   },
   "assetBytes": {
-    "darwin-arm64": 47565,
-    "darwin-x64": 47595,
-    "linux-x64": 47765,
-    "win32-x64": 47355
+    "darwin-arm64": 47853,
+    "darwin-x64": 47883,
+    "linux-x64": 48053,
+    "win32-x64": 47643
   }
 }
