@@ -46,9 +46,16 @@ if (phase === '--activate') {
 }
 await client.request('branches/main/protection', { method: 'PUT', body: mainProtection(ready) });
 assertMainProtection(await client.request('branches/main/protection'), ready);
-await client.request('actions/permissions/workflow', { method: 'PUT', body: {
-  default_workflow_permissions: 'read', can_approve_pull_request_reviews: true,
-} });
+try {
+  await client.request('actions/permissions/workflow', { method: 'PUT', body: {
+    default_workflow_permissions: 'read', can_approve_pull_request_reviews: true,
+  } });
+} catch (error) {
+  if (error.status === 409) {
+    throw new Error('NodusResearch organization policy forbids Actions from creating PRs. An organization owner must permit this under Actions > Workflow permissions before this repository can opt in. main protection is already applied; signing approval was not removed.');
+  }
+  throw error;
+}
 console.log('main requires all four GitHub Actions checks, an up-to-date PR and source-owner review. No bot has a review bypass.');
 if (ready) {
   const environment = await client.request('environments/capability-signing');

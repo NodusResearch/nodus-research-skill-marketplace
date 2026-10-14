@@ -258,6 +258,14 @@ GitHub's setting allowing Actions to create PRs must be enabled; it gives the bo
 status or branch bypass. Workflow dispatch is explicit because GITHUB_TOKEN pushes/merges do
 not recursively start workflows. A generated catalog merge changes no package version.
 
+If the organization forbids Actions from creating/approving PRs, the repository cannot override
+that policy (GitHub returns HTTP 409). An organization owner must first permit it under
+**Organization settings → Actions → General → Workflow permissions**, keeping default token
+permissions read-only. Then opt in this repository; other repositories can keep PR creation
+disabled. Setup reports the blocker and preserves the signing approval until this prerequisite
+and the reviewed implementation are ready. Changing the organization policy requires explicit
+owner authorization because its scope extends beyond this repository.
+
 #### Recovery and checking a release
 
 Manual dispatch remains available from `main`, using the same merge/CI and signing gates:
