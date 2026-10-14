@@ -322,6 +322,53 @@ test('skeleton: a C–heteroatom bond at an unactivated carbon is refused (bromi
   assert.equal(alpha.continuous, true, alpha.blocked.join(' | '));
 });
 
+test('an imbalance of hydrogen alone names the metal-bearing species instead of asking for a reagent', async () => {
+  // The exact chainL-3 shape, 2026-10-13: a salt declared with the acid's hydrogens AND its sodium.
+  // The counts were reported correctly, but the advice said to add a missing reagent — nothing was
+  // missing, a formula was wrong — and the model re-emitted the same two steps for four turns, the
+  // failure text byte-identical each time. Labels group the salt as ONE species, as the author's
+  // declaration does.
+  const ACID = 'NCC(=O)N[C@@H](C)C(=O)N[C@@H](COCc1ccccc1)C(=O)O';
+  const step = `${ACID}.[Na].Cl>>${ACID}.[Na+].[Cl-]`;
+  const labels = [[
+    { role: 'reactant', name: 'the salt as declared', smiles: `${ACID}.[Na]` },
+    { role: 'reactant', name: 'hydrogen chloride', smiles: 'Cl' },
+    { role: 'product', name: 'the free acid', smiles: ACID },
+    { role: 'product', byproduct: true, name: 'sodium chloride', smiles: '[Na+].[Cl-]' },
+  ]];
+  const audit = await lib.auditRoute({ steps: [step], labels });
+  const said = audit.steps[0].differences?.join(' ') ?? '';
+  assert.match(said, /Only hydrogen is off/);
+  assert.match(said, /carries a metal/);
+  assert.doesNotMatch(said, /Add the missing reagent or byproduct/);
+  // The salt is named; the chloride, which carries no hydrogen, is not offered beside it.
+  assert.match(said, /C15H21N3NaO5/);
+  assert.doesNotMatch(said, /"ClNa"/);
+});
+
+test('a step whose products are its reactants is refused, not balanced', async () => {
+  // Found 2026-10-13 while preparing a graduated chain series. The atoms balance trivially when
+  // both sides hold the same species, and nothing downstream catches it: a step that changes no
+  // bond renders an EMPTY bond summary rather than a complaint. The cost is misattribution — a
+  // deprotection the author forgot to apply passes here and the route fails at the next step.
+  const nothing = await lib.auditRoute({ steps: ['CCO.CCOCC>>CCO.CCOCC'] });
+  assert.equal(nothing.continuous, false);
+  assert.match(nothing.steps[0].differences?.join(' ') ?? '', /products are the same species as its reactants/);
+
+  // Order must not matter: it is a multiset comparison, not a positional one.
+  const reordered = await lib.auditRoute({ steps: ['CCO.CCOCC>>CCOCC.CCO'] });
+  assert.equal(reordered.continuous, false);
+
+  // A real transformation with the same atom count on both sides is untouched.
+  const real = await lib.auditRoute({ steps: ['CCBr.CC[O-].[Na+]>>CCOCC.[Na+].[Br-]'] });
+  assert.equal(real.continuous, true, real.blocked.join(' | '));
+
+  // A species that genuinely passes through unchanged alongside a real change is NOT the same
+  // multiset, so it still balances: only a step where NOTHING changes is refused.
+  const passenger = await lib.auditRoute({ steps: ['CCBr.CC[O-].[Na+].CCO>>CCOCC.[Na+].[Br-].CCO'] });
+  assert.equal(passenger.continuous, true, passenger.blocked.join(' | '));
+});
+
 test('skeleton: an SN2 substitution is one change at one carbon, so a symmetric product does not mislead (Williamson)', async () => {
   const audit = await lib.auditRoute({ steps: ['CC[O-].[Na+].CCBr>>CCOCC.[Na+].[Br-]'] });
   assert.equal(audit.continuous, true, audit.blocked.join(' | '));

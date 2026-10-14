@@ -323,6 +323,9 @@ export interface RouteTargetAudit {
    *  one it chose is the author's to accept or reject, and before this nothing said. Empty or
    *  absent when the request specified every centre. */
   openCentres?: Array<{ atom: number; delivered: string }>;
+  /** For a stereo mismatch, the structure the route actually formed. The author can see what they
+   *  asked for; what they cannot see is what they wrote. */
+  deliveredStructure?: string;
 }
 export interface RouteAudit {
   steps: RouteStepAudit[];

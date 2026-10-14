@@ -17,8 +17,10 @@ const COMPILE_TIMEOUT_MS = 15_000;
 const MAX_CACHE_ENTRIES = 160;
 const cache = new Map<string, string>();
 // The TeX WASM engine is process-global and non-reentrant, including for old
-// chat cards that compile concurrently through IPC. Never reuse it after a
-// timeout: Promise.race cannot cancel the underlying WASM operation.
+// chat cards that compile concurrently through IPC. Promise.race cannot cancel the underlying
+// WASM operation, so a timed-out run is still in the engine: nothing may enter until it settles.
+// That is a gate, not a gravestone — it lifts when the abandoned run finishes. It used to be
+// permanent for the process, which cost chainL-6 eight drawings after one slow one.
 let compilationTail: Promise<unknown> = Promise.resolve();
 let compilerTimedOut = false;
 
@@ -231,7 +233,7 @@ export async function compileChemfig(source: string): Promise<string> {
 }
 
 async function compileChemfigSerial(source: string): Promise<string> {
-  if (compilerTimedOut) throw new Error('ChemFig engine timed out; restart the application before compiling again.');
+  if (compilerTimedOut) throw new Error('A previous Chemfig drawing is still running after timing out; this drawing was skipped.');
   const code = String(source ?? '').trim();
   if (!code) throw new Error('Empty Chemfig source.');
   if (code.length > MAX_CHEMFIG_SOURCE) throw new Error('Chemfig source is too large to render.');
@@ -249,8 +251,15 @@ async function compileChemfigSerial(source: string): Promise<string> {
   // throws from a timer, which no caller can catch and which ends the whole process.
   if (input.split('\n').some(line => line.length > 4_900)) throw new Error('A ChemFig line exceeds the TeX input buffer.');
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const engineRun = getChemfigEngine()(input, { texPackages: { amsmath: '', chemfig: '' }, showConsole: process.env.NODUS_CHEMFIG_DEBUG === '1' });
+  // The abandoned run keeps the non-reentrant engine busy, so nothing may enter it until that run
+  // settles — but once it does, the engine is free and the next drawing can have it. Measured on
+  // chainL-6 (2026-10-13): drawing 7 of a long peptide passed 15 s, and the next EIGHT drawings
+  // were refused in 0.1 s apiece for the rest of the process, each telling the user to restart the
+  // application. A timeout is one slow drawing, not a dead engine for the session.
+  engineRun.then(() => { compilerTimedOut = false; }, () => { compilerTimedOut = false; });
   const raw = await Promise.race([
-    getChemfigEngine()(input, { texPackages: { amsmath: '', chemfig: '' }, showConsole: process.env.NODUS_CHEMFIG_DEBUG === '1' }),
+    engineRun,
     new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => { compilerTimedOut = true; reject(new Error('Chemfig compilation timed out.')); }, COMPILE_TIMEOUT_MS);
     }),

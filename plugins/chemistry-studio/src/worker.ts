@@ -143,6 +143,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache, budget);
       if (toolId === 'known-reactions') return knownReactions(input);
       if (toolId === 'propose-disconnections') return proposeDisconnections(input);
+      if (toolId === 'propose-forward-steps') return proposeForwardSteps(input as { indexDir?: string; molecule?: string; reagents?: string[]; limit?: number });
       if (toolId === 'decompose-target') return decomposeTarget(input);
       if (toolId === 'check-stock') return checkStock(input);
       if (toolId === 'search-routes') return searchRoutes(input);
@@ -1072,6 +1073,51 @@ async function proposeDisconnections(input: { indexDir?: string; targets?: strin
   const proposals = entries.reduce((sum, entry) => sum + (entry.proposals?.length ?? 0), 0);
   const summary = `Disconnections: ${proposals} proposal(s) for ${entries.length} target(s), ${recorded} with a recorded reaction that makes it.`;
   return { artifacts: [{ artifactType: 'reaction-disconnections', artifactVersion: 1, summary, data }], notices: [] };
+}
+
+/** The forward transformations that APPLY to a molecule, each with the product it would give.
+ *
+ *  The middle of a three-step plan: the author decides what they are trying to do, this says what
+ *  the recorded chemistry can actually do to the molecule in front of them, and they choose one and
+ *  apply it with `execute-route-program`. Every candidate is drawn from the index's FORWARD
+ *  templates, so an offered step has precedent; a step with none is simply not on the list.
+ *
+ *  Model-invoked, through its own fence — unlike the retro disconnection search, which the
+ *  application runs for the evidence block. The point of the tool is that the choice is the
+ *  author's: handing back ten possibilities and letting the application pick would be the same
+ *  guess in a different place. */
+async function proposeForwardSteps(input: { indexDir?: string; molecule?: string; reagents?: string[]; limit?: number }) {
+  // No indexDir guard: this tool is AUTHOR-invoked through its own fence, and a fence carries only
+  // what the author wrote. They cannot name the index — they do not know it, and it is the
+  // application's own local data. The worker reuses the path the application last gave it, and
+  // says so plainly if it has never been given one.
+  const indexDir = typeof input?.indexDir === 'string' ? input.indexDir : '';
+  const molecule = typeof input?.molecule === 'string' ? input.molecule.trim() : '';
+  if (!molecule) throw new Error('A forward-step search needs the molecule to act on.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT], persistent: true,
+    stdin: JSON.stringify({
+      ...(indexDir ? { indexDir } : {}),
+      forwardSteps: {
+        molecule,
+        reagents: Array.isArray(input.reagents) ? input.reagents.filter(r => typeof r === 'string' && r.trim()).slice(0, 4) : [],
+        limit: typeof input.limit === 'number' ? input.limit : 10,
+        // Candidates are tried best-ranked first, so a deadline keeps the best rather than none.
+        budgetSeconds: 20,
+      },
+    }),
+    timeoutMs: 60_000,
+  });
+  if (run.code !== 0) throw new Error(pythonFailure('The forward-step search failed', run));
+  const data = JSON.parse(run.stdout) as { forwardSteps?: unknown[]; indexLacks?: string[] };
+  const steps = data.forwardSteps ?? [];
+  const summary = steps.length
+    ? `Forward steps: ${steps.length} transformation(s) that apply to this molecule, best-attested first.`
+    : 'Forward steps: no recorded transformation in the index applies to this molecule with these reagents.';
+  return { artifacts: [{ artifactType: 'forward-steps', artifactVersion: 1, summary, data }], notices: [] };
 }
 
 /** Break assembled targets into the units they were built from, so the retro search can be asked

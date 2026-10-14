@@ -325,6 +325,19 @@ async function invertedConfiguration(reactants: RouteSpeciesSummary[], products:
   return `This step inverts a stereocentre: ${found.join('; ')}. Atom indices count from zero in the SMILES as written. A coupling, a deprotection or a cleavage does not change configuration, so either a declared structure has the wrong configuration at that centre — give the product the configuration its reactant carries — or, if an inversion is genuinely intended, say in this step's own prose which centre inverts and why.`;
 }
 
+/** Whether the step's products are, as a multiset, exactly its reactants.
+ *
+ *  Deliberately NOT part of stepBalance: that function is also called speculatively — to ask
+ *  what a species would do on the other side, or whether refiling a reactant as an agent would
+ *  close the equation — and those hypotheticals must keep answering the arithmetic question
+ *  alone. This is a chemistry objection, so it sits with the other chemistry refusals, after
+ *  the arithmetic verdict has been taken. */
+function transformsNothing(reactants: RouteSpeciesSummary[], products: RouteSpeciesSummary[]): boolean {
+  if (reactants.length !== products.length) return false;
+  const multiset = (list: RouteSpeciesSummary[]) => list.map(entry => entry.canonicalSmiles).sort().join('.');
+  return multiset(reactants) === multiset(products);
+}
+
 /** Whether the declared species admit a balanced equation, solved exactly as the drawing
  *  path solves it. Coefficients cannot be written inside a reaction SMILES, so a species
  *  list that balances only at 2:3:2:2 is balanced, not refused. Agents take no part. */
@@ -748,6 +761,18 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       // that does not add up. Running them on a step refused for chemistry hands the author a
       // second, contradictory instruction derived from a balance that was never the complaint.
       const balancedBeforeRefusals = balance.balanced;
+      // A step whose products ARE its reactants balances trivially — both sides hold the same
+      // species, so the arithmetic says yes while nothing happened. Found 2026-10-13: nothing
+      // else catches it. The bond summary of a step that changes no bond is the empty string
+      // (moleculeInspection `if (!parts.length) return ''`), so it is not merely unreported, it
+      // is invisible. Left standing it moves the blame downstream: a deprotection the author
+      // forgot to apply to the structure passes here, and the route fails at the NEXT step,
+      // which is the one that gets named.
+      if (transformsNothing(reactants, products)) {
+        balance = { ...balance, balanced: false, differences: [
+          'This step\'s products are the same species as its reactants, so it makes and breaks nothing: the equation balances only because both sides are identical. If something is added or removed here, give the product the structure it has AFTER that change. If this is an isolation or a purification rather than a reaction, take it out of the route.',
+        ] };
+      }
       // A free oxide or nitride is never the species the author meant, and it hands the solver a
       // degree of freedom that can make a wrong equation balance. Refuse the balance and name it,
       // rather than reporting a verdict the arithmetic supports and the chemistry does not.
@@ -1082,10 +1107,23 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
           return [];
         })()
         : [];
+      // What the route DID form, when it formed the right constitution with the wrong
+      // stereochemistry. Saying only "not its stereochemistry" leaves the author to diff two
+      // structures by eye, and the one they cannot see is the one they wrote: measured
+      // 2026-10-14, a model named its building block (2S) in prose and wrote the opposite
+      // configuration in the structure beside it, then repeated the same answer when told.
+      const deliveredStructure = !formed.length && skeleton.length
+        ? (() => {
+          const step = audited[Math.max(...skeleton)];
+          const match = step?.products?.find(product => product.skeletonSmiles === wanted.skeletonSmiles);
+          return match?.canonicalSmiles ?? null;
+        })()
+        : null;
       target = {
         input: requested, canonicalSmiles: wanted.canonicalSmiles, formula: wanted.formula,
         formedAt,
         reason: formed.length ? 'formed' : skeleton.length ? 'stereo-mismatch' : 'not-formed',
+        ...(deliveredStructure ? { deliveredStructure } : {}),
         ...(openCentres.length ? { openCentres } : {}),
       };
     } catch {

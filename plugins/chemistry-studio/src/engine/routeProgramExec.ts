@@ -88,6 +88,7 @@ async function runApply(line: ApplyLine, ops: MoleculeOps, bound: Map<MolRef, Mo
   // does not number its refs in order. The site list is today zero or one entry, passed untouched.
   const request: ApplyRequest = { molecule: input, op: line.op, reagents: line.reagents, assigns: line.ref };
   if (line.site) request.sites = [line.site];
+  if (line.carry) request.carry = line.carry;
   const outcome = await ops.apply(request);
   if (isOpError(outcome)) return { trace: failed(line, outcome, [input.smiles]), input };
   bound.set(line.ref, outcome.product);

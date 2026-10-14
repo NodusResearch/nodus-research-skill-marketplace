@@ -175,5 +175,116 @@ class BoundedAndDamagedInputs(unittest.TestCase):
                 self.assertIsNotNone(rows[0][3], "an invalid cache must be rebuilt")
 
 
+class ReactionClasses(unittest.TestCase):
+    """_reaction_classes is heuristic and feeds literature SEARCH TERMS, not a verdict -- but a
+    wrong term costs a wasted search and a misleading precedent, so the obvious guards are kept."""
+
+    def test_an_acylation_with_an_acylating_agent_is_named(self):
+        # benzene + acetyl chloride -> acetophenone
+        self.assertIn("Friedel-Crafts acylation",
+                      W._reaction_classes("c1ccccc1.CC(=O)Cl", "CC(=O)c1ccccc1"))
+
+    def test_an_aryl_ketone_merely_unmasked_is_not_an_acylation(self):
+        # Found 2026-10-13. The pre-existing guard already covered the oxidation route (an alcohol
+        # is consumed there). The gap was an aryl ketone UNMASKED: nothing is acylated and no
+        # alcohol is consumed -- one is released -- so the old test passed either way and proved
+        # nothing. A ketal hydrolysis is the case that actually exercises it.
+        self.assertNotIn("Friedel-Crafts acylation",
+                         W._reaction_classes("CC1(OCCO1)c1ccccc1.O", "CC(=O)c1ccccc1.OCCO"))
+
+    def test_an_anhydride_also_counts_as_the_acylating_agent(self):
+        self.assertIn("Friedel-Crafts acylation",
+                      W._reaction_classes("c1ccccc1.CC(=O)OC(C)=O", "CC(=O)c1ccccc1.CC(=O)O"))
+
+
+def _forward_index(tmp, template_lines):
+    """A directory holding just enough of an index for _forward_steps."""
+    _write_zst(os.path.join(tmp, "forward-templates.tsv.zst"), template_lines)
+    W._forward_cache.clear()
+    W._forward_screen.clear()
+    return tmp
+
+
+class ForwardSteps(unittest.TestCase):
+    """What the index can actually DO to a molecule, as the author is offered it.
+
+    The point of the search is that a candidate has precedent: a transformation that cannot be
+    applied is never offered, so an empty list is an answer rather than a failure.
+    """
+
+    # acid + amine >> amide, the forward direction, written as the builder writes it
+    COUPLE = ("[C:1]-[C;H0;D3;+0:2](=[O;D1;H0:3])-[O;H1;D1;+0].[C:5]-[NH2;D1;+0:4]"
+              ">>[C:1]-[C;H0;D3;+0:2](=[O;D1;H0:3])-[NH;D2;+0:4]-[C:5]")
+    # ester >> acid: applies to the product of the coupling, not to the acid itself
+    HYDROLYSE = "[C:1]-[C;H0;D3;+0:2](=[O;D1;H0:3])-[O;H0;D2;+0]-[CH3;D1;+0]>>[C:1]-[C:2](=[O:3])-[OH]"
+
+    def test_a_transformation_that_applies_is_offered_with_its_product(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = _forward_index(tmp, [f"500\t500\t2\t{self.COUPLE}"])
+            out = W._forward_steps(index, "CC(=O)O", ["CCN"], limit=5)
+            self.assertEqual(len(out), 1, out)
+            self.assertEqual(out[0]["product"], "CCNC(C)=O")
+            self.assertEqual(out[0]["count"], 500)
+            self.assertEqual(out[0]["smarts"], self.COUPLE)
+
+    def test_a_transformation_that_does_not_apply_is_not_offered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # The hydrolysis needs a methyl ester; the molecule is an acid, so nothing applies.
+            index = _forward_index(tmp, [f"500\t500\t2\t{self.HYDROLYSE}"])
+            self.assertEqual(W._forward_steps(index, "CC(=O)O", [], limit=5), [])
+
+    def test_a_two_component_transformation_needs_its_partner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = _forward_index(tmp, [f"500\t500\t2\t{self.COUPLE}"])
+            # Without the amine there is no second component, so the coupling cannot be offered.
+            self.assertEqual(W._forward_steps(index, "CC(=O)O", [], limit=5), [])
+
+    def test_outcomes_are_deduplicated_by_product_keeping_the_best_attested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # Two templates that reach the SAME product: one entry, carrying the higher count, so
+            # the number reads as the precedent for the OUTCOME rather than for one writing of it.
+            index = _forward_index(tmp, [f"120\t120\t2\t{self.COUPLE}", f"900\t900\t3\t{self.COUPLE}"])
+            out = W._forward_steps(index, "CC(=O)O", ["CCN"], limit=5)
+            self.assertEqual(len(out), 1, out)
+            self.assertEqual(out[0]["count"], 900)
+
+    def test_an_unreadable_molecule_and_an_absent_file_both_give_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = _forward_index(tmp, [f"500\t500\t2\t{self.COUPLE}"])
+            self.assertEqual(W._forward_steps(index, "not a molecule", ["CCN"]), [])
+            self.assertEqual(W._forward_steps(index, None, ["CCN"]), [])
+        with tempfile.TemporaryDirectory() as bare:
+            W._forward_cache.clear(); W._forward_screen.clear()
+            self.assertEqual(W._forward_steps(bare, "CC(=O)O", ["CCN"]), [])
+
+    def test_an_author_written_request_reuses_the_path_the_application_last_gave(self):
+        """The author cannot name the index: they do not know it and it is not theirs to know.
+
+        Found 2026-10-14: the first model-written request failed outright with "needs the index
+        directory", because a fence carries only what the author wrote. The application supplies
+        the path on every call it makes itself, so the worker reuses the last one it was given.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            index = _forward_index(tmp, [f"500\t500\t2\t{self.COUPLE}"])
+            W._last_index_dir = None
+            # Nothing has been told to the worker yet, so it says so rather than guessing.
+            with self.assertRaises(SystemExit):
+                W.handle({"forwardSteps": {"molecule": "CC(=O)O", "reagents": ["CCN"]}})
+            # The application makes a call of its own, carrying the path...
+            W.handle({"indexDir": index, "forwardSteps": {"molecule": "CC(=O)O", "reagents": ["CCN"]}})
+            # ...and an author-written request afterwards needs no path.
+            out = W.handle({"forwardSteps": {"molecule": "CC(=O)O", "reagents": ["CCN"]}})
+            self.assertEqual(len(out["forwardSteps"]), 1, out)
+            self.assertEqual(out["forwardSteps"][0]["product"], "CCNC(C)=O")
+
+    def test_the_request_names_what_the_index_lacks_rather_than_failing(self):
+        with tempfile.TemporaryDirectory() as bare:
+            W._forward_cache.clear(); W._forward_screen.clear()
+            out = W.handle({"indexDir": bare, "forwardSteps": {"molecule": "CC(=O)O"}})
+            self.assertEqual(out["forwardSteps"], [])
+            self.assertIn("forward-templates.tsv.zst", out.get("indexLacks", []))
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

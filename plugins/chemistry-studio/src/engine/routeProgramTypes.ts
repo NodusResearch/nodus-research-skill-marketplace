@@ -72,6 +72,14 @@ export interface ApplyLine {
    *  a structure the model never sees is exactly the fragile coupling this design removes. An
    *  unresolvable or ambiguous site is an error on the line, not a guess. */
   site?: SiteRef;
+  /** Which fragment continues the route when the step cuts the molecule in two.
+   *
+   *  Only the line knows. Both sides of an ester hydrolysis are made of the atoms that went in, so
+   *  the toolkit cannot read the answer off the chemistry, and sizes get it backwards: Boc leaves
+   *  isobutylene at 4 heavy atoms while Fmoc leaves dibenzofulvene at 14 and Cbz leaves toluene at
+   *  7, against alanine's 6. A curated deprotection declares its own answer and needs nothing here;
+   *  everything else says `carry="largest"` or names the fragment as a structure. */
+  carry?: { kind: 'largest' | 'smallest' } | { kind: 'smiles'; smiles: string };
   /** The step's prose, which stays per step as it is today. */
   note?: string;
 }
@@ -206,6 +214,9 @@ export interface ApplyRequest {
   reagents: SpeciesRef[];
   /** Empty or absent when the operation applies in only one place anyway. */
   sites?: SiteRef[];
+  /** Which fragment continues the route, when the operation splits the molecule. Absent for the
+   *  ordinary case and for a curated deprotection, which declares its own. */
+  carry?: ApplyLine['carry'];
   /** The ref this line binds, so a mark made here can be found again by that name. */
   assigns?: MolRef;
 }
