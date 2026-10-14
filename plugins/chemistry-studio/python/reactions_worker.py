@@ -857,6 +857,44 @@ def _nameable(molecule, reagents, deadline_seconds=8.0):
     return found
 
 
+def _label_with_verbs(entry, deadline):
+    """Label each KEPT disconnection with the curated verb that reproduces it, where one does.
+
+    The missing half of the three steps the author described: propose a class, find the recorded
+    reactions that match it, implement. Steps one and three worked; the recorded reactions came back
+    as precursors, counts and a raw SMARTS, which a program cannot use, because program mode
+    addresses transformations BY NAME. So a caller holding a disconnection with 6,592 records still
+    had to recognise the chemistry and guess the verb -- and measured on 2026-10-14, the model never
+    once fetched one: 0 lookups from 19 offers and 0 from 14 delivered as REQUIRED.
+
+    Labelled AFTER the ranking and the truncation, deliberately. Only the handful that reach the
+    prompt are worth labelling -- one replayed turn classified 11,517 proposals -- and the cost then
+    is around 26 ms each against a gather already measured at 22 to 277 s. It must never become
+    extra capability calls: a `propose-disconnections` round trip measured 14.5 s, so doing this from
+    the application side would cost more than the search it labels.
+
+    A proposal nothing matches keeps its SMARTS and simply carries no name, which is the honest
+    answer: that step has to be prose rather than a program line."""
+    target = entry.get("target")
+    if not target:
+        return
+    for proposal in entry.get("proposals") or []:
+        if deadline is not None and time.monotonic() > deadline:
+            return
+        parts = [m for m in (proposal.get("precursors") or "").split(".") if m]
+        # Either precursor may be the one the route carries, so both are tried; more than three is a
+        # mixture record rather than a step worth naming.
+        if not parts or len(parts) > MAX_STEP_PRECURSORS:
+            continue
+        for index, carried in enumerate(parts):
+            found = _nameable(carried, [m for j, m in enumerate(parts) if j != index], deadline_seconds=2.0)
+            verb = found.get(target)
+            if verb:
+                proposal["named"] = verb
+                proposal["namedFrom"] = carried
+                break
+
+
 def _not_a_step(substrate, product):
     """Why this 'transformation' is not a synthetic step, or None.
 
@@ -1330,6 +1368,7 @@ def _disconnect(index_dir, targets, limit, starting=(), stock_dir=None, budget_s
             ranked.sort(key=lambda p: (-(p["recorded"] > 0), -p.get("purchasable", False), -p["available"], -p["recorded"], -p["templateCount"]))
         entry["proposals"] = ranked[:limit]
         entry["proposalsConsidered"] = len(ranked)
+        _label_with_verbs(entry, deadline)
     return results
 
 
