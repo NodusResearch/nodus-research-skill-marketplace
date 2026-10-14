@@ -189,6 +189,13 @@ The official catalog is curated. Skills promoting illegal activity, piracy, lice
 
 ## Maintainers
 
+For Capability API v2 packages, the reviewed version PR is the release approval. After its
+merge into protected `main` and successful main CI, **Release capability package** detects
+unpublished versions, builds their declared targets, tests and signs them, and publishes
+the complete releases. A checked metadata PR then records the signed asset sizes and merges
+automatically. See [publishing and one-time protection setup](CONTRIBUTING.md#publishing).
+Instruction-only skills and sandboxed v1 plugins continue to use the repository catalog.
+
 Run `node scripts/catalog.mjs` after changing a package. CI runs `node scripts/catalog.mjs --check` for package validity and catalog freshness, `node scripts/validate-templates.mjs` to hold both templates to the same contract, and a check that `scripts/contract.mjs` is committed exactly as generated. `scripts/contract.mjs`, the category index and the catalog block in this file are generated: never edit them by hand. The validator comes from Nodus's shared package contract via `scripts/sync-skill-marketplace.mjs` in the application repository.
 
 The repository uses [AGPL-3.0-only](LICENSE). Each manifest declares its package license. The Nodus name and logo identify the project; inclusion does not grant permission to imply endorsement of a third-party marketplace.

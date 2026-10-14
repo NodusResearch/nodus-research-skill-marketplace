@@ -1,0 +1,7 @@
+# Reviewed package and infrastructure changes authorize publication when merged.
+* @jorgepb96
+
+# Deterministic release metadata has its own signed-manifest checks and full CI.
+# It still goes through a PR; no actor bypasses branch protection for these files.
+/catalog-v2.json
+/plugins/*/catalog.json

@@ -39,6 +39,7 @@ For a plugin, every component carries the same SemVer version, and any change in
 1. Submit a pull request containing one directory per skill or plugin and the regenerated catalog.
 2. Automated checks validate the package contract and README. They do not determine legality, ownership, or safety of behavior.
 3. A maintainer reviews instructions, code, capability runtimes, requested permissions, licensing, advertised use and reproducible examples before approval. New versions receive the same review.
+   For Capability API v2 packages, merging a reviewed version increase into protected `main` authorizes automatic publication after that exact commit passes main CI. Builds, signing and catalog maintenance remain separate. Existing versions are never rewritten. Catalog-only PRs may merge automatically when their changes reproduce published signed manifests and pass every required check; package source, instructions, permissions and other metadata still require maintainer review.
 4. A submission may be rejected or a listing removed for violating these rules. Maintainers explain the relevant rule when practicable and may request corrections.
 5. Report concerns using a repository issue without private data or harmful payloads; sensitive vulnerabilities follow SECURITY.md. Appeal a listing decision with evidence and a concrete correction in the original pull request or a new issue.
 
