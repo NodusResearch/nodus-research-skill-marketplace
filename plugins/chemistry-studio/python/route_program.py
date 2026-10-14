@@ -1051,11 +1051,16 @@ def _every_phrase(payload):
     phrase, so the whole form lives in the toolkit and the contract. The cap exists because the loop
     stops on "no match left", and a transformation that recreates its own site would otherwise run
     until the budget did."""
-    site = payload.get("site")
+    # Through _requested_sites, never payload["site"] directly: the adapter sends the PLURAL key and
+    # that function is the one place that knows it. Reading the singular alone is why this feature
+    # never once fired in the application while its tests passed -- the tests called the engine with
+    # the shape the adapter does not use. The same docstring warns against it in as many words.
+    asked = _requested_sites(payload)
+    if len(asked) != 1:
+        return None
+    site = asked[0]
     if isinstance(site, dict):
         site = site.get("phrase")
-    if isinstance(site, list) and len(site) == 1 and isinstance(site[0], (str, dict)):
-        site = site[0].get("phrase") if isinstance(site[0], dict) else site[0]
     if not isinstance(site, str):
         return None
     lowered = _norm(site)
@@ -1092,7 +1097,7 @@ def _apply_every(payload, deadline, phrase):
     handle_in = payload.get("moleculeHandle")
     for _ in range(EVERY_LIMIT):
         _check(deadline)
-        step = {k: v for k, v in payload.items() if k not in ("site", "molecule", "moleculeHandle")}
+        step = {k: v for k, v in payload.items() if k not in ("site", "sites", "molecule", "moleculeHandle")}
         step["site"] = phrase
         step["everyPass"] = True
         # The first pass starts from what the caller gave; each later pass continues from the

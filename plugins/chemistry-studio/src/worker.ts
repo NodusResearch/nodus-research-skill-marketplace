@@ -975,6 +975,25 @@ interface RouteProgramInput {
   localOnly?: boolean;
 }
 
+/** How many transformations one program may execute.
+ *
+ *  Was 24, from the commit that first connected programs to the worker -- a conservative opening
+ *  bound rather than a measurement, and far below the parser's own limit of 256 statements
+ *  (MAX_STATEMENTS in engine/routeProgram.ts). The lower number was the binding one, so the two
+ *  disagreed and the stricter, unmeasured one won.
+ *
+ *  Measured 2026-10-14: a 20-residue chain needs 41 applies -- one coupling and one deprotection
+ *  per residue -- so the model wrote 41 and had the whole program refused, four turns running,
+ *  because no correction can compress a route below the length of the thing being made. Anything
+ *  past about twelve residues was unreachable, which is most of what this is for.
+ *
+ *  256 matches the parser, and since every apply is a statement the parser's limit is now the one
+ *  that binds: a program past 256 statements gets a too-many-lines diagnostic, and any diagnostic
+ *  refuses the whole program below. This check stays as a backstop should the two ever diverge. It
+ *  covers a 60-residue chain (about 120 applies) with headroom. The other limits still apply and
+ *  are the real guards: 64,000 characters of program, and a per-apply budget. */
+export const MAX_PROGRAM_APPLIES = 256;
+
 /** Application-invoked alternate input to the existing audit. The ordinary synthesis reply
  *  contract stays in force; no model-generated file paths or automatic route format change. */
 async function verifyRouteProgram(input: RouteProgramInput, cache: ReferenceCache, resolvedNames: ResolvedNames, budget?: ChemistryCapBudget) {
@@ -985,7 +1004,7 @@ async function verifyRouteProgram(input: RouteProgramInput, cache: ReferenceCach
   const applies = parsed.program.lines.filter(line => line.kind === 'apply').length;
   const diagnostics = parsed.diagnostics.map(d => `Line ${d.line}: ${d.message}`);
   if (!applies) diagnostics.push('A route program needs at least one apply line.');
-  if (applies > 24) diagnostics.push('A route program may execute at most 24 transformations.');
+  if (applies > MAX_PROGRAM_APPLIES) diagnostics.push(`A route program may execute at most ${MAX_PROGRAM_APPLIES} transformations.`);
   const artifact = (data: unknown, summary: string) => ({ artifacts: [{ artifactType: 'route-audit', artifactVersion: 1, summary, data }], notices: [] });
   if (diagnostics.length) return artifact({ steps: [], links: [], isolated: [], continuous: false, blocked: diagnostics }, 'Route program has syntax problems');
 

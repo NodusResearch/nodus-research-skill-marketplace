@@ -1185,6 +1185,28 @@ class EveryMatchingSite(unittest.TestCase):
                     site="every ester")
         self.assertIn(out["error"], ("absent-site", "no-match"))
 
+    def test_it_fires_through_the_key_the_adapter_actually_sends(self):
+        """The adapter sends `sites`, plural, as a list of objects. Reading only the singular `site`
+        is why this feature never fired in the application while every test here passed: the tests
+        called the engine with the shape the adapter does not use. Measured on chainP-24,
+        2026-10-14 -- three of its four turns died on
+        "'every tert-butyl ester' is not a site phrase this toolkit knows"."""
+        out = route_program.handle({"op": "apply", "molecule": self.DIACETATE,
+                                    "operation": {"kind": "named", "id": "ester-hydrolysis"},
+                                    "sites": [{"kind": "phrase", "phrase": "every ester"}],
+                                    "carry": "largest"})
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["appliedTimes"], 2)
+        self.assertEqual(out["coProducts"], ["CC(=O)O", "CC(=O)O"])
+
+    def test_the_plural_key_still_refuses_an_ambiguous_phrase(self):
+        """And the opt-in stays an opt-in on that key too."""
+        out = route_program.handle({"op": "apply", "molecule": self.DIACETATE,
+                                    "operation": {"kind": "named", "id": "ester-hydrolysis"},
+                                    "sites": [{"kind": "phrase", "phrase": "ester"}],
+                                    "carry": "largest"})
+        self.assertEqual(out["error"], "ambiguous-site")
+
     def test_each_and_all_are_the_same_request(self):
         for word in ("all esters", "each ester"):
             with self.subTest(word):

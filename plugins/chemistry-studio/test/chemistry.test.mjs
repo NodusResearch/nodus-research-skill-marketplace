@@ -2247,10 +2247,15 @@ test('the application route-program tool rejects syntax and oversized programs b
   const host = stubHost();
   host.python = { ensureRuntime: async () => { throw new Error('must not access Python'); } };
   const worker = lib.createWorker(host);
+  // One past the worker's own cap, read from the bundle rather than repeated here. It is the
+  // parser's MAX_STATEMENTS and not a number of its own, which is the parser's MAX_STATEMENTS rather than a number of its
+  // own: a shorter program is legitimate work, and a solid-phase chain of any length spends one
+  // apply per residue per operation.
+  const oversized = lib.MAX_PROGRAM_APPLIES + 1;
   for (const program of ['nonsense', 'M1 = start(smiles="CCO")\ntarget = M1', [
     'M1 = start(smiles="CCO")',
-    ...Array.from({ length: 25 }, (_, i) => `M${i + 2} = apply(M${i + 1}, named="primary-alcohol-oxidation")`),
-    'target = M26',
+    ...Array.from({ length: oversized }, (_, i) => `M${i + 2} = apply(M${i + 1}, named="primary-alcohol-oxidation")`),
+    `target = M${oversized + 1}`,
   ].join('\n')]) {
     const result = await worker.invoke({ toolId: 'execute-route-program', input: { program }, locale: 'en' });
     assert.equal(result.artifacts[0].data.continuous, false);
