@@ -33,6 +33,7 @@ before trusting it. Canonicalisation and the DRFP fingerprint match the offline 
 import hashlib
 import json
 import os
+import time
 import subprocess
 import sys
 
@@ -470,7 +471,11 @@ def _reaction_classes(precursors, product):
     if up("alcohol") and (down("ketone") or down("aldehyde")): classes.append("reduction of a carbonyl compound")
     if up("biaryl") and before["boron"]: classes.append("Suzuki cross-coupling")
     if down("aryl_halide") and (up("arylamine") or up("amine") or up("ether")) and before["nitro"]: classes.append("nucleophilic aromatic substitution")
-    if up("aryl_ketone") and not down("alcohol"): classes.append("Friedel-Crafts acylation")
+    # An aryl ketone appearing is not enough: it also appears when one is unmasked or when a
+    # benzylic alcohol is oxidised. Require an acylating agent to have been consumed, so the
+    # search term names the reaction that actually happened.
+    if up("aryl_ketone") and not down("alcohol") and (down("acyl_halide") or down("anhydride") or down("ester")):
+        classes.append("Friedel-Crafts acylation")
     if up("aryl_halide") or (up("alkyl_halide") and not before["alcohol"]): classes.append("halogenation")
     if up("alkyl_halide") and down("alcohol"): classes.append("conversion of an alcohol to an alkyl halide")
     if down("alkyl_halide") and (up("ether") or up("amine") or up("nitrile") or up("ester")): classes.append("SN2 alkylation")
@@ -666,31 +671,31 @@ def _template_row(line):
     return parts[0], parts[1], parts[-1]
 
 
-def _retro_templates(index_dir):
-    """The shipped retro templates, parsed once per process. Each row is
+def _templates_file(index_dir, filename, cache, screens):
+    """The templates in one shipped file, parsed once per process. Each row is
     [count, rdchiral, smarts, query]; `query` is parsed on first use when the screen is cached.
 
     The screen — one pattern fingerprint per template — took 4.8 s of the 5.7 s this cost per call
     over 82,940 templates, in a fresh process every call (25 calls in a nine-turn trace, 2026-10-09).
     It depends only on the file, so it is cached beside it, with the rows it covers."""
-    if index_dir in _retro_cache:
-        return _retro_cache[index_dir]
+    if index_dir in cache:
+        return cache[index_dir]
     from rdkit import Chem
 
     rows = []
-    path = os.path.join(index_dir, "retro-templates.tsv.zst")
+    path = os.path.join(index_dir, filename)
     if not os.path.isfile(path):
-        # A format-3 index has no retro templates: proposals then come only from recorded reactions.
-        _retro_cache[index_dir] = rows
+        # An older index may not carry this file at all; an empty list is the honest answer.
+        cache[index_dir] = rows
         return rows
     lines = list(_zst_lines(path))
-    cache = None
+    cache_path = None
     try:
         import numpy as np
 
-        cache = _screen_cache_path(path)
-        if os.path.isfile(cache):
-            with np.load(cache, allow_pickle=False) as data:
+        cache_path = _screen_cache_path(path)
+        if os.path.isfile(cache_path):
+            with np.load(cache_path, allow_pickle=False) as data:
                 screen, valid = data["screen"], data["valid"]
             if (valid.ndim == 1 and valid.dtype.kind in "iu"
                     and screen.shape == (len(valid), SCREEN_BITS // 64)
@@ -699,8 +704,8 @@ def _retro_templates(index_dir):
                 for i in valid.tolist():
                     count, rdchiral, smarts = _template_row(lines[i])
                     rows.append([int(count), int(rdchiral), smarts, None])
-                _retro_cache[index_dir] = rows
-                _retro_screen[index_dir] = screen
+                cache[index_dir] = rows
+                screens[index_dir] = screen
                 return rows
     except Exception:
         rows = []
@@ -714,27 +719,48 @@ def _retro_templates(index_dir):
         if query is not None:
             rows.append([int(count), int(rdchiral), smarts, query])
             valid.append(i)
-    _retro_cache[index_dir] = rows
+    cache[index_dir] = rows
     screen = _pattern_screen([row[3] for row in rows])
-    _retro_screen[index_dir] = screen
-    if cache and screen is not None:
+    screens[index_dir] = screen
+    if cache_path and screen is not None:
         # Best effort: an unwritable index directory just means the next call computes it again.
         try:
             import numpy as np
 
-            tmp = f"{cache}.{os.getpid()}.tmp.npz"
+            tmp = f"{cache_path}.{os.getpid()}.tmp.npz"
             np.savez(tmp, screen=screen, valid=np.asarray(valid, dtype=np.int64))
-            os.replace(tmp, cache)
+            os.replace(tmp, cache_path)
             # One screen per templates file: an older one (different bytes or RDKit) is dead weight,
             # and an index rebuilt by cloning the previous one would carry it forward for ever.
             stem = os.path.basename(path) + ".screen-"
-            for name in os.listdir(os.path.dirname(cache)):
-                if name.startswith(stem) and name.endswith(".npz") and os.path.join(os.path.dirname(cache), name) != cache:
-                    os.remove(os.path.join(os.path.dirname(cache), name))
+            for name in os.listdir(os.path.dirname(cache_path)):
+                if name.startswith(stem) and name.endswith(".npz") and os.path.join(os.path.dirname(cache_path), name) != cache_path:
+                    os.remove(os.path.join(os.path.dirname(cache_path), name))
         except Exception:
             pass
     return rows
 
+
+
+
+_last_index_dir = None
+_forward_cache = {}
+_forward_screen = {}
+
+
+def _retro_templates(index_dir):
+    """The shipped RETRO templates (product >> precursors), as the disconnection search reads them."""
+    return _templates_file(index_dir, "retro-templates.tsv.zst", _retro_cache, _retro_screen)
+
+
+def _forward_templates(index_dir):
+    """The shipped FORWARD templates (reactants >> product).
+
+    Separate from the retro set and not interchangeable with it: a retro template REVERSED carries
+    its author's constraints on the side forward application never checks, so it fires where it was
+    never meant to. These are cut forward by the builder and are the only ones safe to apply
+    forward without that caveat."""
+    return _templates_file(index_dir, "forward-templates.tsv.zst", _forward_cache, _forward_screen)
 
 SCREEN_BITS = 2048
 # How this build reads and screens a templates line. The cache holds INDICES into the file and
@@ -767,9 +793,9 @@ def _pattern_screen(queries):
         return None
 
 
-def _screened(index_dir, templates, mol):
+def _screened(index_dir, templates, mol, screens=None):
     """The templates that may match `mol`, in their ranked order."""
-    screen = _retro_screen.get(index_dir)
+    screen = (_retro_screen if screens is None else screens).get(index_dir)
     if screen is None:
         return templates
     try:
@@ -779,6 +805,197 @@ def _screened(index_dir, templates, mol):
         return [templates[i] for i in np.flatnonzero(keep)]
     except Exception:
         return templates
+
+
+FORWARD_STEP_BUDGET = 20.0
+
+
+def _nameable(molecule, reagents, deadline_seconds=8.0):
+    """{product SMILES: curated transformation id} for every curated verb that applies here.
+
+    Closes the gap between the two halves of the toolkit. A forward-step candidate comes back as
+    {product, coProducts, count, smarts} and nothing else, which is what the contract promises and
+    is still unusable for the thing a caller wants next: program mode addresses transformations BY
+    NAME (`named="amide-formation"`) from the curated set, so a candidate carrying only a raw
+    reaction SMARTS cannot be turned into a program line. The caller had to read the SMARTS,
+    recognise the chemistry and guess which verb it corresponded to.
+
+    So the verbs are run against the same molecule and the products matched up. A candidate whose
+    product a curated verb also makes is labelled with that verb, and the caller can write the
+    program line directly. One that nothing matches is still offered, still with its SMARTS, and
+    now says plainly that no curated verb makes it -- which is the honest answer and tells the
+    caller the step has to be prose rather than a program.
+
+    Imported inside the function on purpose: route_program imports THIS module for its
+    canonicalisation, so a module-level import either way round is a cycle.
+    """
+    import time as _time
+
+    started = _time.monotonic()
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import route_program
+    except Exception:
+        return {}
+    found = {}
+    try:
+        order = route_program._tables()["order"]
+    except Exception:
+        return {}
+    for transform in order:
+        if _time.monotonic() - started > deadline_seconds:
+            break
+        # Every reagent the caller named, and the verb's own defaults, which is how a routine
+        # reagent like water never has to be mentioned.
+        answer = route_program.handle({"op": "apply", "molecule": molecule,
+                                       "operation": {"kind": "named", "id": transform["id"]},
+                                       "reagents": list(reagents), "budgetSeconds": 3})
+        if answer.get("ok") and answer.get("product"):
+            found.setdefault(answer["product"], transform["id"])
+    return found
+
+
+def _not_a_step(substrate, product):
+    """Why this 'transformation' is not a synthetic step, or None.
+
+    The index ranks by how often an outcome is recorded, and the most frequently recorded outcomes
+    of a carboxylic acid are not reactions. Measured 2026-10-14 on Boc-glycine with alanine methyl
+    ester: of ten candidates the correct peptide coupling sat at rank 2, and ranks 1, 4 and 6 were
+    a decomposition, a deprotonation and a hydrate. A caller told only "ordered by precedent" has
+    no way to see that the top row is not chemistry at all.
+
+    Reported rather than dropped. The record genuinely holds these, and a silent filter would be a
+    second opinion the caller did not ask for; a labelled row lets them skip it in one glance.
+    """
+    from rdkit import Chem
+
+    sub, prod = Chem.MolFromSmiles(substrate), Chem.MolFromSmiles(product)
+    if sub is None or prod is None:
+        return None
+
+    def skeleton(mol):
+        copy = Chem.RWMol(mol)
+        for atom in copy.GetAtoms():
+            atom.SetFormalCharge(0)
+            atom.SetNoImplicit(False)
+            atom.SetNumExplicitHs(0)
+        try:
+            Chem.SanitizeMol(copy)
+        except Exception:
+            return None
+        return Chem.MolToSmiles(copy)
+
+    here, there = skeleton(sub), skeleton(prod)
+    if here is not None and here == there:
+        return "a protonation state of the same molecule, not a reaction"
+    gem = Chem.MolFromSmarts("[CX4]([OX2H1])[OX2H1]")
+    if gem is not None and prod.HasSubstructMatch(gem) and not sub.HasSubstructMatch(gem):
+        return "a geminal diol, which is the hydrate of the carbonyl and not an isolable product"
+    return None
+
+
+def _forward_steps(index_dir, molecule, reagents=(), limit=10, budget_seconds=None):
+    """Forward transformations that APPLY to this molecule, each with the product it would give.
+
+    The middle of a three-step plan: the author says what they are trying to do, this says what the
+    recorded chemistry can actually do to the molecule in front of them, and they choose. Every
+    candidate comes from the index's FORWARD templates, so an offered step is one that has happened
+    rather than one invented -- which is the point. A template that cannot be applied is never
+    offered, so "no candidates" is a real answer and not a failure.
+
+    Deduplicated by PRODUCT, not by template: dozens of templates differing only in their recorded
+    environment collapse to one outcome, and a list of fifty ways to make the same molecule is not
+    a choice. The surviving entry keeps the highest-count template that reached that product, so
+    `count` reads as the precedent for the outcome.
+
+    Returns [] on a molecule that will not parse, an index with no forward templates, or a budget
+    that runs out -- each of which the caller reports as "nothing offered" rather than an error.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    start = time.monotonic()
+    budget = FORWARD_STEP_BUDGET if budget_seconds is None else max(1.0, min(float(budget_seconds), 120.0))
+    mol = Chem.MolFromSmiles(molecule) if isinstance(molecule, str) else None
+    if mol is None:
+        return []
+    partners = []
+    for reagent in list(reagents)[:4]:
+        other = Chem.MolFromSmiles(reagent) if isinstance(reagent, str) else None
+        if other is not None:
+            partners.append((reagent, other))
+    rows = _forward_templates(index_dir)
+    if not rows:
+        return []
+    for row in rows:
+        if row[3] is None:
+            row[3] = Chem.MolFromSmarts(row[2].split(">>")[0])
+    # Screen against the molecule AND its reagents together. A forward template's left side holds
+    # every component, so its screen bits cover the partner too: screening on the carried molecule
+    # alone rejects every two-component transformation, which is most of the useful ones.
+    screened_against = mol
+    if partners:
+        joined = Chem.MolFromSmiles(".".join([molecule] + [name for name, _ in partners]))
+        if joined is not None:
+            screened_against = joined
+    candidates = _screened(index_dir, rows, screened_against, _forward_screen)
+    carried = Chem.MolToSmiles(mol)
+    best = {}
+    for count, _rdchiral, smarts, _query in candidates:
+        if time.monotonic() - start > budget:
+            break
+        try:
+            reaction = AllChem.ReactionFromSmarts(smarts)
+        except Exception:
+            continue
+        if reaction is None:
+            continue
+        wanted = reaction.GetNumReactantTemplates()
+        combos = [(mol,)] if wanted == 1 else [
+            combo for _name, other in partners for combo in ((mol, other), (other, mol))
+        ] if wanted == 2 else []
+        for combo in combos:
+            try:
+                outcomes = reaction.RunReactants(combo)
+            except Exception:
+                continue
+            for outcome in outcomes:
+                pieces = []
+                for piece in outcome:
+                    try:
+                        Chem.SanitizeMol(piece)
+                        pieces.append(Chem.MolToSmiles(piece))
+                    except Exception:
+                        pieces = []
+                        break
+                if not pieces:
+                    continue
+                # The carried fragment is the one that kept the most of what went in; a step whose
+                # product IS its reactant changed nothing and is not a step.
+                main = max(pieces, key=len)
+                if main == carried:
+                    continue
+                key = (main, tuple(sorted(p for p in pieces if p != main)))
+                if key not in best or count > best[key][0]:
+                    best[key] = (int(count), smarts)
+    offered = sorted(best.items(), key=lambda item: -item[1][0])[:max(1, min(int(limit or 10), 25))]
+    named = _nameable(molecule, [name for name, _ in partners])
+    rows_out = []
+    for key, value in offered:
+        row = {"product": key[0], "coProducts": list(key[1]), "count": value[0], "smarts": value[1]}
+        verb = named.get(key[0])
+        # `named` is the field a caller needs to write a program line; its absence is stated rather
+        # than left to be inferred from a missing key.
+        row["named"] = verb
+        if verb is None:
+            row["note"] = "no curated transformation makes this; it can be described but not written as a program step"
+        caution = _not_a_step(molecule, key[0])
+        if caution:
+            row["caution"] = caution
+        rows_out.append(row)
+    return rows_out
 
 
 def _makes(reaction, target):
@@ -1920,8 +2137,18 @@ def handle(request):
     index_dirs = [d for d in request.get("indexDirs", []) if isinstance(d, str) and d][:4] if isinstance(request.get("indexDirs"), list) else []
     if not index_dirs and isinstance(index_dir, str) and index_dir:
         index_dirs = [index_dir]
+    # A request the AUTHOR wrote cannot carry the index path: the author does not know it and
+    # should not, it is the application's own local data. The application supplies it on every
+    # call it makes itself, and this process is persistent, so the path it was last given is
+    # reused. Remembered rather than guessed -- the application still owns it, and a worker that
+    # has never been told reports that it needs one rather than inventing a location.
+    global _last_index_dir
+    if not index_dirs and _last_index_dir:
+        index_dirs = [_last_index_dir]
     if not index_dirs:
         raise SystemExit("indexDir or indexDirs is required")
+    if isinstance(index_dirs[0], str) and index_dirs[0]:
+        _last_index_dir = index_dirs[0]
     index_dir = index_dir if isinstance(index_dir, str) and index_dir else index_dirs[0]
     if "route" in request:
         starting = [x for x in request.get("startingMaterials", []) if isinstance(x, str) and x.strip()][:16]
@@ -1930,6 +2157,16 @@ def handle(request):
         usable = [d for d in index_dirs if os.path.isfile(os.path.join(d, "molecules.tsv.zst"))]
         return {"route": _search_routes(usable or index_dirs, str(request.get("route", "")), starting, max_steps,
                                         stock_dir=request.get("stockDir"), budget_seconds=budget)}
+    if "forwardSteps" in request:
+        ask = request.get("forwardSteps") or {}
+        molecule = ask.get("molecule") if isinstance(ask, dict) else None
+        reagents = [r for r in (ask.get("reagents") or []) if isinstance(r, str) and r.strip()][:4] if isinstance(ask, dict) else []
+        limit = max(1, min(int((ask.get("limit") if isinstance(ask, dict) else 10) or 10), 25))
+        budget = ask.get("budgetSeconds") if isinstance(ask, dict) else None
+        budget = max(1.0, min(float(budget), 120.0)) if isinstance(budget, (int, float)) and budget > 0 else None
+        missing = [name for name in ("forward-templates.tsv.zst",) if not os.path.isfile(os.path.join(index_dir, name))]
+        steps = _forward_steps(index_dir, molecule, reagents, limit, budget_seconds=budget) if not missing else []
+        return {"forwardSteps": steps, **({"indexLacks": missing} if missing else {})}
     if "disconnect" in request:
         targets = [t for t in request.get("disconnect", []) if isinstance(t, str) and t.strip()][:16]
         limit = max(1, min(int(request.get("limit", 8) or 8), 32))

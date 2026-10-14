@@ -298,12 +298,13 @@ def _fragments(outcome, owners, reacting, carried_slot, marks, canon):
             Chem.SanitizeMol(product)
         except Exception:
             return None
-        inherited, changed, named = {}, set(), set()
+        inherited, changed, named, numbered = {}, set(), set(), {}
         for atom in product.GetAtoms():
             came = atom.GetIntProp("react_atom_idx") if atom.HasProp("react_atom_idx") else None
             number = atom.GetIntProp("old_mapno") if atom.HasProp("old_mapno") else None
             if number is not None:
                 named.add(atom.GetIdx())
+                numbered[atom.GetIdx()] = number
                 if came is not None and owners.get(number) == carried_slot:
                     inherited[atom.GetIdx()] = came
                     came_in.add(came)
@@ -333,6 +334,10 @@ def _fragments(outcome, owners, reacting, carried_slot, marks, canon):
                 # them, so the position in `group` is the index within the fragment.
                 "changed": frozenset(at for at, i in enumerate(group) if i in changed),
                 "named": frozenset(at for at, i in enumerate(group) if i in named),
+                # The template map numbers that landed in THIS fragment. A transformation that
+                # splits a molecule can say which of its own numbers rides on the piece the route
+                # follows, which is knowledge the toolkit cannot recover from sizes.
+                "numbers": frozenset(numbered[i] for i in group if i in numbered),
             })
     if not records:
         return None
@@ -341,16 +346,67 @@ def _fragments(outcome, owners, reacting, carried_slot, marks, canon):
     return {"records": records, "came": frozenset(came_in), "used": frozenset(used_up)}
 
 
-def _carried(records):
-    """(the carried fragment, the co-products) of one outcome.
+def _carried(records, carry=None, canon=None, carries=None):
+    """(the carried fragment, the co-products) of one outcome, or a failure when `carry` misses.
 
-    The carried molecule is the fragment that inherited the most atoms from the carried reactant —
-    not the largest fragment. Largest is wrong as soon as a small acyl group comes off a large
-    alcohol: what the route carries is the chain made of the atoms that went in, whatever its size.
-    Ties go to the heavier fragment and then to the first SMILES alphabetically, so the answer does
-    not depend on RDKit's enumeration order."""
+    By default the carried molecule is the fragment that inherited the most atoms from the carried
+    reactant — not the largest fragment. Largest is wrong as soon as a small acyl group comes off a
+    large alcohol: what the route carries is the chain made of the atoms that went in, whatever its
+    size. Ties go to the heavier fragment and then to the first SMILES alphabetically, so the answer
+    does not depend on RDKit's enumeration order.
+
+    That default cannot be right for every cleavage, because which fragment CONTINUES the route is
+    the author's intent and not a property of the chemistry. Both sides of an ester hydrolysis are
+    "made of the atoms that went in"; the route knows which one it is following and the toolkit does
+    not. Measured 2026-10-14 on a dipeptide: removing a trifluoroacetamide from TFA-Gly-Ala-OMe over
+    `amide-hydrolysis` — which a route must use, no deprotection verb existing — carried
+    trifluoroacetic acid forward and returned the dipeptide as a co-product, so every later line
+    operated on the discarded protecting group. Making the default smarter only moves the error: the
+    rule that saves the dipeptide (most inherited atoms, counting the unnamed ones RDKit tags with
+    `react_idx`) hands back dodecanol instead of acetic acid for `CC(=O)OCCCCCCCCCCCC`, which the
+    curated suite pins the other way on purpose.
+
+    So `carry` lets the line say it. `{"kind": "largest"}` / `{"kind": "smallest"}` by heavy-atom
+    count, for the ordinary deprotection where the chain is simply the big piece, and
+    `{"kind": "smiles", "smiles": "..."}` to name the fragment outright, which is exact and also
+    checks the author's expectation: a `carry` that matches no fragment is an error rather than a
+    silent fallback, so a line that misunderstands its own reaction says so here instead of three
+    steps later."""
     ranked = sorted(records, key=lambda record: (-len(record["inherited"]), -record["heavy"], record["clean"]))
-    return ranked[0], ranked[1:]
+    if not carry and carries is not None:
+        # The transformation named the map number that rides on the piece a route follows. This is
+        # the only signal that is right without asking: for a deprotection the chain is sometimes
+        # the big fragment (Boc leaves isobutylene, 4 heavy atoms) and sometimes the small one
+        # (Fmoc leaves dibenzofulvene at 14, Cbz leaves toluene at 7, against 6 for alanine), so
+        # neither "largest" nor "most inherited" survives both. The carbamate nitrogen does.
+        held = [record for record in records if carries in record["numbers"]]
+        if len(held) == 1:
+            return held[0], [record for record in records if record is not held[0]]
+        # Two fragments holding the same number means the molecule was cut so that the declared
+        # atom is on both sides, which a curated deprotection cannot do. Fall through rather than
+        # pick, so the default rule and its tie-breaks still give a deterministic answer.
+    if not carry:
+        return ranked[0], ranked[1:]
+    kind = carry.get("kind")
+    if kind in ("largest", "smallest"):
+        # Heavy atoms, then the inherited count, then the SMILES: the same tie-breaking as the
+        # default so two fragments of equal size never depend on enumeration order.
+        order = sorted(records, key=lambda record: (-record["heavy"], -len(record["inherited"]), record["clean"]))
+        pick = order[0] if kind == "largest" else order[-1]
+    elif kind == "smiles":
+        wanted = canon(carry.get("smiles") or "") if canon else None
+        if not wanted:
+            return _fail("unparsable", f"carry={carry.get('smiles')!r} is not a SMILES RDKit can read.")
+        matches = [record for record in records if record["clean"] == wanted]
+        if not matches:
+            return _fail("no-match",
+                         f"This step forms no fragment {wanted}. It forms "
+                         + ", ".join(sorted(record["clean"] for record in records))
+                         + ". Carry one of those, or write the step that does form it.")
+        pick = matches[0]
+    else:
+        return _fail("unparsable", f"carry kind {kind!r} is not one of largest, smallest or smiles.")
+    return pick, [record for record in records if record is not pick]
 
 
 def _reversed_template(index_dir, wanted, deadline):
@@ -485,9 +541,13 @@ def _operation(payload, deadline):
     closure, and names what each of its two sites must be. `flexible` — the reactant order being
     negotiable — holds only for a reversed index template, which was not authored for this
     toolkit's carried-molecule-first convention."""
-    def built(rxn, reagents, site=None, site_slots=(), flexible=False):
+    def built(rxn, reagents, site=None, site_slots=(), flexible=False, carries=None):
         return {"rxn": rxn, "reagents": list(reagents), "site": site,
-                "siteSlots": [p for p in site_slots if isinstance(p, str)], "flexible": flexible}
+                "siteSlots": [p for p in site_slots if isinstance(p, str)], "flexible": flexible,
+                # `carries` is a template map number, and only a curated transformation may set
+                # one: an index template or a caller's raw SMARTS was not authored against this
+                # convention, so guessing a number for it would be worse than the default rule.
+                "carries": carries if _is_mark(carries) else None}
 
     def anonymous(rxn):
         return [{"role": "reagent", "default": None}] * (rxn.GetNumReactantTemplates() - 1)
@@ -503,7 +563,8 @@ def _operation(payload, deadline):
         rxn = _reaction(transform["smarts"])
         if rxn is None:
             return _fail("unavailable", f"The curated SMARTS for {transform['id']} does not parse in this RDKit.")
-        return built(rxn, transform.get("reagents") or [], transform.get("site"), transform.get("siteSlots") or ())
+        return built(rxn, transform.get("reagents") or [], transform.get("site"),
+                     transform.get("siteSlots") or (), carries=transform.get("carries"))
     if kind == "smarts":
         smarts = operation.get("smarts")
         if not isinstance(smarts, str) or not smarts.strip():
@@ -581,7 +642,27 @@ def _resolve_site(spec, mol, marks, tables):
             return _fail("unparsable", "A phrase site needs a phrase.")
         canonical = tables["sitesByNorm"].get(_norm(phrase))
         if canonical is None:
-            return _fail("unresolved-name", f"{phrase.strip()!r} is not a site phrase this toolkit knows; ask for the site vocabulary.")
+            # Say what CAN be named, here, on this molecule. The message used to end "ask for the
+            # site vocabulary", which names an action the caller cannot take: there is no request
+            # for the vocabulary and nothing in the contract offers one, so the only correct reply
+            # was to guess again. Measured 2026-10-14 on chainP-2, a well-formed dipeptide program
+            # that died on `site="the N-terminal trifluoroacetamide"` and had nowhere to go.
+            #
+            # The sites PRESENT are listed rather than all 25, because the question the caller is
+            # actually asking is "what may I say about this molecule" — and a phrase the molecule
+            # does not contain would only be the next failure. A count is attached where a phrase
+            # sits in more than one place, since naming it would then be ambiguous and the caller
+            # needs a mark instead.
+            here = []
+            for known, smarts in tables["sites"].items():
+                places = _site_matches(mol, smarts)
+                if places:
+                    here.append(f"{known} ({len(places)})" if len(places) > 1 else known)
+            return _fail("unresolved-name",
+                         f"{phrase.strip()!r} is not a site phrase this toolkit knows. "
+                         + (f"This molecule has: {', '.join(here)}. A phrase with a count sits in "
+                            "more than one place, so name a mark for it instead."
+                            if here else "This molecule has no named site at all; address an atom by its mark."))
         places = _site_matches(mol, tables["sites"][canonical])
         if not places:
             return _fail("absent-site", f"The carried molecule has no {canonical}.")
@@ -600,6 +681,60 @@ def _resolve_site(spec, mol, marks, tables):
             return _fail("ambiguous-site", f"Mark {mark} sits in {pieces} separate places, so it cannot say where to act.")
         return {"phrase": None, "mark": mark, "atoms": atoms}
     return _fail("unparsable", f"Site kind {kind!r} is not one of phrase or handle.")
+
+
+def _which_apply(mol, reagents, deadline, limit=6):
+    """The curated transformation ids that DO apply to this molecule, as one clause, or ''.
+
+    Step two of the three the author described: name the class, check it against what the library
+    supports, implement with the balance done for you. Steps one and three were already here --
+    `named=` is the class and the engine derives the product -- and nothing checked the middle, so a
+    verb that cannot act on the carried molecule was only discovered by failing.
+
+    Measured 2026-10-14 on chainP-6: a correct Fmoc solution-phase hexapeptide died at line 3 on
+    `amide-formation` applied to a benzyl ester, because that verb carries the ACID and the growing
+    chain was the AMINE. The refusal named what was missing ("no carboxylic acid") and not the verb
+    that would have worked, so the fix round had nothing to aim at.
+
+    Deliberately on the failure path only. It costs one apply per curated verb, which is far too
+    much to spend on every successful line, and it is worth nothing there: a line that worked does
+    not need the alternatives. The reagents go through as given, so a verb is only offered when it
+    applies with what the line actually has.
+    """
+    out = []
+    for transform in _tables()["order"]:
+        if len(out) >= limit:
+            break
+        try:
+            _check(deadline)
+        except _OutOfBudget:
+            break
+        rxn = _reaction(transform["smarts"])
+        if rxn is None:
+            continue
+        try:
+            answer = _apply_once(mol, reagents, rxn, transform)
+        except Exception:
+            continue
+        if answer:
+            out.append(transform["id"])
+    if not out:
+        return ""
+    return (" Curated transformations that DO apply to this molecule with the reagents given: "
+            + ", ".join(out) + ".")
+
+
+def _apply_once(mol, reagents, rxn, transform):
+    """Whether this transformation yields anything here, cheaply and without building a reply."""
+    arity = rxn.GetNumReactantTemplates()
+    if arity - 1 != len(reagents):
+        return False
+    if not mol.HasSubstructMatch(rxn.GetReactantTemplate(0)):
+        return False
+    try:
+        return bool(rxn.RunReactants((mol,) + tuple(reagents)))
+    except Exception:
+        return False
 
 
 def _apply(payload, deadline):
@@ -623,6 +758,16 @@ def _apply(payload, deadline):
         return _fail("unparsable", "The carried molecule is not a SMILES RDKit can read.")
     _check(deadline)
 
+    # Which fragment continues the route, when the step splits the molecule in two. Accepts the
+    # bare word as well as the object, because a program line writes `carry="largest"` and the
+    # adapter should not have to wrap it.
+    carry = payload.get("carry")
+    if isinstance(carry, str) and carry.strip():
+        word = _norm(carry)
+        carry = {"kind": word} if word in ("largest", "smallest") else {"kind": "smiles", "smiles": carry.strip()}
+    elif not isinstance(carry, dict):
+        carry = None
+
     mark_as = payload.get("markAs")
     if isinstance(mark_as, list):
         mark_as = mark_as[0] if mark_as else None
@@ -633,6 +778,7 @@ def _apply(payload, deadline):
     if "error" in built:
         return built
     rxn, declared, declared_slots, flexible = built["rxn"], built["site"], built["siteSlots"], built["flexible"]
+    carries = built["carries"]
     filled = _slots(payload, built["reagents"], canon)
     if isinstance(filled, dict):
         return filled
@@ -655,6 +801,11 @@ def _apply(payload, deadline):
     for spec in specs:
         site = _resolve_site(spec, mol, marks, tables)
         if "error" in site:
+            # The declared site of a curated verb is checked against the carried molecule, so
+            # "no carboxylic acid" is as often a sign that the WRONG VERB was named as that the
+            # molecule is wrong. Naming the verbs that do apply turns a dead end into a choice.
+            if site.get("error") in ("absent-site", "unresolved-name"):
+                site = dict(site, message=site.get("message", "") + _which_apply(mol, filled, deadline))
             return site
         sites.append(site)
     if declared_slots and sites:
@@ -701,7 +852,8 @@ def _apply(payload, deadline):
             if len(assignments) >= MAX_SLOT_ASSIGNMENTS:
                 break
         if not assignments:
-            return _fail("no-match", "The carried molecule fits none of this transformation's reactant patterns.")
+            return _fail("no-match", "The carried molecule fits none of this transformation's reactant patterns."
+                                 + _which_apply(mol, filled, deadline))
 
     owners, reacting = _owners(rxn), _reacting(rxn)
     distinct = {}
@@ -727,7 +879,12 @@ def _apply(payload, deadline):
             touched = (made["used"] or made["came"]) if declared_slots else made["came"]
             if sites and not all(touched & site["atoms"] for site in sites):
                 continue
-            main, others = _carried(made["records"])
+            picked = _carried(made["records"], carry, canon, carries)
+            if isinstance(picked, dict) and "error" in picked:
+                # A bad `carry` is the line's mistake and the same for every outcome, so report it
+                # rather than skipping to an outcome that happens not to object.
+                return picked
+            main, others = picked
             ring = _ring(main["mol"], reactants, owners, carried_slot) if declared_slots else None
             marked = Chem.Mol(main["mol"])
             if mark_as is not None:
@@ -747,9 +904,10 @@ def _apply(payload, deadline):
                 "marks": sorted({a.GetAtomMapNum() for a in marked.GetAtoms() if a.GetAtomMapNum()})}
 
     if not distinct:
+        helps = _which_apply(mol, filled, deadline)
         if site_label:
-            return _fail("no-match", f"This transformation does not apply at the {site_label} of the carried molecule.")
-        return _fail("no-match", "This transformation does not apply to the carried molecule as given.")
+            return _fail("no-match", f"This transformation does not apply at the {site_label} of the carried molecule.{helps}")
+        return _fail("no-match", f"This transformation does not apply to the carried molecule as given.{helps}")
     if len(distinct) > 1:
         if site_label:
             return _fail("ambiguous-site", f"This transformation gives {len(distinct)} different outcomes at the {site_label}; name a narrower site or a mark.")

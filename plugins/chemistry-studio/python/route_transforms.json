@@ -33,7 +33,13 @@
     "alkyl halide": "[CX4][F,Cl,Br,I]",
     "benzylic position": "[cX3][CX4;H1,H2,H3]",
     "ether": "[#6;!$([#6]=O)][OX2][#6;!$([#6]=O)]",
-    "thiol": "[SX2H1]"
+    "thiol": "[SX2H1]",
+    "carbamate": "[NX3][CX3](=O)[OX2][#6]",
+    "boc carbamate": "[NX3][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
+    "fmoc carbamate": "[NX3][CX3](=O)[OX2][CH2][CH1]1c2ccccc2-c2ccccc21",
+    "cbz carbamate": "[NX3][CX3](=O)[OX2][CH2]c1ccccc1",
+    "benzyl ester": "[CX3](=O)[OX2][CH2]c1ccccc1",
+    "tert-butyl ester": "[CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]"
   },
   "transforms": [
     {
@@ -41,49 +47,84 @@
       "summary": "Hydrolyse an ester to the carboxylic acid, releasing the alcohol.",
       "site": "ester",
       "smarts": "[#6:1][C:2](=[O:3])[O;X2:4][#6;!$([#6]=O):5].[OH2:6]>>[#6:1][C:2](=[O:3])[OH:6].[OH:4][#6:5]",
-      "reagents": [{"role": "water", "default": "O"}]
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ]
     },
     {
       "id": "ester-formation",
       "summary": "Esterify a carboxylic acid with an alcohol, releasing water.",
       "site": "carboxylic acid",
       "smarts": "[#6:1][C:2](=[O:3])[OX2H1:4].[O;H1;X2:5][#6;X4:6]>>[#6:1][C:2](=[O:3])[O:5][#6:6].[OH2:4]",
-      "reagents": [{"role": "alcohol", "default": null}]
+      "reagents": [
+        {
+          "role": "alcohol",
+          "default": null
+        }
+      ]
     },
     {
       "id": "amide-formation",
       "summary": "Couple a carboxylic acid with an amine to the amide (a coupling agent or the acyl chloride), releasing water.",
       "site": "carboxylic acid",
       "smarts": "[#6:1][C:2](=[O:3])[OX2H1:4].[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):5]>>[#6:1][C:2](=[O:3])[N:5].[OH2:4]",
-      "reagents": [{"role": "amine", "default": null}]
+      "reagents": [
+        {
+          "role": "amine",
+          "default": null
+        }
+      ]
     },
     {
       "id": "amide-hydrolysis",
       "summary": "Hydrolyse an amide to the carboxylic acid, releasing the amine.",
       "site": "amide",
       "smarts": "[#6:1][C:2](=[O:3])[N;X3:4].[OH2:5]>>[#6:1][C:2](=[O:3])[OH:5].[N:4]",
-      "reagents": [{"role": "water", "default": "O"}]
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ]
     },
     {
       "id": "n-acylation",
       "summary": "Acylate a free amine with an acyl chloride, releasing HCl.",
       "site": "free amine",
       "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[#6:2][C:3](=[O:4])[Cl:5]>>[N:1][C:3](=[O:4])[#6:2].[ClH:5]",
-      "reagents": [{"role": "acyl chloride", "default": null}]
+      "reagents": [
+        {
+          "role": "acyl chloride",
+          "default": null
+        }
+      ]
     },
     {
       "id": "ketone-reduction",
-      "summary": "Reduce a ketone to the secondary alcohol (NaBH4 or LiAlH4).",
+      "summary": "Reduce a ketone to the secondary alcohol (NaBH4, LiAlH4 or H2). Written as the formal hydrogen addition so the equation balances; the summary names the reagent actually used.",
       "site": "ketone",
-      "smarts": "[#6:1][C:2](=[O:3])[#6:4]>>[#6:1][CH1:2]([OH:3])[#6:4]",
-      "reagents": []
+      "smarts": "[#6:1][C:2](=[O:3])[#6:4].[#1:5][#1:6]>>[#6:1][CH1:2]([OH:3])[#6:4]",
+      "reagents": [
+        {
+          "role": "hydrogen",
+          "default": "[H][H]"
+        }
+      ]
     },
     {
       "id": "aldehyde-reduction",
-      "summary": "Reduce an aldehyde to the primary alcohol (NaBH4).",
+      "summary": "Reduce an aldehyde to the primary alcohol (NaBH4 or H2). Written as the formal hydrogen addition so the equation balances.",
       "site": "aldehyde",
-      "smarts": "[#6:1][CH1:2]=[O:3]>>[#6:1][CH2:2][OH:3]",
-      "reagents": []
+      "smarts": "[#6:1][CH1:2]=[O:3].[#1:4][#1:5]>>[#6:1][CH2:2][OH:3]",
+      "reagents": [
+        {
+          "role": "hydrogen",
+          "default": "[H][H]"
+        }
+      ]
     },
     {
       "id": "secondary-alcohol-oxidation",
@@ -108,38 +149,71 @@
     },
     {
       "id": "nitro-reduction",
-      "summary": "Reduce a nitro group to the primary amine (H2/Pd or Fe/HCl).",
+      "summary": "Reduce a nitro group to the primary amine (H2/Pd or Fe/HCl), releasing two equivalents of water. Three equivalents of hydrogen are written as reactants so the equation balances.",
       "site": "nitro group",
-      "smarts": "[#6:1][N+:2](=[O:3])[O-:4]>>[#6:1][NH2;+0:2]",
-      "reagents": []
+      "smarts": "[#6:1][N+:2](=[O:3])[O-:4].[#1:5][#1:6].[#1:7][#1:8].[#1:9][#1:10]>>[#6:1][NH2;+0:2].[OH2;+0:3].[OH2;+0:4]",
+      "reagents": [
+        {
+          "role": "hydrogen",
+          "default": "[H][H]"
+        },
+        {
+          "role": "hydrogen",
+          "default": "[H][H]"
+        },
+        {
+          "role": "hydrogen",
+          "default": "[H][H]"
+        }
+      ]
     },
     {
       "id": "nitrile-hydrolysis",
       "summary": "Hydrolyse a nitrile to the carboxylic acid, releasing ammonia.",
       "site": "nitrile",
       "smarts": "[#6:1][CX2:2]#[NX1:3].[OH2:4]>>[#6:1][CH0:2](=[O:4])[OH].[NH3;+0:3]",
-      "reagents": [{"role": "water", "default": "O"}]
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ]
     },
     {
       "id": "alkene-hydrogenation",
-      "summary": "Hydrogenate an alkene to the alkane (H2/Pd-C).",
+      "summary": "Hydrogenate an alkene to the alkane (H2/Pd-C). The hydrogen is written as a reactant so the equation balances.",
       "site": "alkene",
-      "smarts": "[CX3:1]=[CX3:2]>>[C:1][C:2]",
-      "reagents": []
+      "smarts": "[CX3:1]=[CX3:2].[#1:3][#1:4]>>[C:1][C:2]",
+      "reagents": [
+        {
+          "role": "hydrogen",
+          "default": "[H][H]"
+        }
+      ]
     },
     {
       "id": "halide-amination",
       "summary": "Displace an alkyl halide with an amine, releasing the hydrogen halide.",
       "site": "alkyl halide",
       "smarts": "[#6;X4:1][Cl,Br,I:2].[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):3]>>[#6:1][N:3].[*H:2]",
-      "reagents": [{"role": "amine", "default": null}]
+      "reagents": [
+        {
+          "role": "amine",
+          "default": null
+        }
+      ]
     },
     {
       "id": "phenol-alkylation",
       "summary": "O-alkylate a phenol with an alkyl halide, releasing the hydrogen halide.",
       "site": "phenol",
       "smarts": "[c:1][OX2H1:2].[#6;X4:3][Cl,Br,I:4]>>[c:1][O:2][#6:3].[*H:4]",
-      "reagents": [{"role": "alkyl halide", "default": null}]
+      "reagents": [
+        {
+          "role": "alkyl halide",
+          "default": null
+        }
+      ]
     },
     {
       "id": "acid-to-acyl-chloride",
@@ -152,17 +226,108 @@
       "id": "disulfide-closure",
       "summary": "Oxidise two thiols on one molecule to the disulfide with iodine, closing a ring and releasing two equivalents of hydrogen iodide.",
       "site": null,
-      "siteSlots": ["thiol", "thiol"],
+      "siteSlots": [
+        "thiol",
+        "thiol"
+      ],
       "smarts": "([SX2H1:1].[SX2H1:2]).[I:3][I:4]>>([S;H0:1][S;H0:2]).[IH:3].[IH:4]",
-      "reagents": [{"role": "oxidant", "default": "II"}]
+      "reagents": [
+        {
+          "role": "oxidant",
+          "default": "II"
+        }
+      ]
     },
     {
       "id": "bis-halomethyl-bridge",
       "summary": "Alkylate two thiols on one molecule with a bis(halomethyl)arene, closing a ring the arene bridges and releasing two equivalents of the hydrogen halide.",
       "site": null,
-      "siteSlots": ["thiol", "thiol"],
+      "siteSlots": [
+        "thiol",
+        "thiol"
+      ],
       "smarts": "([SX2H1:1].[SX2H1:2]).([Cl,Br,I:3][CH2:4].[CH2:5][Cl,Br,I:6])>>([S;H0:1][CH2:4].[CH2:5][S;H0:2]).[*H:3].[*H:6]",
-      "reagents": [{"role": "bis(halomethyl)arene", "default": null}]
+      "reagents": [
+        {
+          "role": "bis(halomethyl)arene",
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "fmoc-removal",
+      "summary": "Remove an Fmoc carbamate from the amine (piperidine), releasing dibenzofulvene and carbon dioxide.",
+      "site": "fmoc carbamate",
+      "smarts": "[NX3;H1:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH1:6]1c2ccccc2-c2ccccc21>>[NX3;H2:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:5]=[CH0:6]1c2ccccc2-c2ccccc21",
+      "reagents": [],
+      "carries": 1
+    },
+    {
+      "id": "boc-removal",
+      "summary": "Remove a Boc carbamate from the amine (TFA or HCl), releasing isobutylene and carbon dioxide.",
+      "site": "boc carbamate",
+      "smarts": "[NX3;H1:1][CX3:2](=[OX1:3])[OX2:4][CX4:5]([CH3:6])([CH3:7])[CH3:8]>>[NX3;H2:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:6]=[CX3:5]([CH3:7])[CH3:8]",
+      "reagents": [],
+      "carries": 1
+    },
+    {
+      "id": "cbz-removal",
+      "summary": "Remove a Cbz carbamate from the amine by hydrogenolysis (H2/Pd-C), releasing toluene and carbon dioxide. The hydrogen is written as a reactant so the equation balances.",
+      "site": "cbz carbamate",
+      "smarts": "[NX3;H1:1][CX3:2](=[OX1:3])[OX2:4][CH2:5]c1ccccc1.[#1:9][#1:10]>>[NX3;H2:1].[OX1:3]=[CX3:2]=[OX2:4].[CH3:5]c1ccccc1",
+      "reagents": [
+        {
+          "role": "hydrogen",
+          "default": "[H][H]"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "benzyl-ester-hydrogenolysis",
+      "summary": "Cleave a benzyl ester to the carboxylic acid by hydrogenolysis (H2/Pd-C), releasing toluene. The hydrogen is written as a reactant so the equation balances.",
+      "site": "benzyl ester",
+      "smarts": "[CX3:1](=[OX1:2])[OX2:3][CH2:4]c1ccccc1.[#1:9][#1:10]>>[CX3:1](=[OX1:2])[OX2H1:3].[CH3:4]c1ccccc1",
+      "reagents": [
+        {
+          "role": "hydrogen",
+          "default": "[H][H]"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "tert-butyl-ester-removal",
+      "summary": "Cleave a tert-butyl ester to the carboxylic acid (TFA), releasing isobutylene.",
+      "site": "tert-butyl ester",
+      "smarts": "[CX3:1](=[OX1:2])[OX2:3][CX4:4]([CH3:5])([CH3:6])[CH3:7]>>[CX3:1](=[OX1:2])[OX2H1:3].[CH2:5]=[CX3:4]([CH3:6])[CH3:7]",
+      "reagents": [],
+      "carries": 1
+    },
+    {
+      "id": "n-carbamoylation",
+      "summary": "Protect a free amine as its carbamate with a chloroformate (Cbz-Cl, Fmoc-Cl), releasing HCl.",
+      "site": "free amine",
+      "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[Cl:2][CX3:3](=[OX1:4])[OX2:5][#6:6]>>[N:1][CX3:3](=[OX1:4])[OX2:5][#6:6].[ClH:2]",
+      "reagents": [
+        {
+          "role": "chloroformate",
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "n-peptide-coupling",
+      "summary": "Acylate the carried molecule's free amine with a carboxylic acid (a coupling agent such as DCC/HOBt), releasing water. The C-to-N direction: the growing chain is carried and the incoming acid is the reagent.",
+      "site": "free amine",
+      "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[#6:2][C:3](=[O:4])[OX2H1:5]>>[N:1][C:3](=[O:4])[#6:2].[OH2:5]",
+      "carries": 1,
+      "reagents": [
+        {
+          "role": "carboxylic acid",
+          "default": null
+        }
+      ]
     }
   ]
 }
