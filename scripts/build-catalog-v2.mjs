@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { LIMITS, validateCapabilityCatalog, validatePluginManifestV2 } from './contract-v2.mjs';
+import { recordedAssetBytes } from './lib/release-automation.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const check = process.argv.includes('--check');
@@ -17,14 +18,7 @@ const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 // contract's own ceiling for a package — never whatever this machine happened to build.
 // Reading the local build would make the file differ between a macOS checkout and a Linux
 // one, which is exactly the kind of drift `--check` exists to catch.
-const recordedBytes = (description, target) => {
-  const bytes = description.assetBytes?.[target];
-  if (bytes === undefined) return LIMITS.packageCompressedBytes;
-  if (!Number.isInteger(bytes) || bytes < 1 || bytes > LIMITS.packageCompressedBytes) {
-    throw new Error(`Invalid recorded asset size for ${target}: ${String(bytes)}`);
-  }
-  return bytes;
-};
+const recordedBytes = (description, target, version) => recordedAssetBytes(description, target, version, LIMITS.packageCompressedBytes);
 
 const plugins = [];
 for (const id of fs.readdirSync(path.join(root, 'plugins')).sort()) {
@@ -47,7 +41,7 @@ for (const id of fs.readdirSync(path.join(root, 'plugins')).sort()) {
       assets: manifest.compatibility.targets.map((target) => ({
         target,
         asset: `${manifest.id}-${manifest.version}-${target}.nodus-plugin`,
-        bytes: recordedBytes(description, target),
+        bytes: recordedBytes(description, target, manifest.version),
       })),
     },
   });

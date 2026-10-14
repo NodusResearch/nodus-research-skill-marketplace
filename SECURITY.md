@@ -15,7 +15,14 @@ over a release manifest that pins every archive by name, size and SHA-256 digest
 key is available only to the protected release environment, never to pull-request jobs or
 contributors. A valid signature proves provenance and integrity, not safety: maintainers must
 review all runtime code, dependency locks, permissions and migrations before approving a
-release.
+release. The maintainer's reviewed merge is the publication approval. The release workflow
+accepts only a protected-main merge with successful main CI for its exact source commit;
+PR CI and direct pushes cannot authorize signing. The signing environment remains limited
+to the `main` branch. Build jobs have read-only tokens and no signing key; the separate
+catalog job verifies production signatures and merges only a metadata PR after full CI.
+Neither that job nor the GitHub Actions app has a source-review bypass. The owner's review
+exception permits an explicit merge of their own PRs, which GitHub cannot let them approve;
+required CI checks still apply to administrators. Force pushes and branch deletion are blocked.
 
 A package's Python runtime is built from the locks it ships: every wheel pinned by URL,
 size and SHA-256, fetched only through the host the capability's own manifest permits, and

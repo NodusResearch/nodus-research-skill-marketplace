@@ -1,197 +1,213 @@
 name: Release capability package
 
-# Signing is the security boundary for capability API v2, so it happens in exactly one
-# place: the `sign` job below, in a protected environment, over a manifest assembled from
-# builds that already happened. Nothing a pull request produced is ever signed, and no job
-# that builds anything can reach the key — the build matrix has no `environment:`, which
-# is what makes that a rule rather than a convention.
+# A reviewed main merge plus successful main CI authorizes publication. PR runs are
+# never inputs to signing. Build and sign have separate tokens and environments.
 on:
+  workflow_run:
+    workflows: [Validate marketplace]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       plugin:
-        description: Package id to release (must match plugins/<id>)
-        required: true
+        description: Optional package id; empty resumes all unpublished versions and catalog synchronization
+        required: false
         type: string
 
 permissions:
   contents: read
 
 jobs:
-  # Which targets this package declares decides the matrix, so a package that adds a
-  # platform is released for it without anyone remembering to edit this file.
   plan:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
-      version: ${{ steps.plan.outputs.version }}
-      tag: ${{ steps.plan.outputs.tag }}
+      plugins: ${{ steps.plan.outputs.plugins }}
+      pending: ${{ steps.plan.outputs.pending }}
+      source: ${{ steps.plan.outputs.source }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - id: plan
-        run: |
-          set -euo pipefail
-          PLUGIN='${{ inputs.plugin }}'
-          if [ ! -f "plugins/$PLUGIN/plugin.json" ]; then echo "No such package: $PLUGIN" >&2; exit 1; fi
-          VERSION=$(node -p "require('./plugins/$PLUGIN/plugin.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$PLUGIN-v$VERSION" >> "$GITHUB_OUTPUT"
-          # Each declared target, with the runner that can build it. `macos-15-intel` is
-          # the last x86_64 image GitHub offers — the same one the application's own
-          # release workflow uses for its Intel slice — and it is available until August
-          # 2027. A label that no longer exists does not fail: the job sits in `queued`
-          # until somebody cancels it, which is how a release waited three quarters of an
-          # hour on a runner that was never coming.
-          node -e '
-            const targets = require("./plugins/" + process.argv[1] + "/plugin.json").compatibility.targets;
-            const runners = {
-              "any": "ubuntu-latest",
-              "linux-x64": "ubuntu-latest",
-              "darwin-arm64": "macos-14",
-              "darwin-x64": "macos-15-intel",
-              "win32-x64": "windows-latest",
-            };
-            const include = targets.map(target => {
-              const runner = runners[target];
-              if (!runner) throw new Error("No runner is configured for " + target);
-              return { target, runner };
-            });
-            console.log("matrix=" + JSON.stringify({ include }));
-          ' "$PLUGIN" >> "$GITHUB_OUTPUT"
-
-      # A version that already exists is never rewritten, and finding that out before four
-      # machines spend twenty minutes building it is worth one API call.
-      - name: The version is not already published
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if gh release view "${{ steps.plan.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release ${{ steps.plan.outputs.tag }} already exists. A published version is never rewritten; bump the version instead." >&2
-            exit 1
-          fi
+          RELEASE_SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          RELEASE_PLUGIN: ${{ inputs.plugin }}
+        run: node scripts/plan-capability-release.mjs
 
   build:
     needs: plan
+    if: needs.plan.outputs.pending == 'true'
     strategy:
       fail-fast: true
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
+    env:
+      RELEASE_PLUGIN: ${{ matrix.plugin }}
+      NODUS_CHEMISTRY_TEST_PYTHON: ${{ matrix.plugin == 'chemistry-studio' && 'python' || '' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - run: npm ci
-
+      - uses: actions/setup-python@v6
+        if: matrix.plugin == 'chemistry-studio'
+        with:
+          python-version: '3.13'
+      - if: matrix.plugin == 'chemistry-studio'
+        run: python -m pip install -r scripts/chemistry-test-requirements.txt
+      - name: Generate third-party notices before packaging
+        shell: bash
+        run: node scripts/build-notices.mjs "$RELEASE_PLUGIN"
       - name: Validate every package
         run: node scripts/validate-plugins.mjs
-
-      # bash on every runner: PowerShell does not expand a glob for a native command, so
-      # on Windows the test runner would be handed a path with an asterisk in it.
       - name: Test the package
         shell: bash
-        run: node --test plugins/${{ inputs.plugin }}/test/*.test.mjs
-
-      # Before the build, not after: the notices are a file the archive contains, so
-      # generating them afterwards would publish a package whose licences are one build
-      # behind the code they describe.
-      - name: Generate third-party notices
-        run: node scripts/build-notices.mjs ${{ inputs.plugin }}
-
-      - name: Build ${{ matrix.target }}
-        env:
-          NODUS_PLUGIN_TARGET: ${{ matrix.target }}
-        run: node scripts/build-plugins.mjs ${{ inputs.plugin }}
-
-      - name: The build is reproducible on this machine
-        env:
-          NODUS_PLUGIN_TARGET: ${{ matrix.target }}
+        run: node --test plugins/"$RELEASE_PLUGIN"/test/*.test.mjs
+      - name: Deterministic chemistry Python regressions
+        if: matrix.plugin == 'chemistry-studio'
+        run: node scripts/test-chemistry-python.mjs
+      - name: Build the declared target
         shell: bash
+        env:
+          NODUS_PLUGIN_TARGET: ${{ matrix.target }}
+        run: node scripts/build-plugins.mjs "$RELEASE_PLUGIN"
+      - name: The build is reproducible on this machine
+        shell: bash
+        env:
+          NODUS_PLUGIN_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          cp "build/index-${{ matrix.target }}.json" /tmp/first.json
-          node scripts/build-plugins.mjs ${{ inputs.plugin }}
-          diff /tmp/first.json "build/index-${{ matrix.target }}.json"
-
+          cp "build/index-$NODUS_PLUGIN_TARGET.json" /tmp/first.json
+          node scripts/build-plugins.mjs "$RELEASE_PLUGIN"
+          diff /tmp/first.json "build/index-$NODUS_PLUGIN_TARGET.json"
       - uses: actions/upload-artifact@v7
         with:
-          name: package-${{ matrix.target }}
+          name: package-${{ matrix.plugin }}-${{ matrix.target }}
           path: |
             build/index-${{ matrix.target }}.json
-            build/*.nodus-plugin
+            build/${{ matrix.plugin }}-${{ matrix.version }}-${{ matrix.target }}.nodus-plugin
           if-no-files-found: error
           retention-days: 1
 
-  # One job holds the key, and it builds nothing. It assembles what the matrix produced,
-  # signs the whole manifest once, and verifies the result the way Nodus will before any
-  # of it is published.
+  # The only job that can reach the key builds nothing. It signs locally produced,
+  # reproducible archives from the exact main commit whose validation succeeded.
   sign:
     needs: [plan, build]
+    if: needs.plan.outputs.pending == 'true'
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        plugin: ${{ fromJSON(needs.plan.outputs.plugins) }}
     runs-on: ubuntu-latest
     environment: capability-signing
     permissions:
       contents: write
+    env:
+      RELEASE_PLUGIN: ${{ matrix.plugin }}
+      RELEASE_SOURCE_SHA: ${{ needs.plan.outputs.source }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - run: npm ci
-
       - uses: actions/download-artifact@v8
         with:
-          pattern: package-*
+          pattern: package-${{ matrix.plugin }}-*
           path: build
           merge-multiple: true
-
       - name: Collect every declared target
-        run: node scripts/collect-release.mjs ${{ inputs.plugin }}
-
+        shell: bash
+        run: node scripts/collect-release.mjs "$RELEASE_PLUGIN"
       - name: Sign the release manifest
+        shell: bash
         env:
           CAPABILITY_SIGNING_KEY: ${{ secrets.CAPABILITY_SIGNING_KEY }}
-        run: node scripts/sign-release.mjs ${{ inputs.plugin }}
-
+        run: node scripts/sign-release.mjs "$RELEASE_PLUGIN"
       - name: Verify the signature the way Nodus will
-        run: node scripts/verify-release.mjs ${{ inputs.plugin }}
-
-      # Last check before anything becomes public: the tag may have appeared while the
-      # matrix was building.
-      - name: Publish every asset at once
+        shell: bash
+        run: node scripts/verify-release.mjs "$RELEASE_PLUGIN"
+      - name: Publish every asset at the tested source commit
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG='${{ needs.plan.outputs.tag }}'
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $TAG appeared while this ran. A published version is never rewritten." >&2
-            exit 1
-          fi
-          # One `gh release create` with every asset: a release is never visible holding
-          # some of its platforms.
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "${{ inputs.plugin }} ${{ needs.plan.outputs.version }}" \
-            --notes-file "plugins/${{ inputs.plugin }}/RELEASE_NOTES.md" \
-            build/*.nodus-plugin \
-            build/release-manifest.json \
-            build/release-manifest.sig
+        run: node scripts/publish-capability-release.mjs "$RELEASE_PLUGIN"
 
-      # The catalog is a directory, so it now points at something that exists. The sizes
-      # come from the signed manifest rather than from whatever a machine happened to
-      # build, and are committed by a person from this artifact.
-      - name: Record the published sizes for the catalog
-        run: |
-          node scripts/record-release-sizes.mjs ${{ inputs.plugin }}
-          node scripts/build-catalog-v2.mjs
-
-      - uses: actions/upload-artifact@v7
+  catalog:
+    needs: [plan, build, sign]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.plan.outputs.pending == 'true' || github.event_name == 'workflow_dispatch') &&
+      (needs.sign.result == 'success' || needs.sign.result == 'failure' ||
+       needs.plan.outputs.pending == 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
         with:
-          name: catalog-after-${{ inputs.plugin }}
-          path: |
-            catalog-v2.json
-            plugins/${{ inputs.plugin }}/catalog.json
-          if-no-files-found: error
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Verify published signatures and merge a checked metadata PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/sync-published-catalog.mjs
+
+  report-failure:
+    needs: [plan, build, sign, catalog]
+    if: >-
+      always() && github.ref == 'refs/heads/main' &&
+      (needs.plan.result == 'failure' || needs.build.result == 'failure' ||
+       needs.sign.result == 'failure' || needs.catalog.result == 'failure' ||
+       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.conclusion == 'failure'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      # Reporting executes reviewed default-branch code, never failed PR artifacts.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Report the failed run to the maintainer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: node scripts/report-release-failure.mjs

@@ -47,7 +47,7 @@ Every contribution MUST follow this order:
 7. **Gate publication.** A dependent marketplace PR may remain a draft while application work proceeds. It MUST NOT enter the supported catalog or be advertised as usable until the capability is integrated, tested, and available in a documented compatible build.
 8. **Verify before requesting approval.** Test the package against that build and report remaining limitations honestly.
 
-If access or permissions prevent upstream work, document the blocker. Do not invent a PR, merge, release, implementation, or test result. Do not automatically merge PRs or publish releases without explicit authorization.
+If access or permissions prevent upstream work, document the blocker. Do not invent a PR, merge, release, implementation, or test result. Do not automatically merge PRs or publish releases without explicit authorization. The repository owner authorized the release automation on 2026-10-14: a reviewed package-version PR merged into protected `main`, followed by successful main CI for that exact commit, authorizes its automatic publication. This does not authorize an agent to merge an ordinary source PR. Only catalog metadata PRs reproduced from published signed manifests may merge automatically after the required CI checks; they grant no bot a source-review or branch-protection bypass.
 
 ## 4. Give every skill a precise, ordered workflow
 
@@ -190,7 +190,7 @@ node scripts/build-plugins.mjs
 npm run validate
 ```
 
-Two facts an agent cannot discover by reading a green run on one machine. Package tests run on Linux, Windows and macOS, and the differences that matter are paths, line endings and filename case — `new URL(import.meta.url).pathname` is `/D:/…` on Windows, so use `fileURLToPath`. And `compatibility.targets` SHOULD be `["any"]` unless the archive genuinely differs per platform; declaring four targets for identical bytes publishes the same package four times. [CONTRIBUTING.md](CONTRIBUTING.md) has both in full, along with the release runbook, which no contributor and no agent performs: publishing is a maintainer action behind a protected environment.
+Two facts an agent cannot discover by reading a green run on one machine. Package tests run on Linux, Windows and macOS, and the differences that matter are paths, line endings and filename case — `new URL(import.meta.url).pathname` is `/D:/…` on Windows, so use `fileURLToPath`. And `compatibility.targets` SHOULD be `["any"]` unless the archive genuinely differs per platform; declaring four targets for identical bytes publishes the same package four times. [CONTRIBUTING.md](CONTRIBUTING.md) has both in full, along with the automatic release and recovery runbook. Maintainers configure branch and signing protections; contributors never obtain signing keys. An agent may configure protection or perform manual recovery only with explicit maintainer authorization.
 
 Run relevant application tests for upstream capability changes. Prefer safe fixtures; do not use real patient/student data or incur paid API charges without authorization.
 

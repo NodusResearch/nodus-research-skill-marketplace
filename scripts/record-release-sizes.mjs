@@ -7,7 +7,8 @@
 // published, and only after it was published.
 import fs from 'node:fs';
 import path from 'node:path';
-import { verifyReleaseManifest } from './contract-v2.mjs';
+import { verifyReleaseManifest, validatePluginManifestV2 } from './contract-v2.mjs';
+import { assertReleaseMatchesPackage } from './lib/release-automation.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const id = process.argv[2];
@@ -24,9 +25,12 @@ const release = verifyReleaseManifest(
   keys,
 );
 if (release.plugin !== id) throw new Error(`The signed manifest is for ${release.plugin}, not ${id}.`);
+const manifest = validatePluginManifestV2(JSON.parse(fs.readFileSync(path.join(root, 'plugins', id, 'plugin.json'), 'utf8')));
+assertReleaseMatchesPackage(release, manifest);
 
 const catalogPath = path.join(root, 'plugins', id, 'catalog.json');
 const description = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+description.assetVersion = release.version;
 description.assetBytes = Object.fromEntries(
   release.targets.map(target => [target.target, target.bytes]).sort(([a], [b]) => a.localeCompare(b)),
 );

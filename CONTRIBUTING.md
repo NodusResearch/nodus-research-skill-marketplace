@@ -187,68 +187,107 @@ looks for `LICENSE`, `LICENCE`, `COPYING` in any capitalisation, with or without
 
 ### Publishing
 
-An accepted package becomes official only when a maintainer starts the **Release capability
-package** workflow from `main` and approves its protected `capability-signing` environment.
-The workflow has three stages, and they are separate on purpose:
+A maintainer's reviewed merge is the publication approval. **Release capability package**
+starts when **Validate marketplace** finishes a successful push run on protected `main`.
+It independently verifies the merged PR, source SHA and main CI, then compares package
+versions with stable published releases. It skips existing versions, rejects downgrades and
+occupied draft/prerelease tags, and selects only unpublished version increases or new packages.
+A superseded main run yields to the newer commit's CI. Direct pushes and PR CI cannot authorize
+signing. Instruction-only skills and sandboxed v1 plugins keep their repository-catalog flow.
 
-1. **plan** reads the package's declared targets and refuses immediately if the version has
-   already been released.
-2. **build** runs one job per target, on a runner of that platform. Each validates, tests,
-   generates the third-party notices *before* the build that includes them, builds its own
-   target, proves the build reproduces on that machine, and uploads it. No build job can
-   reach the signing key.
-3. **sign** builds nothing. It collects the per-target artifacts, refuses a declared target
-   that no job produced, an undeclared target that appeared, an asset whose bytes do not
-   match the index describing them, and the same target built twice with different bytes.
-   Only then does it sign — once, over a manifest covering every target — verify the
-   signature the way Nodus will, and publish every asset in a single release so a release
-   is never visible holding some of its platforms.
+The workflow keeps separate privileges:
 
-`scripts/validate-workflows.mjs` enforces that separation as text on every push: a job that
-reads the key without the protected environment, a signing job that runs a build, or
-anything on a pull request that so much as names the key fails the check.
+1. **plan** has read-only repository/Actions access and produces source-pinned package/target
+   matrices. The source must be a current, protected-main PR merge with successful main push CI.
+2. **build** has read-only access and no signing environment. Every declared target validates,
+   runs its package tests (including deterministic chemistry Python regressions where applicable),
+   generates notices before packaging and proves the archive reproduces on that runner.
+3. **sign** builds nothing. Only this job enters `capability-signing`, collects this run's target
+   artifacts, signs and verifies the whole manifest, then publishes every asset together. The tag
+   targets the exact tested source SHA. A publication race is skipped only when the existing
+   production signature and archive digests agree; existing bytes are never rewritten.
+4. **catalog** has no signing key. It downloads the production manifests/signatures, verifies them
+   and updates `assetBytes` together with `assetVersion` in each package's `catalog.json`. It
+   regenerates `catalog-v2.json`, checks a strict metadata-only diff, creates a PR and explicitly
+   dispatches read-only marketplace CI on its exact head. It merges only after all required checks
+   pass, retrying from fresh main if another merge advanced the base.
+5. **report-failure** opens or updates an issue for the source commit, assigned to the maintainer,
+   linking the failed run without credentials or logs. Required CI failures stop publication; a
+   signing failure may leave earlier complete packages published, and their verified sizes can
+   still be recorded. Re-running resumes unpublished work rather than rewriting those packages.
 
-#### Running a release, step by step
+`scripts/validate-workflows.mjs`, `npm run test:releases` and the normal cross-platform suite
+check the CI/source guards, isolated signing, immutable versions and metadata allowlist. The
+catalog-only CI check also verifies real production signatures. Catalog bounds belong to a
+specific `assetVersion`: a subsequent version bump uses the application's compressed-package
+ceiling until its own signed sizes are recorded, so an older smaller archive cannot block it.
+
+#### One-time maintainer setup
+
+The administrator runs this from a reviewed checkout using their existing `gh` login:
+
+```bash
+node scripts/configure-release-protection.mjs --protect
+```
+
+This requires all four GitHub Actions checks (`validate` and the Linux, Windows and macOS
+`package-tests`), an up-to-date PR, resolved conversations and owner review. It blocks force
+pushes and deletion and applies the status checks to administrators too. The only review
+exception is the human repository owner: GitHub cannot let them approve their own PR, so their
+explicit merge is the authorization. No bot, app or team receives a review bypass.
+
+Merge the reviewed automation implementation PR, wait for its main push CI, then run:
+
+```bash
+node scripts/configure-release-protection.mjs --activate
+```
+
+Activation verifies the implementation and `CODEOWNERS` actually installed on main, the merged
+PR and its successful main CI, and the environment's exact `main` branch-only policy before
+removing the redundant signing reviewer. It preserves the existing secret without reading it.
+It refuses unrelated/stronger protection rather than overwriting it. Until activation, the
+existing signing approval stays in place.
+
+`CODEOWNERS` assigns the maintainer to all source and infrastructure. Only `catalog-v2.json`
+and `plugins/*/catalog.json` have no human code owner; their CI must prove that only signed
+sizes/version metadata changed. Generic approval count is zero after activation because owner
+review remains mandatory for every other file. Generated catalog PRs pass the same required
+CI and cannot bypass it. The default Actions token remains read-only; only the metadata job
+requests contents/PR/Actions writes to create its PR and explicitly dispatch validation.
+GitHub's setting allowing Actions to create PRs must be enabled; it gives the bot no code-owner
+status or branch bypass. Workflow dispatch is explicit because GITHUB_TOKEN pushes/merges do
+not recursively start workflows. A generated catalog merge changes no package version.
+
+#### Recovery and checking a release
+
+Manual dispatch remains available from `main`, using the same merge/CI and signing gates:
 
 ```bash
 gh workflow run "Release capability package" --ref main -f plugin=<id>
 ```
 
-It must be `--ref main`: the `capability-signing` environment only accepts deployments from
-`main`, so a release from a branch waits for an approval that can never be given.
+Omit `plugin` to resume every unpublished package and catalog maintenance. An already published
+version is a successful no-op; a metadata-only repair reaches no signing key. Authentication
+and service failures are errors, never interpreted as an absent release. Nothing builds,
+signs or publishes from a development branch.
 
-The build matrix runs, then `sign` stops and waits. Approve it in the run's page under
-**Review deployments**, or:
-
-```bash
-RUN=$(gh run list --workflow "Release capability package" --limit 1 --json databaseId --jq '.[0].databaseId')
-ENV=$(gh api repos/{owner}/{repo}/actions/runs/$RUN/pending_deployments --jq '.[0].environment.id')
-gh api --method POST repos/{owner}/{repo}/actions/runs/$RUN/pending_deployments \
-  --input - <<< "{\"environment_ids\":[$ENV],\"state\":\"approved\",\"comment\":\"Release <id> <version>\"}"
-```
-
-**If any build fails, `sign` is skipped and nothing is published** — no tag, no release, no
-assets. Fix the cause and run the workflow again under the same version. That is safe
-precisely because nothing was published; it is the one case where re-running a release is
-correct.
-
-After it succeeds, record what was published and commit it:
+If a build fails, signing is skipped and no package is published. Fix it in a reviewed PR or
+retry a transient failure. If publication succeeded and catalog maintenance failed, retry the
+workflow: its metadata job verifies the published signature and opens a fresh checked PR.
+Manual forensic recording uses the same signature check:
 
 ```bash
 gh release download <id>-v<version> --pattern 'release-manifest.*' --dir build --clobber
-node scripts/record-release-sizes.mjs <id>   # reads the manifest AND verifies its signature
+node scripts/record-release-sizes.mjs <id>
 node scripts/build-catalog-v2.mjs
 ```
 
-Both files are needed: the sizes are read from the signed manifest only after the signature
-verifies, so the catalog cannot come to describe something nobody signed. The same numbers
-are uploaded by the workflow as the `catalog-after-<id>` artifact if you would rather take
-them from there. Commit `catalog-v2.json` and `plugins/<id>/catalog.json` through a pull
-request like any other change.
+Both manifest and signature are required. The recorder refuses another package/version or a
+wrong target set. Source and permission changes require a new version and human-reviewed PR;
+Nodus still asks each user before applying an expanded permission set.
 
-Then, in the Nodus repository, pin the release in `electron/capabilities/bootstrap.json` —
-release URL and every asset's name, size and SHA-256, taken from the same signed manifest —
-and prove it:
+For future application builds, update the Nodus bootstrap pins from those same signed manifests
+in a separate application PR, then prove the packaged offline migration:
 
 ```bash
 NODUS_REQUIRE_BOOTSTRAP=1 node scripts/prepare-capability-bootstrap.mjs
@@ -256,9 +295,7 @@ node scripts/verify-cross-repo.mjs
 NODUS_MARKETPLACE_DIR=<checkout> node scripts/verify-capability-migration-e2e.mjs
 ```
 
-The first downloads every pinned package and refuses any whose bytes do not match its
-digest; the second checks the pinned versions are the ones this repository publishes; the
-third runs the 5.3.1 migration from them with no network.
+The marketplace workflow updates its own catalog; it does not write to the application repository.
 
 #### What the signing secret has to contain
 
@@ -279,14 +316,14 @@ The private key is stored only as the `CAPABILITY_SIGNING_KEY` secret of the pro
 repository's `trusted-keys.json` and to Nodus's
 `electron/capabilities/trustedKeys.json`, and Nodus's cross-repository CI fails if the two
 ever stop matching. Package manifests must name that same `keyId`. Adding a package to this
-repository does not grant it a signature automatically: review, merge and an explicitly
-approved release are separate steps.
+repository does not grant it a signature: maintainer review, a merged version PR and
+successful main CI must precede the separate build/sign stages.
 
 After publishing, the workflow records the exact published sizes in the catalog — read back
 through the signature, from the manifest that describes what was actually published — and
-uploads the result as an artifact. A maintainer commits `catalog-v2.json` and the package's
-`catalog.json` from it, and updates Nodus's `electron/capabilities/bootstrap.json` with the
-release URL and the signed asset metadata so an upgrade from 5.3.1 works with no network.
+merges those generated metadata changes through the checked catalog PR. A maintainer updates
+Nodus's `electron/capabilities/bootstrap.json` in a separate application PR with the release
+URL and signed asset metadata so an upgrade from 5.3.1 works with no network.
 Never rewrite an existing release or reuse a version for different bytes; increment the
 package version instead. Nodus refuses both anyway: a version it has already installed
 cannot be replaced by different bytes under the same number.
