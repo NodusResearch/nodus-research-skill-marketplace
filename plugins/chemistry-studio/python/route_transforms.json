@@ -50,7 +50,9 @@
     "primary amide": "[NX3;H2][CX3]=[OX1]",
     "hydroxyl": "[OX2H1][#6;!$([CX3]=[OX1])]",
     "dmb amide": "[NX3][CH2]c1ccc(O[CH3])cc1O[CH3]",
-    "pseudoproline": "[NX3]1[CX4;H1][CH2][OX2][CX4]1([CH3])[CH3]"
+    "pseudoproline": "[NX3]1[CX4;H1][CH2][OX2][CX4]1([CH3])[CH3]",
+    "guanidine": "[NX3;H2][CX3](=[NX2])[NX3]",
+    "imidazole nh": "[nH]"
   },
   "transforms": [
     {
@@ -519,6 +521,62 @@
       ],
       "smarts": "([NX3;H2,H1;!$(N[C,S]=O);!$(N=*):1].[CX3:2](=[OX1:3])[OX2H1:4])>>([NX3;H1,H0:1][CX3:2]=[OX1:3]).[OH2:4]",
       "reagents": [],
+      "carries": 1
+    },
+    {
+      "id": "boc-protection",
+      "summary": "Protect a free amine as its Boc carbamate with di-tert-butyl dicarbonate, releasing carbon dioxide and tert-butanol. Boc2O is what is actually used; Boc-Cl is unstable and n-carbamoylation, written for a chloroformate, cannot match an anhydride. Removed by boc-removal, which runs on acid - the two are not the same equation.",
+      "site": "free amine",
+      "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[CH3:2][CX4:3]([CH3:4])([CH3:5])[OX2:6][CX3:7](=[OX1:8])[OX2:9][CX3:10](=[OX1:11])[OX2:12][CX4:13]([CH3:14])([CH3:15])[CH3:16]>>[N:1][CX3:7](=[OX1:8])[OX2:6][CX4:3]([CH3:2])([CH3:4])[CH3:5].[OX1:9]=[CX2:10]=[OX1:11].[OX2H1:12][CX4:13]([CH3:14])([CH3:15])[CH3:16]",
+      "reagents": [
+        {
+          "role": "di-tert-butyl dicarbonate",
+          "default": "CC(C)(C)OC(=O)OC(=O)OC(C)(C)C"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "pbf-sulfonylation",
+      "summary": "Protect an arginine guanidine as its Pbf sulfonamide with Pbf-Cl, releasing HCl, which a stoichiometric base the toolkit supplies takes up. The rule matches only the TERMINAL NH2 of the guanidine: the delta-NH carries the side chain, and a pattern that accepts any guanidine N-H refuses with ambiguous-site because two of them match. Removed by pbf-removal, which runs on TFA and water and gives the sulfonic acid.",
+      "site": "guanidine",
+      "smarts": "[NX3;H2:1][CX3:2](=[NX2:3])[NX3:4].[Cl:5][SX4:6](=[OX1:7])(=[OX1:8])[c:9]>>[NX3;H1:1]([SX4:6](=[OX1:7])(=[OX1:8])[c:9])[CX3:2](=[NX2:3])[NX3:4].[ClH:5]",
+      "reagents": [
+        {
+          "role": "Pbf chloride",
+          "default": "Cc1c(C)c2c(c(C)c1S(=O)(=O)Cl)CC(C)(C)O2"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "imidazole-tritylation",
+      "summary": "Protect a histidine imidazole ring nitrogen as its N-trityl with trityl chloride, releasing HCl. The ring nitrogen must be written [nH] on the reactant side and [n] on the product, because an aromatic nitrogen cannot be recounted the way an aliphatic one can. Removed by imidazole-trityl-removal.",
+      "site": "imidazole nh",
+      "smarts": "[nH:1].[Cl:2][CX4:3]([c:4])([c:5])[c:6]>>[n:1][CX4:3]([c:4])([c:5])[c:6].[ClH:2]",
+      "reagents": [
+        {
+          "role": "trityl chloride",
+          "default": "ClC(c1ccccc1)(c1ccccc1)c1ccccc1"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "dmb-installation",
+      "summary": "Install a 2,4-dimethoxybenzyl (Dmb) group on an amine by reductive amination with 2,4-dimethoxybenzaldehyde, releasing water. This is how the Dmb of an Fmoc-Asp(OtBu)-(Dmb)Gly-OH dipeptide gets there: it is put on the glycine amine before the residues are joined, not onto an assembled chain. Removed by dmb-removal, which runs on acid and water - the two are not the same equation.",
+      "site": "free amine",
+      "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[CH1:2](=[OX1:3])[c:4]1[cH:5][cH:6][c:7]([OX2:8][CH3:9])[cH:10][c:11]1[OX2:12][CH3:13].[H][H]>>[N:1][CH2:2][c:4]1[cH:5][cH:6][c:7]([OX2:8][CH3:9])[cH:10][c:11]1[OX2:12][CH3:13].[OX2H2:3]",
+      "reagents": [
+        {
+          "role": "2,4-dimethoxybenzaldehyde",
+          "default": "COc1ccc(C=O)c(OC)c1"
+        },
+        {
+          "role": "hydrogen",
+          "default": "[H][H]"
+        }
+      ],
       "carries": 1
     }
   ]

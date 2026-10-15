@@ -107,6 +107,30 @@ CURATED = {
                       "N[C@@H](CC(=O)NC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["Cl"]),
     "o-tert-butylation": ("COC(=O)[C@@H](CO)NC(=O)OC(C)(C)C", ["CC(C)=C"],
                           "COC(=O)[C@@H](COC(C)(C)C)NC(=O)OC(C)(C)C", []),
+    # The remaining installers, added 2026-10-15. Each shipped removal had no counterpart, so a
+    # route could take a group OFF and never put one ON. Probing the seven side-chain types the
+    # 478-entry library needs showed phenol, alcohol, thiol, the Asn/Gln carboxamide and the
+    # side-chain acid were already reachable (o-tert-butylation, s-tritylation, n-tritylation,
+    # ester-formation with tBuOH); these four were not.
+    #
+    # Boc with the ANHYDRIDE, not the chloroformate: n-carbamoylation is written for Cl-CO-OR and
+    # returns no-match on Boc2O, which is what is actually used — Boc-Cl is unstable. The leaving
+    # tert-butyl carbonate is not isolable, so the equation ends at CO2 + tert-butanol.
+    "boc-protection": ("NCCCC", ["CC(C)(C)OC(=O)OC(=O)OC(C)(C)C"],
+                       "CCCCNC(=O)OC(C)(C)C", ["CC(C)(C)O", "O=C=O"]),
+    # Only the TERMINAL NH2 of the guanidine. A pattern accepting any guanidine N-H matches two
+    # nitrogens and the executor correctly refuses with ambiguous-site; the delta-NH carries the
+    # side chain and is not where Pbf goes.
+    "pbf-sulfonylation": ("NC(=N)NCCC", ["Cc1c(C)c2c(c(C)c1S(=O)(=O)Cl)CC(C)(C)O2"],
+                          "CCCNC(=N)NS(=O)(=O)c1c(C)c(C)c2c(c1C)CC(C)(C)O2", ["Cl"]),
+    # [nH] on the reactant side and [n] on the product: an aromatic nitrogen cannot be recounted
+    # the way an aliphatic one can, which is the same asymmetry imidazole-trityl-removal needed.
+    "imidazole-tritylation": ("c1cnc[nH]1", ["ClC(c1ccccc1)(c1ccccc1)c1ccccc1"],
+                              "c1ccc(C(c2ccccc2)(c2ccccc2)n2ccnc2)cc1", ["Cl"]),
+    # Dmb arrives by reductive amination on the amine BEFORE the residues are joined - it is not
+    # installed onto an assembled chain - so the equation needs the aldehyde and a hydrogen.
+    "dmb-installation": ("CNCC(=O)O", ["COc1ccc(C=O)c(OC)c1", "[H][H]"],
+                         "COc1ccc(CN(C)CC(=O)O)c(OC)c1", ["O"]),
     # Peptide coupling in the C-to-N direction, added 2026-10-14. `amide-formation` carries the
     # ACID, and a curated verb can only occupy reactant slot 0 (see the `flexible` test below), so
     # a growing chain whose free end is the AMINE had no verb at all — which is the direction
