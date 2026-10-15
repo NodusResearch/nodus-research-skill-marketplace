@@ -102,6 +102,43 @@ GROUPS = {
     "anhydride": ("anhydride", "[CX3](=O)O[CX3](=O)"),
     "amide": ("amide", "[CX3](=O)[NX3;!$(N[CX3](=O)O)]"),
     "nh-amide": ("N–H amide", "[CX3](=O)[NX3;H1,H2;!$(N[CX3](=O)O)]"),
+    # Sequence context, not a lone functional group: an aspartate SIDE-CHAIN ESTER whose
+    # neighbour supplies a backbone N–H. Under repeated base that N–H closes onto the ester
+    # (5-exo) to give the aspartimide, which then reopens to a mixture of the alpha- and
+    # beta-linked peptide and epimerises the aspartate.
+    #
+    # Four entries, split by what FIXES each case rather than by how bad each case is, so the
+    # advice attached below names only remedies the pattern has already shown to apply:
+    #   - glycine next door is the classic worst case and the one the commercial
+    #     Fmoc-Asp(OtBu)-(Dmb)Gly-OH dipeptide is sold for;
+    #   - a serine, threonine or cysteine next door (recognised by the beta heteroatom, free or
+    #     protected) is the case a pseudoproline dipeptide can cover, which glycine cannot be;
+    #   - the remaining literature-prone neighbours (alanine, asparagine, aspartate) have no
+    #     special building block, so they get the general advice;
+    #   - a hindered trialkylmethyl ester (OMpe and relatives) downgrades the glycine case
+    #     instead of silencing it, so taking the recommended precaution clears or lowers the
+    #     flag rather than leaving a warning that can never be answered.
+    # The four are disjoint by construction - CH2 against a substituted CH, beta heteroatom
+    # against beta carbon, and a hindered ester against a labile one - so a site raises one
+    # flag, never two.
+    #
+    # Deliberately silent where the chemistry is not a practical worry: proline next door has no
+    # backbone N–H, a free aspartate has no ester to attack, glutamate would have to close a
+    # six-membered ring, and bulky or beta-branched neighbours (Val, Leu, Ile, Phe, Tyr, Met,
+    # Lys...) hinder the closure enough that flagging them would be wallpaper.
+    "aspartimide-gly": ("aspartate side-chain ester followed by glycine",
+                        "[OX2;$(O[CX4]);!$(O[CX4]([CX4])([CX4])[CX4;!H3])][CX3](=O)[CH2]"
+                        "[CX4;H1]([NX3])[CX3](=O)[NX3;H1][CH2][CX3]=O"),
+    "aspartimide-gly-hindered": ("hindered aspartate side-chain ester followed by glycine",
+                                 "[OX2;$(O[CX4]([CX4])([CX4])[CX4;!H3])][CX3](=O)[CH2]"
+                                 "[CX4;H1]([NX3])[CX3](=O)[NX3;H1][CH2][CX3]=O"),
+    "aspartimide-beta-heteroatom": ("aspartate side-chain ester followed by serine, threonine or cysteine",
+                                    "[OX2;$(O[CX4]);!$(O[CX4]([CX4])([CX4])[CX4;!H3])][CX3](=O)[CH2]"
+                                    "[CX4;H1]([NX3])[CX3](=O)[NX3;H1][CX4;H1]([CX4][OX2,SX2])[CX3]=O"),
+    "aspartimide-prone-xaa": ("aspartate side-chain ester followed by alanine, asparagine or aspartate",
+                              "[OX2;$(O[CX4]);!$(O[CX4]([CX4])([CX4])[CX4;!H3])][CX3](=O)[CH2]"
+                              "[CX4;H1]([NX3])[CX3](=O)[NX3;H1]"
+                              "[CX4;H1]([$([CH3]),$([CH2][CX3](=O)[#7,#8])])[CX3]=O"),
     "nitrile": ("nitrile", "[CX2]#N"),
     "aldehyde": ("aldehyde", "[CX3H1](=O)[#6]"),
     "ketone": ("ketone", "[#6][CX3](=O)[#6]"),
@@ -184,6 +221,29 @@ ATTACKS = {
         ("fmoc", "high", "is cleaved by base"), ("alkyl-halide", "medium", "may be substituted or eliminated"),
         ("aldehyde", "medium", "may condense (aldol, Cannizzaro)")],
     "amine-base": [("fmoc", "high", "is cleaved by amine base"), ("acid-chloride", "high", "is aminolysed"),
+        ("aspartimide-gly", "high", "closes to the aspartimide — Asp-Gly is the classic worst case, the glycine having "
+                                    "no side chain to hinder it — which reopens to a mixture of alpha- and beta-linked "
+                                    "peptide and epimerises the aspartate. The usual answer for this pair is backbone "
+                                    "protection on the glycine (Hmb or Dmb, bought as the Fmoc-Asp(OtBu)-(Dmb)Gly-OH "
+                                    "dipeptide); failing that, a hindered side-chain ester such as OMpe, a non-ester "
+                                    "side-chain mask, an acidic modifier or a shorter deprotection, or a less basic "
+                                    "amine than piperidine"),
+        ("aspartimide-gly-hindered", "medium", "may still close to the aspartimide: the hindered ester slows the "
+                                               "attack but Asp-Gly is prone enough that it is not always sufficient. "
+                                               "If the chain sees many base treatments, move to backbone protection on "
+                                               "the glycine (Fmoc-Asp(OtBu)-(Dmb)Gly-OH) or add an acidic modifier"),
+        ("aspartimide-beta-heteroatom", "medium", "may close to the aspartimide, reopening to alpha- and beta-linked "
+                                                  "peptide and epimerising the aspartate. Because the next residue is "
+                                                  "a serine, threonine or cysteine, a pseudoproline dipeptide at that "
+                                                  "position removes the backbone N-H outright; a hindered side-chain "
+                                                  "ester such as OMpe, an acidic modifier or a shorter deprotection, "
+                                                  "or a less basic amine than piperidine also apply"),
+        ("aspartimide-prone-xaa", "medium", "may close to the aspartimide, reopening to alpha- and beta-linked peptide "
+                                            "and epimerising the aspartate. Milder than the Asp-Gly case and dependent "
+                                            "on how many base treatments the chain sees; no special dipeptide is sold "
+                                            "for this neighbour, so the answers are a hindered side-chain ester such as "
+                                            "OMpe, a non-ester side-chain mask, an acidic modifier or a shorter "
+                                            "deprotection, or a less basic amine than piperidine"),
                    ("ester", "medium", "activated esters may be aminolysed")],
     "hydrogenation": [
         ("alkene", "high", "is hydrogenated"), ("alkyne", "high", "is hydrogenated"),

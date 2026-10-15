@@ -77,6 +77,11 @@ CURATED = {
     "cbz-removal": ("C[C@H](NC(=O)OCc1ccccc1)C(=O)O", [], "C[C@H](N)C(=O)O", ["Cc1ccccc1", "O=C=O"]),
     "benzyl-ester-hydrogenolysis": ("C[C@H](N)C(=O)OCc1ccccc1", [], "C[C@H](N)C(=O)O", ["Cc1ccccc1"]),
     "tert-butyl-ester-removal": ("C[C@H](N)C(=O)OC(C)(C)C", [], "C[C@H](N)C(=O)O", ["C=C(C)C"]),
+    # The hindered twin of the above, added 2026-10-15 so the aspartimide advice in compat_tables
+    # names a side-chain ester the toolkit can actually carry. Its own rule rather than a widened
+    # tert-butyl one: the two site phrases must stay disjoint, or a program that asks for the
+    # bulky ester would silently strip a tert-butyl one instead.
+    "mpe-ester-removal": ("C[C@H](N)C(=O)OC(C)(CC)CC", [], "C[C@H](N)C(=O)O", ["C=C(CC)CC"]),
     "n-carbamoylation": ("C[C@H](N)C(=O)O", ["ClC(=O)OCc1ccccc1"],
                          "C[C@H](NC(=O)OCc1ccccc1)C(=O)O", ["Cl"]),
     # Peptide coupling in the C-to-N direction, added 2026-10-14. `amide-formation` carries the

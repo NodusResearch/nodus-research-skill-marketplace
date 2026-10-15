@@ -40,6 +40,7 @@
     "cbz carbamate": "[NX3][CX3](=O)[OX2][CH2]c1ccccc1",
     "benzyl ester": "[#6][CX3](=O)[OX2][CH2]c1ccccc1",
     "tert-butyl ester": "[#6][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
+    "3-methylpent-3-yl ester": "[#6][CX3](=O)[OX2][CX4]([CH3])([CH2][CH3])[CH2][CH3]",
     "s-trityl": "[SX2][CX4](c)(c)c",
     "n-trityl": "[NX3][CX4](c)(c)c",
     "imidazole trityl": "[n][CX4](c)(c)c",
@@ -317,6 +318,14 @@
       "summary": "Cleave a tert-butyl ester to the carboxylic acid (TFA), releasing isobutylene. On a substrate that also carries a free amine the acid delivers it as the ammonium salt, which a following acylation must liberate with a base.",
       "site": "tert-butyl ester",
       "smarts": "[#6:8][CX3:1](=[OX1:2])[OX2:3][CX4:4]([CH3:5])([CH3:6])[CH3:7]>>[#6:8][CX3:1](=[OX1:2])[OX2H1:3].[CH2:5]=[CX3:4]([CH3:6])[CH3:7]",
+      "reagents": [],
+      "carries": 1
+    },
+    {
+      "id": "mpe-ester-removal",
+      "summary": "Cleave a 3-methylpent-3-yl (OMpe) ester to the carboxylic acid (TFA), releasing 2-ethyl-1-butene. The hindered tertiary ester is the usual aspartimide precaution on an aspartate side chain; it is cleaved under the same acid as a tert-butyl ester, more slowly. On a substrate that also carries a free amine the acid delivers it as the ammonium salt, which a following acylation must liberate with a base.",
+      "site": "3-methylpent-3-yl ester",
+      "smarts": "[#6:8][CX3:1](=[OX1:2])[OX2:3][CX4:4]([CH3:5])([CH2:6][CH3:9])[CH2:7][CH3:10]>>[#6:8][CX3:1](=[OX1:2])[OX2H1:3].[CH2:5]=[CX3:4]([CH2:6][CH3:9])[CH2:7][CH3:10]",
       "reagents": [],
       "carries": 1
     },
