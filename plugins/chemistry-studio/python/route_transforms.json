@@ -276,7 +276,7 @@
       "id": "boc-removal",
       "summary": "Remove a Boc carbamate from the amine (TFA or HCl), releasing isobutylene and carbon dioxide. The acid delivers the amine as its ammonium salt, which is not nucleophilic until a base liberates it; the following acylation is supplied with a stoichiometric base.",
       "site": "boc carbamate",
-      "smarts": "[NX3;H1:1][CX3:2](=[OX1:3])[OX2:4][CX4:5]([CH3:6])([CH3:7])[CH3:8]>>[NX3;H2:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:6]=[CX3:5]([CH3:7])[CH3:8]",
+      "smarts": "[NX3;H1,H0:1][CX3:2](=[OX1:3])[OX2:4][CX4:5]([CH3:6])([CH3:7])[CH3:8]>>[N:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:6]=[CX3:5]([CH3:7])[CH3:8]",
       "reagents": [],
       "carries": 1
     },
@@ -284,7 +284,7 @@
       "id": "cbz-removal",
       "summary": "Remove a Cbz carbamate from the amine by hydrogenolysis (H2/Pd-C), releasing toluene and carbon dioxide. The hydrogen is written as a reactant so the equation balances.",
       "site": "cbz carbamate",
-      "smarts": "[NX3;H1:1][CX3:2](=[OX1:3])[OX2:4][CH2:5]c1ccccc1.[#1:9][#1:10]>>[NX3;H2:1].[OX1:3]=[CX3:2]=[OX2:4].[CH3:5]c1ccccc1",
+      "smarts": "[NX3;H1,H0:1][CX3:2](=[OX1:3])[OX2:4][CH2:5]c1ccccc1.[#1:9][#1:10]>>[N:1].[OX1:3]=[CX3:2]=[OX2:4].[CH3:5]c1ccccc1",
       "reagents": [
         {
           "role": "hydrogen",
