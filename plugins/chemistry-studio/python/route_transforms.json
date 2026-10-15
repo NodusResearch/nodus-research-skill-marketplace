@@ -48,7 +48,9 @@
     "pbf sulfonamide": "[#7]([SX4](=O)(=O)c)[CX3]=[#7]",
     "support ester": "[#0][OX2][CX3]=[OX1]",
     "primary amide": "[NX3;H2][CX3]=[OX1]",
-    "hydroxyl": "[OX2H1][#6;!$([CX3]=[OX1])]"
+    "hydroxyl": "[OX2H1][#6;!$([CX3]=[OX1])]",
+    "dmb amide": "[NX3][CH2]c1ccc(O[CH3])cc1O[CH3]",
+    "pseudoproline": "[NX3]1[CX4;H1][CH2][OX2][CX4]1([CH3])[CH3]"
   },
   "transforms": [
     {
@@ -460,6 +462,32 @@
       "summary": "Remove the Pbf sulfonyl from an arginine guanidine (TFA), releasing the sulfonic acid.",
       "site": "pbf sulfonamide",
       "smarts": "[#7:1]([SX4:2](=[OX1:3])(=[OX1:4])[c:5])[CX3:6]=[#7:7].[OX2H2:8]>>[#7:1][CX3:6]=[#7:7].[OX2H1:8][SX4:2](=[OX1:3])(=[OX1:4])[c:5]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "dmb-removal",
+      "summary": "Remove a 2,4-dimethoxybenzyl (Dmb) group from a backbone amide nitrogen with acid and water, releasing 2,4-dimethoxybenzyl alcohol and restoring the N-H. Dmb is carried on the glycine of an Fmoc-Asp(OtBu)-(Dmb)Gly-OH dipeptide, where its job is to remove the very N-H that closes onto the aspartate ester to give the aspartimide; it comes off in the same TFA cleavage as the side-chain groups.",
+      "site": "dmb amide",
+      "smarts": "[NX3:1][CH2:2][c:3]1[cH:4][cH:5][c:6]([OX2:7][CH3:8])[cH:9][c:10]1[OX2:11][CH3:12].[OX2H2:13]>>[NX3;H1:1].[OX2H1:13][CH2:2][c:3]1[cH:4][cH:5][c:6]([OX2:7][CH3:8])[cH:9][c:10]1[OX2:11][CH3:12]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "pseudoproline-opening",
+      "summary": "Open a pseudoproline back to the native serine, threonine or cysteine residue with acid and water, releasing the ketone. The oxazolidine is a cyclic N,O-acetal, so hydrolysis restores BOTH the side-chain hydroxyl and the backbone N-H - the point of a pseudoproline is that the kink it puts in the chain is temporary, and the residue the route was asked for is the one that comes back.",
+      "site": "pseudoproline",
+      "smarts": "[NX3:1]1[CX4;H1:7][CH2:6][OX2:5][CX4:2]1([CH3:3])[CH3:4].[OX2H2:8]>>[NX3;H1:1][CX4;H1:7][CH2:6][OX2H1:5].[CH3:3][CX3:2](=[OX1:8])[CH3:4]",
       "reagents": [
         {
           "role": "water",

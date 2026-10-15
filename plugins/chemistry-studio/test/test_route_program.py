@@ -91,6 +91,16 @@ CURATED = {
     # trityl comes off with water giving triphenylmethanol. Only the tert-butyl ether is a true
     # reverse, isobutylene adding across the O-H, which is why it alone has no co-product.
     # Trityl chloride is the attested reagent: 68 templates over 2188 reactions in index-v10.
+    # The dipeptide endgame, added 2026-10-15. A dipeptide BLOCK needs no new coupling verb — its
+    # free acid couples exactly as a monomer's does — but the groups it carries must come off, or a
+    # chain built from one can be assembled and never finished. The pseudoproline case is the one
+    # worth reading: the oxazolidine is a cyclic N,O-acetal, so opening it restores BOTH the
+    # side-chain hydroxyl and the backbone N-H and gives back the native serine, which is the whole
+    # reason the kink is allowed to be temporary.
+    "dmb-removal": ("CN(Cc1ccc(OC)cc1OC)C(=O)C[C@H](N)C(=O)O", ["O"],
+                    "CNC(=O)C[C@H](N)C(=O)O", ["COc1ccc(CO)c(OC)c1"]),
+    "pseudoproline-opening": ("C[C@H](N)C(=O)N1[C@@H](C(=O)O)COC1(C)C", ["O"],
+                              "C[C@H](N)C(=O)N[C@H](CO)C(=O)O", ["CC(C)=O"]),
     "s-tritylation": ("N[C@@H](CS)C(=O)O", ["ClC(c1ccccc1)(c1ccccc1)c1ccccc1"],
                       "N[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["Cl"]),
     "n-tritylation": ("N[C@@H](CC(=O)N)C(=O)O", ["ClC(c1ccccc1)(c1ccccc1)c1ccccc1"],
