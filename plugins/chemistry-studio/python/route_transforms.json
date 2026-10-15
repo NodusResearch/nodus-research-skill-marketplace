@@ -38,8 +38,8 @@
     "boc carbamate": "[NX3][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
     "fmoc carbamate": "[NX3][CX3](=O)[OX2][CH2][CH1]1c2ccccc2-c2ccccc21",
     "cbz carbamate": "[NX3][CX3](=O)[OX2][CH2]c1ccccc1",
-    "benzyl ester": "[CX3](=O)[OX2][CH2]c1ccccc1",
-    "tert-butyl ester": "[CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]"
+    "benzyl ester": "[#6][CX3](=O)[OX2][CH2]c1ccccc1",
+    "tert-butyl ester": "[#6][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]"
   },
   "transforms": [
     {
@@ -297,7 +297,7 @@
       "id": "benzyl-ester-hydrogenolysis",
       "summary": "Cleave a benzyl ester to the carboxylic acid by hydrogenolysis (H2/Pd-C), releasing toluene. The hydrogen is written as a reactant so the equation balances.",
       "site": "benzyl ester",
-      "smarts": "[CX3:1](=[OX1:2])[OX2:3][CH2:4]c1ccccc1.[#1:9][#1:10]>>[CX3:1](=[OX1:2])[OX2H1:3].[CH3:4]c1ccccc1",
+      "smarts": "[#6:11][CX3:1](=[OX1:2])[OX2:3][CH2:4]c1ccccc1.[#1:9][#1:10]>>[#6:11][CX3:1](=[OX1:2])[OX2H1:3].[CH3:4]c1ccccc1",
       "reagents": [
         {
           "role": "hydrogen",
@@ -310,7 +310,7 @@
       "id": "tert-butyl-ester-removal",
       "summary": "Cleave a tert-butyl ester to the carboxylic acid (TFA), releasing isobutylene. On a substrate that also carries a free amine the acid delivers it as the ammonium salt, which a following acylation must liberate with a base.",
       "site": "tert-butyl ester",
-      "smarts": "[CX3:1](=[OX1:2])[OX2:3][CX4:4]([CH3:5])([CH3:6])[CH3:7]>>[CX3:1](=[OX1:2])[OX2H1:3].[CH2:5]=[CX3:4]([CH3:6])[CH3:7]",
+      "smarts": "[#6:8][CX3:1](=[OX1:2])[OX2:3][CX4:4]([CH3:5])([CH3:6])[CH3:7]>>[#6:8][CX3:1](=[OX1:2])[OX2H1:3].[CH2:5]=[CX3:4]([CH3:6])[CH3:7]",
       "reagents": [],
       "carries": 1
     },
