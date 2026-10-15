@@ -268,7 +268,7 @@
       "id": "fmoc-removal",
       "summary": "Remove an Fmoc carbamate from the amine (piperidine), releasing dibenzofulvene and carbon dioxide.",
       "site": "fmoc carbamate",
-      "smarts": "[NX3;H1:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH1:6]1c2ccccc2-c2ccccc21>>[NX3;H2:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:5]=[CH0:6]1c2ccccc2-c2ccccc21",
+      "smarts": "[NX3;H1,H0:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH1:6]1c2ccccc2-c2ccccc21>>[N:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:5]=[CH0:6]1c2ccccc2-c2ccccc21",
       "reagents": [],
       "carries": 1
     },
