@@ -102,6 +102,15 @@ GROUPS = {
     "anhydride": ("anhydride", "[CX3](=O)O[CX3](=O)"),
     "amide": ("amide", "[CX3](=O)[NX3;!$(N[CX3](=O)O)]"),
     "nh-amide": ("N–H amide", "[CX3](=O)[NX3;H1,H2;!$(N[CX3](=O)O)]"),
+    # An UNPROTECTED asparagine or glutamine side chain. A carbodiimide or uronium activator
+    # dehydrates a primary carboxamide to the nitrile, which deletes the side chain the residue
+    # was chosen for. The CH2 in the pattern is what distinguishes a SIDE-CHAIN amide from a
+    # C-terminal one: on a Rink-type peptide amide the carbonyl sits directly on the alpha carbon,
+    # so `H-Ala-NH2`, `H-Gly-NH2` and the dipeptide amides stay silent, while free Asn (one CH2)
+    # and free Gln (two) match. A Trt on the side chain makes it a secondary amide and so is
+    # silent too, which is the point: the remedy is already in the building-block set.
+    "asn-gln-amide": ("unprotected asparagine or glutamine side-chain amide",
+                      "[NX3;H2][CX3](=[OX1])[CH2][CX4]"),
     # Sequence context, not a lone functional group: an aspartate SIDE-CHAIN ESTER whose
     # neighbour supplies a backbone N–H. Under repeated base that N–H closes onto the ester
     # (5-exo) to give the aspartimide, which then reopens to a mixture of the alpha- and
@@ -277,7 +286,12 @@ ATTACKS = {
                         ("sulfide", "medium", "may be oxidized"), ("diol", "medium", "is cleaved by periodate")],
     "acylating": [
         ("amine", "high", "is acylated"), ("aniline", "medium", "may be acylated"), ("alcohol", "medium", "may be acylated"),
-        ("phenol", "medium", "may be acylated"), ("thiol", "high", "is acylated")],
+        ("phenol", "medium", "may be acylated"), ("thiol", "high", "is acylated"),
+        ("asn-gln-amide", "medium", "may be dehydrated to the nitrile by the activating agent, which deletes the side "
+                                    "chain the residue was chosen for. The standard answer is to carry the side chain "
+                                    "as the N-trityl amide, which the building-block set already holds as "
+                                    "Fmoc-Asn(Trt)-OH and Fmoc-Gln(Trt)-OH; adding HOBt or Oxyma, or shortening the "
+                                    "pre-activation, also reduces it")],
     "alkylating": [
         ("amine", "high", "is alkylated"), ("thiol", "high", "is alkylated"), ("phenol", "medium", "may be alkylated (with base)"),
         ("acid", "medium", "may be alkylated (as the carboxylate)"), ("tertiary-amine", "medium", "may be quaternized"),
@@ -313,6 +327,8 @@ _TBU_ESTER = ("tert-butyl ester", "[#6]C(=O)OC(C)(C)C", "[CX3](=O)[OX2H1]")
 _OXAZOLINE = ("2-oxazoline", "C1=NCCO1", "[CX3](=O)[OX2H1]")
 _ME_ETHER_AR = ("aryl methyl ether", "c[OX2][CH3]", "c[OX2H]")
 _TRT_S = ("S-trityl thioether", "SC(c1ccccc1)(c1ccccc1)c1ccccc1", "[SX2H]")
+_TRT_AMIDE = ("N-trityl amide", "[CX3](=O)[NX3;H1]C(c1ccccc1)(c1ccccc1)c1ccccc1",
+              "[NX3;H2][CX3](=[OX1])[CH2][CX4]")
 _DITHIANE = ("1,3-dithiane", "[CX4]1SCCCS1", "[CX3;!$(C(=O)[O,N])]=O")
 
 PROTECT = {
@@ -323,6 +339,11 @@ PROTECT = {
         "fluoride": ("protect it as a benzyl or MOM ether", [_BN_ETHER, _MOM]),
     },
     "phenol": {"default": ("protect it as a methyl, benzyl or silyl ether", [_ME_ETHER_AR, _BN_ETHER, _TBS])},
+    # Unlike most entries here, this remedy needs nothing new: the trityl-protected blocks are
+    # already the ones a solid-phase synthesis would reach for.
+    "asn-gln-amide": {"default": ("carry the side chain as the N-trityl amide — Fmoc-Asn(Trt)-OH or "
+                                  "Fmoc-Gln(Trt)-OH, removed by the same TFA as the other acid-labile groups",
+                                  [_TRT_AMIDE])},
     "diol": {"default": ("protect the diol as an acetonide (acetone or 2,2-dimethoxypropane, acid cat.; off with aqueous acid)", [_ACETONIDE])},
     "amine": {
         "default": ("protect it as a carbamate: Boc (off with acid), Cbz (off by H2/Pd) or Fmoc (off with piperidine)", [_BOC, _CBZ, _FMOC]),

@@ -370,6 +370,59 @@ class AspartimideContext(unittest.TestCase):
             "COC(=O)CNC(=O)[C@H](CC(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
             "COC(=O)CNC(=O)[C@@H](N)CC(=O)O"), [])
 
+class SideChainAmideDehydration(unittest.TestCase):
+    """An unprotected Asn/Gln side chain is dehydrated to the nitrile by a coupling activator.
+
+    Two things make this worth a test rather than a comment. The first is the false positive it
+    must avoid: a C-terminal peptide amide is also a primary carboxamide, and flagging it would
+    fire on most Rink-resin syntheses ever written. The pattern separates them on the CH2 linker —
+    a side-chain amide reaches its carbonyl through at least one CH2, a C-terminal one sits
+    directly on the alpha carbon.
+
+    The second is that the hazard must DISCHARGE. Unusually for this table the remedy needs nothing
+    new: Fmoc-Asn(Trt)-OH and Fmoc-Gln(Trt)-OH are already in the building-block set, and a Trt
+    makes the side chain a secondary amide, so the same step goes silent once the remedy is used.
+    """
+
+    TRT = "C(c1ccccc1)(c2ccccc2)c3ccccc3"
+
+    def _hazards(self, reactants, products, reagents):
+        out = W._compatibility([{"reactants": reactants, "products": products, "reagents": reagents}])
+        return [h for h in out[0]["hazards"] if h["group"] == "asn-gln-amide"]
+
+    def test_a_free_side_chain_amide_under_an_activator_is_flagged(self):
+        for label, acid, product, reagents in (
+            ("Asn with a carbodiimide", "N[C@@H](CC(=O)N)C(=O)O",
+             "COC(=O)CNC(=O)[C@@H](N)CC(=O)N", "DIC/Oxyma in DMF, 2 h"),
+            ("Gln with a uronium salt", "N[C@@H](CCC(=O)N)C(=O)O",
+             "COC(=O)CNC(=O)[C@@H](N)CCC(=O)N", "HATU, DIPEA, DMF, 30 min"),
+        ):
+            with self.subTest(label):
+                found = self._hazards([acid, "NCC(=O)OC"], [product], reagents)
+                self.assertEqual([h["group"] for h in found], ["asn-gln-amide"])
+                self.assertEqual(found[0]["severity"], "medium")
+                # The advice must point at a form that exists, not just describe one.
+                self.assertIn("N-trityl amide", found[0]["protectedForms"])
+
+    def test_the_trityl_protected_side_chain_discharges_it(self):
+        self.assertEqual(self._hazards(
+            [f"N[C@@H](CC(=O)N{self.TRT})C(=O)O", "NCC(=O)OC"],
+            [f"COC(=O)CNC(=O)[C@@H](N)CC(=O)N{self.TRT}"],
+            "DIC/Oxyma in DMF, 2 h"), [])
+
+    def test_it_needs_the_activator_as_well_as_the_side_chain(self):
+        # Base alone does not dehydrate an amide, so an Fmoc removal on the same residue is silent.
+        self.assertEqual(self._hazards(
+            ["N[C@@H](CC(=O)N)C(=O)O"], ["N[C@@H](CC(=O)N)C(=O)O"],
+            "20% piperidine in DMF"), [])
+
+    def test_a_c_terminal_peptide_amide_is_not_a_side_chain_amide(self):
+        # The false positive this pattern exists to avoid: Rink-type C-terminal amides are primary
+        # carboxamides too, and every one of them would otherwise flag under a coupling agent.
+        self.assertEqual(self._hazards(
+            ["C[C@@H](N)C(=O)N", "OC(=O)C"], ["CC(=O)N[C@@H](C)C(=O)N"],
+            "HATU, DIPEA, DMF, 30 min"), [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
