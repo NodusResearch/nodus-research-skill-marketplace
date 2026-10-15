@@ -285,6 +285,91 @@ class ForwardSteps(unittest.TestCase):
             self.assertIn("forward-templates.tsv.zst", out.get("indexLacks", []))
 
 
+class AspartimideContext(unittest.TestCase):
+    """The four aspartimide groups fire on the right sequence context and stay silent elsewhere.
+
+    These are not lone functional groups: an aspartate side-chain ESTER closes onto the backbone
+    N-H of the NEXT residue under repeated base. So the hazard depends on a neighbour, which is why
+    it lives in the compatibility tables rather than the context-free transform set.
+
+    The four groups are split by which REMEDY applies, not by how bad the case is, so each one's
+    advice names only a fix its own pattern has already shown to be available. The cases below pin
+    that split down, including the part that makes the flag useful: moving the ester from tert-butyl
+    to the hindered OMpe clears the milder cases outright and drops Asp-Gly from high to medium,
+    rather than leaving a warning nothing can answer.
+
+    Every substrate is a real Fmoc-removal step on a side-chain-protected dipeptide methyl ester.
+    """
+
+    DEPROTECTION = "20% piperidine in DMF, 2 x 15 min"
+
+    # (label, reactant, product, expected group or None, expected severity or None)
+    CASES = (
+        ("Asp(OtBu)-Gly, the classic worst case",
+         "COC(=O)CNC(=O)[C@H](CC(=O)OC(C)(C)C)NC(=O)OCC1c2ccccc2-c2ccccc21",
+         "COC(=O)CNC(=O)[C@@H](N)CC(=O)OC(C)(C)C",
+         "aspartimide-gly", "high"),
+        ("Asp(OMpe)-Gly, same pair behind a hindered ester",
+         "CCC(C)(CC)OC(=O)C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)NCC(=O)OC",
+         "CCC(C)(CC)OC(=O)C[C@H](N)C(=O)NCC(=O)OC",
+         "aspartimide-gly-hindered", "medium"),
+        ("Asp(OtBu)-Ser(tBu), where a pseudoproline could go",
+         "COC(=O)[C@H](COC(C)(C)C)NC(=O)[C@H](CC(=O)OC(C)(C)C)NC(=O)OCC1c2ccccc2-c2ccccc21",
+         "COC(=O)[C@H](COC(C)(C)C)NC(=O)[C@@H](N)CC(=O)OC(C)(C)C",
+         "aspartimide-beta-heteroatom", "medium"),
+        ("Asp(OtBu)-Ala, prone but with no special dipeptide sold for it",
+         "COC(=O)[C@H](C)NC(=O)[C@H](CC(=O)OC(C)(C)C)NC(=O)OCC1c2ccccc2-c2ccccc21",
+         "COC(=O)[C@H](C)NC(=O)[C@@H](N)CC(=O)OC(C)(C)C",
+         "aspartimide-prone-xaa", "medium"),
+        # Silent on purpose. A beta-branched neighbour hinders the closure enough that flagging it
+        # would be wallpaper, and proline has no backbone N-H to close with at all.
+        ("Asp(OtBu)-Val, beta-branched neighbour",
+         "COC(=O)[C@@H](NC(=O)[C@H](CC(=O)OC(C)(C)C)NC(=O)OCC1c2ccccc2-c2ccccc21)C(C)C",
+         "COC(=O)[C@@H](NC(=O)[C@@H](N)CC(=O)OC(C)(C)C)C(C)C",
+         None, None),
+        ("Asp(OtBu)-Pro, no backbone N-H",
+         "COC(=O)[C@@H]1CCCN1C(=O)[C@H](CC(=O)OC(C)(C)C)NC(=O)OCC1c2ccccc2-c2ccccc21",
+         "COC(=O)[C@@H]1CCCN1C(=O)[C@@H](N)CC(=O)OC(C)(C)C",
+         None, None),
+    )
+
+    def _aspartimide_hazards(self, reactant, product):
+        out = W._compatibility([{"reactants": [reactant], "products": [product],
+                                 "reagents": self.DEPROTECTION}])
+        self.assertEqual(len(out), 1, "one step in, one step out")
+        return [h for h in out[0]["hazards"] if h["group"].startswith("aspartimide")]
+
+    def test_the_named_context_raises_exactly_its_own_group(self):
+        for label, reactant, product, group, severity in self.CASES:
+            with self.subTest(label):
+                found = self._aspartimide_hazards(reactant, product)
+                if group is None:
+                    self.assertEqual(found, [], "this context must stay silent")
+                    continue
+                # Exactly one: the four patterns are disjoint by construction (CH2 against a
+                # substituted CH, beta heteroatom against beta carbon, hindered ester against
+                # labile), so a site that raised two would mean that disjointness had broken.
+                self.assertEqual([h["group"] for h in found], [group])
+                self.assertEqual(found[0]["severity"], severity)
+
+    def test_the_hindered_ester_is_what_clears_the_milder_cases(self):
+        # The remedy the Asp-Gly advice names must actually change the answer, or the flag is one
+        # a caller can never discharge. Asp(OMpe)-Ala is the OtBu-Ala case with the bulky ester.
+        ompe_ala = ("CCC(C)(CC)OC(=O)C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)N[C@@H](C)C(=O)OC",
+                    "CCC(C)(CC)OC(=O)C[C@H](N)C(=O)N[C@@H](C)C(=O)OC")
+        self.assertEqual(self._aspartimide_hazards(*ompe_ala), [],
+                         "a hindered ester clears the Ala case outright")
+        # ...while Asp-Gly is prone enough that it is downgraded, not silenced.
+        gly = self.CASES[1]
+        self.assertEqual(self._aspartimide_hazards(gly[1], gly[2])[0]["severity"], "medium")
+
+    def test_a_free_aspartate_has_no_ester_to_attack(self):
+        # The closure consumes an ester. With the side chain unprotected there is nothing to close
+        # onto, so the worst neighbour in the set must still be silent.
+        self.assertEqual(self._aspartimide_hazards(
+            "COC(=O)CNC(=O)[C@H](CC(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
+            "COC(=O)CNC(=O)[C@@H](N)CC(=O)O"), [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
