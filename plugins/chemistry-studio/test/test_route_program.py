@@ -108,7 +108,7 @@ CURATED = {
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
-CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge")
+CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge", "head-to-tail-macrolactamisation")
 
 # A family verb names the intent and dispatches to the member that fits the molecule, so it has no
 # SMARTS, no single site, and no one product to claim -- the member it picks has all three. Listed

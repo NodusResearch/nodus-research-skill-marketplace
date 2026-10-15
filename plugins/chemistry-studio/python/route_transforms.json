@@ -430,6 +430,18 @@
         }
       ],
       "carries": 1
+    },
+    {
+      "id": "head-to-tail-macrolactamisation",
+      "summary": "Join the free N-terminal amine to the free C-terminal acid of one chain, closing the backbone to a macrolactam and releasing water.",
+      "site": null,
+      "siteSlots": [
+        "free amine",
+        "carboxylic acid"
+      ],
+      "smarts": "([NX3;H2,H1;!$(N[C,S]=O);!$(N=*):1].[CX3:2](=[OX1:3])[OX2H1:4])>>([NX3;H1,H0:1][CX3:2]=[OX1:3]).[OH2:4]",
+      "reagents": [],
+      "carries": 1
     }
   ]
 }
