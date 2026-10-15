@@ -84,6 +84,19 @@ CURATED = {
     "mpe-ester-removal": ("C[C@H](N)C(=O)OC(C)(CC)CC", [], "C[C@H](N)C(=O)O", ["C=C(CC)CC"]),
     "n-carbamoylation": ("C[C@H](N)C(=O)O", ["ClC(=O)OCc1ccccc1"],
                          "C[C@H](NC(=O)OCc1ccccc1)C(=O)O", ["Cl"]),
+    # Protection, added 2026-10-15. The set could REMOVE eleven groups and ADD only one, which is
+    # fine for a peptide route — solid-phase synthesis buys its blocks protected — but blocks arm 2,
+    # where the block is the thing being made. A protection is NOT the removal reversed: Fmoc comes
+    # off as dibenzofulvene and CO2 under base but goes on from the chloroformate releasing HCl, and
+    # trityl comes off with water giving triphenylmethanol. Only the tert-butyl ether is a true
+    # reverse, isobutylene adding across the O-H, which is why it alone has no co-product.
+    # Trityl chloride is the attested reagent: 68 templates over 2188 reactions in index-v10.
+    "s-tritylation": ("N[C@@H](CS)C(=O)O", ["ClC(c1ccccc1)(c1ccccc1)c1ccccc1"],
+                      "N[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["Cl"]),
+    "n-tritylation": ("N[C@@H](CC(=O)N)C(=O)O", ["ClC(c1ccccc1)(c1ccccc1)c1ccccc1"],
+                      "N[C@@H](CC(=O)NC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["Cl"]),
+    "o-tert-butylation": ("COC(=O)[C@@H](CO)NC(=O)OC(C)(C)C", ["CC(C)=C"],
+                          "COC(=O)[C@@H](COC(C)(C)C)NC(=O)OC(C)(C)C", []),
     # Peptide coupling in the C-to-N direction, added 2026-10-14. `amide-formation` carries the
     # ACID, and a curated verb can only occupy reactant slot 0 (see the `flexible` test below), so
     # a growing chain whose free end is the AMINE had no verb at all — which is the direction

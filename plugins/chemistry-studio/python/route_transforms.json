@@ -46,7 +46,9 @@
     "imidazole trityl": "[n][CX4](c)(c)c",
     "tert-butyl ether": "[#6;!$([CX3]=[OX1])][OX2][CX4]([CH3])([CH3])[CH3]",
     "pbf sulfonamide": "[#7]([SX4](=O)(=O)c)[CX3]=[#7]",
-    "support ester": "[#0][OX2][CX3]=[OX1]"
+    "support ester": "[#0][OX2][CX3]=[OX1]",
+    "primary amide": "[NX3;H2][CX3]=[OX1]",
+    "hydroxyl": "[OX2H1][#6;!$([CX3]=[OX1])]"
   },
   "transforms": [
     {
@@ -371,6 +373,19 @@
       "carries": 1
     },
     {
+      "id": "s-tritylation",
+      "summary": "Protect a thiol as its S-trityl thioether with trityl chloride, releasing HCl. The HCl is taken up by a stoichiometric base the toolkit supplies. Removed by s-trityl-removal, which runs on acid and water and gives triphenylmethanol - the two are not the same equation.",
+      "site": "thiol",
+      "smarts": "[SX2H1:1].[Cl:2][CX4:3]([c:4])([c:5])[c:6]>>[SX2:1][CX4:3]([c:4])([c:5])[c:6].[ClH:2]",
+      "reagents": [
+        {
+          "role": "trityl chloride",
+          "default": "ClC(c1ccccc1)(c1ccccc1)c1ccccc1"
+        }
+      ],
+      "carries": 1
+    },
+    {
       "id": "n-trityl-removal",
       "summary": "Remove a trityl group from a side-chain nitrogen (TFA with a scavenger), releasing triphenylmethanol.",
       "site": "n-trityl",
@@ -379,6 +394,19 @@
         {
           "role": "water",
           "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "n-tritylation",
+      "summary": "Protect a primary carboxamide - an asparagine or glutamine side chain - as its N-trityl amide with trityl chloride, releasing HCl. This is the side-chain mask that keeps a coupling activator from dehydrating the amide to the nitrile. Removed by n-trityl-removal.",
+      "site": "primary amide",
+      "smarts": "[NX3;H2:1][CX3:7](=[OX1:8]).[Cl:2][CX4:3]([c:4])([c:5])[c:6]>>[NX3;H1:1]([CX3:7]=[OX1:8])[CX4:3]([c:4])([c:5])[c:6].[ClH:2]",
+      "reagents": [
+        {
+          "role": "trityl chloride",
+          "default": "ClC(c1ccccc1)(c1ccccc1)c1ccccc1"
         }
       ],
       "carries": 1
@@ -412,6 +440,19 @@
       "site": "tert-butyl ether",
       "smarts": "[#6;!$([CX3]=[OX1]):6][OX2:1][CX4:2]([CH3:3])([CH3:4])[CH3:5]>>[#6:6][OX2H1:1].[CH2:3]=[CX3:2]([CH3:4])[CH3:5]",
       "reagents": [],
+      "carries": 1
+    },
+    {
+      "id": "o-tert-butylation",
+      "summary": "Protect an alcohol or phenol as its tert-butyl ether by acid-catalysed addition of isobutylene. Nothing is released: the alkene simply adds across the O-H bond, which makes this the exact reverse of tert-butyl-ether-removal.",
+      "site": "hydroxyl",
+      "smarts": "[OX2H1:1][#6;!$([CX3]=[OX1]):6].[CH2:3]=[CX3:2]([CH3:4])[CH3:5]>>[#6:6][OX2:1][CX4:2]([CH3:3])([CH3:4])[CH3:5]",
+      "reagents": [
+        {
+          "role": "isobutylene",
+          "default": "CC(C)=C"
+        }
+      ],
       "carries": 1
     },
     {
