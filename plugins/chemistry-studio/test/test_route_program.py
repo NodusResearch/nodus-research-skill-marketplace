@@ -109,7 +109,12 @@ CURATED = {
     "tert-butyl-ether-removal": ("N[C@@H](COC(C)(C)C)C(=O)O", [], "N[C@@H](CO)C(=O)O", ["C=C(C)C"]),
     "pbf-removal": ("N[C@@H](CCCN=C(N)NS(=O)(=O)c1c(C)c(C)c2c(c1C)CC(C)(C)O2)C(=O)O", ["O"],
                     "NC(N)=NCCC[C@H](N)C(=O)O", ["Cc1c(C)c(S(=O)(=O)O)c(C)c2c1OC(C)(C)C2"]),
-    "resin-cleavage": ("*OC(=O)[C@@H](C)N", ["O"], "*O", ["C[C@@H](N)C(=O)O"]),
+    # The chain is the PEPTIDE, not the support. This entry asserted the reverse until 2026-10-15,
+    # and the suite passed the whole time: `carries` was 1, which is `[#0:1]`, the resin dummy atom,
+    # so the last step of every solid-phase route handed back `*O` and returned the peptide as a
+    # co-product. Caught by assembling a hexapeptide from non-natural blocks and reading what came
+    # out of the cleavage. `carries` is now 2, the ester oxygen that stays with the acid.
+    "resin-cleavage": ("*OC(=O)[C@@H](C)N", ["O"], "C[C@@H](N)C(=O)O", ["*O"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.

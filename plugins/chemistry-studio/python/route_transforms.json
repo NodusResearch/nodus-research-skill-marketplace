@@ -429,7 +429,7 @@
     },
     {
       "id": "resin-cleavage",
-      "summary": "Release the chain from the solid support, cleaving the ester that held it and giving the free C-terminal acid.",
+      "summary": "Release the chain from the solid support, cleaving the ester that held it and giving the free C-terminal acid. The chain is the piece carrying map 2, the ester oxygen that stays with the acid; map 1 is the support itself, which the route does not follow.",
       "site": "support ester",
       "smarts": "[#0:1][OX2:2][CX3:3](=[OX1:4]).[OX2H2:5]>>[#0:1][OX2H1:5].[OX2H1:2][CX3:3](=[OX1:4])",
       "reagents": [
@@ -438,7 +438,7 @@
           "default": "O"
         }
       ],
-      "carries": 1
+      "carries": 2
     },
     {
       "id": "head-to-tail-macrolactamisation",
