@@ -85,6 +85,26 @@ CURATED = {
     # solid-phase synthesis actually runs. Measured on chainP-6: a correct Fmoc hexapeptide died at
     # line 3 because the carried benzyl ester has no free carboxyl for `amide-formation` to use.
     "n-peptide-coupling": ("Nc1ccccc1", ["OC(=O)c1ccccc1"], "O=C(Nc1ccccc1)c1ccccc1", ["O"]),
+    # The SPPS endgame, added 2026-10-15. Until these existed a program could assemble a fully
+    # protected chain on the support and had no way to finish it: no side-chain removal for trityl,
+    # tert-butyl ether or Pbf, and no cleavage from the support at all. Each releases what the acid
+    # actually carries away, so the equation balances: triphenylmethanol from a trityl, isobutylene
+    # from a tert-butyl ether, the sulfonic acid from Pbf.
+    #
+    # Trityl is three rules rather than one because the freed atom differs: a thiol and an
+    # aliphatic nitrogen let the toolkit recount their hydrogens, but an imidazole ring nitrogen
+    # must be written [nH:1] or the product cannot be kekulised. `trityl-removal` is the family
+    # that picks between them, and it is in FAMILIES below.
+    "s-trityl-removal": ("N[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["O"], "N[C@@H](CS)C(=O)O",
+                         ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
+    "n-trityl-removal": ("O=C(NC(c1ccccc1)(c1ccccc1)c1ccccc1)C[C@H](N)C(=O)O", ["O"],
+                         "NC(=O)C[C@H](N)C(=O)O", ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
+    "imidazole-trityl-removal": ("N[C@@H](Cc1cn(C(c2ccccc2)(c2ccccc2)c2ccccc2)cn1)C(=O)O", ["O"],
+                                 "N[C@@H](Cc1c[nH]cn1)C(=O)O", ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
+    "tert-butyl-ether-removal": ("N[C@@H](COC(C)(C)C)C(=O)O", [], "N[C@@H](CO)C(=O)O", ["C=C(C)C"]),
+    "pbf-removal": ("N[C@@H](CCCN=C(N)NS(=O)(=O)c1c(C)c(C)c2c(c1C)CC(C)(C)O2)C(=O)O", ["O"],
+                    "NC(N)=NCCC[C@H](N)C(=O)O", ["Cc1c(C)c(S(=O)(=O)O)c(C)c2c1OC(C)(C)C2"]),
+    "resin-cleavage": ("*OC(=O)[C@@H](C)N", ["O"], "*O", ["C[C@@H](N)C(=O)O"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
@@ -93,7 +113,7 @@ CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge")
 # A family verb names the intent and dispatches to the member that fits the molecule, so it has no
 # SMARTS, no single site, and no one product to claim -- the member it picks has all three. Listed
 # apart from CURATED for exactly that reason; FamilyVerbs below covers what it does instead.
-FAMILIES = ("n-deprotect",)
+FAMILIES = ("n-deprotect", "trityl-removal")
 
 KETONE_REDUCTION_SMARTS = "[#6:1][C:2](=[O:3])[#6:4]>>[#6:1][CH1:2]([OH:3])[#6:4]"
 HYDROGENATION_SMARTS = "[CX3:1]=[CX3:2]>>[C:1][C:2]"

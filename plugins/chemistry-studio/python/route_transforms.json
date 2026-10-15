@@ -39,7 +39,13 @@
     "fmoc carbamate": "[NX3][CX3](=O)[OX2][CH2][CH1]1c2ccccc2-c2ccccc21",
     "cbz carbamate": "[NX3][CX3](=O)[OX2][CH2]c1ccccc1",
     "benzyl ester": "[#6][CX3](=O)[OX2][CH2]c1ccccc1",
-    "tert-butyl ester": "[#6][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]"
+    "tert-butyl ester": "[#6][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
+    "s-trityl": "[SX2][CX4](c)(c)c",
+    "n-trityl": "[NX3][CX4](c)(c)c",
+    "imidazole trityl": "[n][CX4](c)(c)c",
+    "tert-butyl ether": "[#6;!$([CX3]=[OX1])][OX2][CX4]([CH3])([CH3])[CH3]",
+    "pbf sulfonamide": "[#7]([SX4](=O)(=O)c)[CX3]=[#7]",
+    "support ester": "[#0][OX2][CX3]=[OX1]"
   },
   "transforms": [
     {
@@ -341,6 +347,89 @@
       "agents": [
         "CCN(C(C)C)C(C)C"
       ]
+    },
+    {
+      "id": "s-trityl-removal",
+      "summary": "Remove a trityl group from a side-chain thiol (TFA with a scavenger), releasing triphenylmethanol.",
+      "site": "s-trityl",
+      "smarts": "[SX2:1][CX4:2]([c:4])([c:5])[c:6].[OX2H2:3]>>[SX2H1:1].[OX2H1:3][CX4:2]([c:4])([c:5])[c:6]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "n-trityl-removal",
+      "summary": "Remove a trityl group from a side-chain nitrogen (TFA with a scavenger), releasing triphenylmethanol.",
+      "site": "n-trityl",
+      "smarts": "[NX3:1][CX4:2]([c:4])([c:5])[c:6].[OX2H2:3]>>[N:1].[OX2H1:3][CX4:2]([c:4])([c:5])[c:6]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "imidazole-trityl-removal",
+      "summary": "Remove a trityl group from an imidazole ring nitrogen (TFA with a scavenger), releasing triphenylmethanol. The freed ring nitrogen keeps its hydrogen, which a rule written for an aliphatic nitrogen cannot express.",
+      "site": "imidazole trityl",
+      "smarts": "[n:1][CX4:2]([c:4])([c:5])[c:6].[OX2H2:3]>>[nH:1].[OX2H1:3][CX4:2]([c:4])([c:5])[c:6]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "trityl-removal",
+      "summary": "Remove a trityl group, wherever it sits: the toolkit picks the thiol, nitrogen or imidazole rule by what the carried molecule actually carries.",
+      "site": null,
+      "family": [
+        "s-trityl-removal",
+        "n-trityl-removal",
+        "imidazole-trityl-removal"
+      ]
+    },
+    {
+      "id": "tert-butyl-ether-removal",
+      "summary": "Cleave a tert-butyl ether to the alcohol or phenol (TFA), releasing isobutylene. A tert-butyl ester is left alone; it has its own transformation.",
+      "site": "tert-butyl ether",
+      "smarts": "[#6;!$([CX3]=[OX1]):6][OX2:1][CX4:2]([CH3:3])([CH3:4])[CH3:5]>>[#6:6][OX2H1:1].[CH2:3]=[CX3:2]([CH3:4])[CH3:5]",
+      "reagents": [],
+      "carries": 1
+    },
+    {
+      "id": "pbf-removal",
+      "summary": "Remove the Pbf sulfonyl from an arginine guanidine (TFA), releasing the sulfonic acid.",
+      "site": "pbf sulfonamide",
+      "smarts": "[#7:1]([SX4:2](=[OX1:3])(=[OX1:4])[c:5])[CX3:6]=[#7:7].[OX2H2:8]>>[#7:1][CX3:6]=[#7:7].[OX2H1:8][SX4:2](=[OX1:3])(=[OX1:4])[c:5]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "resin-cleavage",
+      "summary": "Release the chain from the solid support, cleaving the ester that held it and giving the free C-terminal acid.",
+      "site": "support ester",
+      "smarts": "[#0:1][OX2:2][CX3:3](=[OX1:4]).[OX2H2:5]>>[#0:1][OX2H1:5].[OX2H1:2][CX3:3](=[OX1:4])",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
     }
   ]
 }
