@@ -11,10 +11,20 @@ export const PEPTIDE_BUILDING_BLOCKS: Record<string, string> = {
   "Fmoc-Asn(Trt)-OH": "C1=CC=C(C=C1)C(C2=CC=CC=C2)(C3=CC=CC=C3)NC(=O)C[C@@H](C(=O)O)NC(=O)OCC4C5=CC=CC=C5C6=CC=CC=C46",
   "Fmoc-Asp(OMpe)-OH": "CCC(C)(CC)OC(=O)C[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Asp(OtBu)-OH": "CC(C)(C)OC(=O)C[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
+  // DIPEPTIDE BLOCKS. One coupling, two residues. Derived from the blocks above with the plugin's
+  // own transforms rather than transcribed, so the stereocentres are the shipped ones: the Asp
+  // centre below is Fmoc-Asp(OtBu)-OH's and the Pro centre is Fmoc-Pro-OH's, both S, checked.
+  // Each carries a temporary auxiliary that the route must remove before the peptide is finished.
+  // Fmoc-Asp(OtBu)-OH + (Dmb)Gly-OH, water lost. Dmb caps the Gly backbone nitrogen so it cannot
+  // close the succinimide that makes Asp-Gly the classic aspartimide sequence. C34H38N2O9.
+  "Fmoc-Asp(OtBu)-(Dmb)Gly-OH": "COc1ccc(CN(CC(=O)O)C(=O)[C@H](CC(=O)OC(C)(C)C)NC(=O)OCC2c3ccccc3-c3ccccc32)c(OC)c1",
   "Fmoc-Cys(Trt)-OH": "C1=CC=C(C=C1)C(C2=CC=CC=C2)(C3=CC=CC=C3)SC[C@@H](C(=O)O)NC(=O)OCC4C5=CC=CC=C5C6=CC=CC=C46",
   "Fmoc-Gln(Trt)-OH": "C1=CC=C(C=C1)C(C2=CC=CC=C2)(C3=CC=CC=C3)NC(=O)CC[C@@H](C(=O)O)NC(=O)OCC4C5=CC=CC=C5C6=CC=CC=C46",
   "Fmoc-Glu(OtBu)-OH": "CC(C)(C)OC(=O)CC[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Gly-OH": "C1=CC=C2C(=C1)C(C3=CC=CC=C32)COC(=O)NCC(=O)O",
+  // Fmoc-Gly-OH acylating L-proline's ring nitrogen, water lost. The Fmoc sits on the glycine, so
+  // removing it needs a carbamate N-H that Fmoc-Pro-OH does not have. C22H22N2O5.
+  "Fmoc-Gly-Pro-OH": "O=C(NCC(=O)N1CCC[C@H]1C(=O)O)OCC1c2ccccc2-c2ccccc21",
   "Fmoc-His(Trt)-OH": "C1=CC=C(C=C1)C(C2=CC=CC=C2)(C3=CC=CC=C3)N4C=C(N=C4)C[C@@H](C(=O)O)NC(=O)OCC5C6=CC=CC=C6C7=CC=CC=C57",
   "Fmoc-Ile-OH": "CC[C@H](C)[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Leu-OH": "CC(C)C[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
