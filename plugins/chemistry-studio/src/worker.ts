@@ -143,6 +143,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       if (toolId === 'verify-route') return verifySynthesisRoute(input, referenceCache, budget);
       if (toolId === 'known-reactions') return knownReactions(input);
       if (toolId === 'propose-disconnections') return proposeDisconnections(input);
+      if (toolId === 'propose-forward-steps') return proposeForwardSteps(input as { indexDir?: string; molecule?: string; reagents?: string[]; limit?: number });
       if (toolId === 'decompose-target') return decomposeTarget(input);
       if (toolId === 'check-stock') return checkStock(input);
       if (toolId === 'search-routes') return searchRoutes(input);
@@ -974,6 +975,25 @@ interface RouteProgramInput {
   localOnly?: boolean;
 }
 
+/** How many transformations one program may execute.
+ *
+ *  Was 24, from the commit that first connected programs to the worker -- a conservative opening
+ *  bound rather than a measurement, and far below the parser's own limit of 256 statements
+ *  (MAX_STATEMENTS in engine/routeProgram.ts). The lower number was the binding one, so the two
+ *  disagreed and the stricter, unmeasured one won.
+ *
+ *  Measured 2026-10-14: a 20-residue chain needs 41 applies -- one coupling and one deprotection
+ *  per residue -- so the model wrote 41 and had the whole program refused, four turns running,
+ *  because no correction can compress a route below the length of the thing being made. Anything
+ *  past about twelve residues was unreachable, which is most of what this is for.
+ *
+ *  256 matches the parser, and since every apply is a statement the parser's limit is now the one
+ *  that binds: a program past 256 statements gets a too-many-lines diagnostic, and any diagnostic
+ *  refuses the whole program below. This check stays as a backstop should the two ever diverge. It
+ *  covers a 60-residue chain (about 120 applies) with headroom. The other limits still apply and
+ *  are the real guards: 64,000 characters of program, and a per-apply budget. */
+export const MAX_PROGRAM_APPLIES = 256;
+
 /** Application-invoked alternate input to the existing audit. The ordinary synthesis reply
  *  contract stays in force; no model-generated file paths or automatic route format change. */
 async function verifyRouteProgram(input: RouteProgramInput, cache: ReferenceCache, resolvedNames: ResolvedNames, budget?: ChemistryCapBudget) {
@@ -984,7 +1004,7 @@ async function verifyRouteProgram(input: RouteProgramInput, cache: ReferenceCach
   const applies = parsed.program.lines.filter(line => line.kind === 'apply').length;
   const diagnostics = parsed.diagnostics.map(d => `Line ${d.line}: ${d.message}`);
   if (!applies) diagnostics.push('A route program needs at least one apply line.');
-  if (applies > 24) diagnostics.push('A route program may execute at most 24 transformations.');
+  if (applies > MAX_PROGRAM_APPLIES) diagnostics.push(`A route program may execute at most ${MAX_PROGRAM_APPLIES} transformations.`);
   const artifact = (data: unknown, summary: string) => ({ artifacts: [{ artifactType: 'route-audit', artifactVersion: 1, summary, data }], notices: [] });
   if (diagnostics.length) return artifact({ steps: [], links: [], isolated: [], continuous: false, blocked: diagnostics }, 'Route program has syntax problems');
 
@@ -1072,6 +1092,51 @@ async function proposeDisconnections(input: { indexDir?: string; targets?: strin
   const proposals = entries.reduce((sum, entry) => sum + (entry.proposals?.length ?? 0), 0);
   const summary = `Disconnections: ${proposals} proposal(s) for ${entries.length} target(s), ${recorded} with a recorded reaction that makes it.`;
   return { artifacts: [{ artifactType: 'reaction-disconnections', artifactVersion: 1, summary, data }], notices: [] };
+}
+
+/** The forward transformations that APPLY to a molecule, each with the product it would give.
+ *
+ *  The middle of a three-step plan: the author decides what they are trying to do, this says what
+ *  the recorded chemistry can actually do to the molecule in front of them, and they choose one and
+ *  apply it with `execute-route-program`. Every candidate is drawn from the index's FORWARD
+ *  templates, so an offered step has precedent; a step with none is simply not on the list.
+ *
+ *  Model-invoked, through its own fence — unlike the retro disconnection search, which the
+ *  application runs for the evidence block. The point of the tool is that the choice is the
+ *  author's: handing back ten possibilities and letting the application pick would be the same
+ *  guess in a different place. */
+async function proposeForwardSteps(input: { indexDir?: string; molecule?: string; reagents?: string[]; limit?: number }) {
+  // No indexDir guard: this tool is AUTHOR-invoked through its own fence, and a fence carries only
+  // what the author wrote. They cannot name the index — they do not know it, and it is the
+  // application's own local data. The worker reuses the path the application last gave it, and
+  // says so plainly if it has never been given one.
+  const indexDir = typeof input?.indexDir === 'string' ? input.indexDir : '';
+  const molecule = typeof input?.molecule === 'string' ? input.molecule.trim() : '';
+  if (!molecule) throw new Error('A forward-step search needs the molecule to act on.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT], persistent: true,
+    stdin: JSON.stringify({
+      ...(indexDir ? { indexDir } : {}),
+      forwardSteps: {
+        molecule,
+        reagents: Array.isArray(input.reagents) ? input.reagents.filter(r => typeof r === 'string' && r.trim()).slice(0, 4) : [],
+        limit: typeof input.limit === 'number' ? input.limit : 10,
+        // Candidates are tried best-ranked first, so a deadline keeps the best rather than none.
+        budgetSeconds: 20,
+      },
+    }),
+    timeoutMs: 60_000,
+  });
+  if (run.code !== 0) throw new Error(pythonFailure('The forward-step search failed', run));
+  const data = JSON.parse(run.stdout) as { forwardSteps?: unknown[]; indexLacks?: string[] };
+  const steps = data.forwardSteps ?? [];
+  const summary = steps.length
+    ? `Forward steps: ${steps.length} transformation(s) that apply to this molecule, best-attested first.`
+    : 'Forward steps: no recorded transformation in the index applies to this molecule with these reagents.';
+  return { artifacts: [{ artifactType: 'forward-steps', artifactVersion: 1, summary, data }], notices: [] };
 }
 
 /** Break assembled targets into the units they were built from, so the retro search can be asked

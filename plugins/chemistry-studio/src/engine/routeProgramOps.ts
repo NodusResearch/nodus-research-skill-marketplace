@@ -178,7 +178,7 @@ export function createMoleculeOps(options: MoleculeOpsOptions = {}): MoleculeOps
   }
 
   async function apply(request: ApplyRequest): Promise<OpOutcome | OpError> {
-    const { molecule, op, reagents, assigns } = request;
+    const { molecule, op, reagents, assigns, carry } = request;
     // Every handle is resolved before anything is sent, and the first that cannot be found fails
     // the whole call. The list goes through whole and in order: if the toolkit cannot take more
     // than one site it says so in its reply, and that is mapped as it arrives.
@@ -209,6 +209,7 @@ export function createMoleculeOps(options: MoleculeOpsOptions = {}): MoleculeOps
       operation,
       reagents: resolved.map(entry => entry.smiles),
       ...(wireSites.length ? { sites: wireSites } : {}),
+      ...(carry ? { carry: carry.kind === 'smiles' ? carry.smiles : carry.kind } : {}),
       markAs,
       budgetSeconds: APPLY_BUDGET_SECONDS,
     });

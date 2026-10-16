@@ -259,3 +259,40 @@ test('bad-site: @last on the first apply line', () => {
 test('a handle is refused where a string is required', () => {
   only(parseRouteProgram('M1 = start("a")\nM2 = start(@last)\ntarget = M1'), 'syntax', 2);
 });
+
+// `carry=` — which fragment continues the route when a step cuts the molecule in two.
+//
+// Added 2026-10-14 because the gap it closes was found the expensive way: the engine and the
+// contract were taught `carry=` and the PARSER was not, so chainP-4 wrote a complete and otherwise
+// correct eight-step tetrapeptide program, used the argument exactly as the rules describe, and was
+// refused with "The apply call does not take carry=" after 888 s. A rule the parser rejects is
+// worse than no rule.
+test('carry: the word form', () => {
+  const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", carry="largest")\ntarget = M2');
+  assert.deepEqual(r.diagnostics, [], JSON.stringify(r.diagnostics));
+  assert.deepEqual(r.program.lines[1].carry, { kind: 'largest' });
+  const small = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", carry="SMALLEST")\ntarget = M2');
+  assert.deepEqual(small.program.lines[1].carry, { kind: 'smallest' }, 'the word is read without regard to case');
+});
+
+test('carry: the fragment form uses the same shape as reagents', () => {
+  const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", carry=[smiles="COC(=O)CN"])\ntarget = M2');
+  assert.deepEqual(r.diagnostics, [], JSON.stringify(r.diagnostics));
+  assert.deepEqual(r.program.lines[1].carry, { kind: 'smiles', smiles: 'COC(=O)CN' });
+});
+
+test('carry: a word that is neither says so and points at the fragment form', () => {
+  const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", carry="the peptide")\ntarget = M1');
+  assert.deepEqual(codes(r), [['syntax', 2]], JSON.stringify(r.diagnostics));
+  assert.match(r.diagnostics[0].message, /carry=\[smiles="\.\.\."\]/, 'the message shows the form that would have worked');
+});
+
+test('carry: absent on an ordinary line, so nothing changes for a step that does not split', () => {
+  const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x")\ntarget = M2');
+  assert.deepEqual(r.diagnostics, []);
+  assert.equal(r.program.lines[1].carry, undefined);
+});
+
+test('carry: given twice is caught like any other repeated argument', () => {
+  only(parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", carry="largest", carry="smallest")\ntarget = M1'), 'syntax', 2);
+});

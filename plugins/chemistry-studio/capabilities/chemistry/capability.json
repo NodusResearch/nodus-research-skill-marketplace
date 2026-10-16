@@ -234,6 +234,28 @@
       "billing": "none"
     },
     {
+      "id": "propose-forward-steps",
+      "description": "The forward transformations that APPLY to a molecule, each with the product it gives and how often it is recorded. Ask for this when you know what you want to do to a molecule and want the transformations the recorded chemistry supports, rather than proposing one yourself. An empty list means the index supports none, which is an answer. Apply the one you choose with execute-route-program, passing its smarts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "molecule": {"type": "string", "minLength": 1, "maxLength": 4000},
+          "reagents": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 4000}, "maxItems": 4},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 25},
+          "indexDir": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "required": ["molecule"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["forward-steps"],
+      "timeoutMs": 60000,
+      "concurrency": 1,
+      "maxPerReply": 4,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
+    },
+    {
       "id": "decompose-target",
       "description": "Break assembled targets into the units they were built from: find the bonds joining one unit to the next, cut them, take the protecting groups off each fragment, and name each one against the user's local unit library. This lets a retro search be asked about a small molecule instead of a large one. Without a library the fragments are still returned, unnamed. The application supplies the library directory; this tool is not offered to the model.",
       "inputSchema": {
@@ -335,7 +357,8 @@
   "chat": {
     "priority": 300,
     "requestProtocols": [
-      { "fence": "chemistry-plan", "toolId": "compile", "maxPerReply": 1, "answerMode": "replace-block" }
+      { "fence": "chemistry-plan", "toolId": "compile", "maxPerReply": 1, "answerMode": "replace-block" },
+      { "fence": "forward-steps", "toolId": "propose-forward-steps", "maxPerReply": 4, "answerMode": "replace-block" }
     ],
     "legacyResults": [
       { "fence": "chemistry-document", "artifactType": "chemistry-document", "artifactVersion": 2 },
@@ -411,6 +434,12 @@
       "version": 1,
       "label": { "en": "Functional-group compatibility", "es": "Compatibilidad de grupos funcionales", "fr": "Compatibilité des groupes fonctionnels", "de": "Verträglichkeit funktioneller Gruppen", "pt": "Compatibilidade de grupos funcionais", "pt-BR": "Compatibilidade de grupos funcionais", "it": "Compatibilità dei gruppi funzionali", "tr": "Fonksiyonel grup uyumluluğu" },
       "modelVisibility": "none"
+    },
+    {
+      "type": "forward-steps",
+      "version": 1,
+      "label": {"en": "Forward steps", "es": "Pasos directos", "fr": "Étapes directes", "de": "Vorwärtsschritte", "pt": "Passos diretos", "pt-BR": "Passos diretos", "it": "Passaggi diretti", "tr": "İleri adımlar"},
+      "modelVisibility": "projection"
     }
   ],
   "permissions": {

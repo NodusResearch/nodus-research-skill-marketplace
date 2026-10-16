@@ -49,16 +49,128 @@ CURATED = {
     "secondary-alcohol-oxidation": ("CC(O)c1ccccc1", [], "CC(=O)c1ccccc1", []),
     "primary-alcohol-oxidation": ("OCc1ccccc1", [], "O=Cc1ccccc1", []),
     "aldehyde-oxidation": ("O=Cc1ccccc1", [], "O=C(O)c1ccccc1", []),
-    "nitro-reduction": ("O=[N+]([O-])c1ccccc1", [], "Nc1ccccc1", []),
+    # Two waters, because the oxygens have to go somewhere. Until 2026-10-14 this read `[]`
+    # and the entry supplied no hydrogen, so the equation was short by 3 H2 and 2 O and could
+    # never balance — every reduction in the curated set had the same fault, which meant a
+    # route program using one always failed the audit.
+    "nitro-reduction": ("O=[N+]([O-])c1ccccc1", [], "Nc1ccccc1", ["O", "O"]),
     "nitrile-hydrolysis": ("N#Cc1ccccc1", [], "O=C(O)c1ccccc1", ["N"]),
     "alkene-hydrogenation": ("C=Cc1ccccc1", [], "CCc1ccccc1", []),
     "halide-amination": ("BrCc1ccccc1", ["CNC"], "CN(C)Cc1ccccc1", ["Br"]),
     "phenol-alkylation": ("Oc1ccccc1", ["CI"], "COc1ccccc1", ["I"]),
     "acid-to-acyl-chloride": ("OC(=O)c1ccccc1", [], "O=C(Cl)c1ccccc1", []),
+    # Protecting-group chemistry, added 2026-10-14. Until then the curated set held no
+    # deprotection at all, so a peptide program had to reach for `amide-hydrolysis` with a
+    # descriptive site phrase and died on the vocabulary: measured on chainP-2 and chainP-4,
+    # both well-formed programs, both unbuildable. `n-carbamoylation` is here for the same
+    # reason from the other side — `n-acylation` wants an acyl chloride and rejects benzyl
+    # chloroformate, which is the standard way to put a Cbz on, so protection was unsayable too.
+    #
+    # Each of the five removals declares `carries: 1`, the map number that rides on the chain.
+    # Size cannot stand in for it: Boc leaves isobutylene at 4 heavy atoms, which is smaller
+    # than alanine's 6, while Fmoc leaves dibenzofulvene at 14 and Cbz leaves toluene at 7,
+    # which are larger. A largest-fragment rule gets two of these three backwards, and the
+    # default most-inherited-atoms rule returns the carbon dioxide.
+    "fmoc-removal": ("C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O", [], "C[C@H](N)C(=O)O",
+                     ["C=C1c2ccccc2-c2ccccc21", "O=C=O"]),
+    "boc-removal": ("C[C@H](NC(=O)OC(C)(C)C)C(=O)O", [], "C[C@H](N)C(=O)O", ["C=C(C)C", "O=C=O"]),
+    "cbz-removal": ("C[C@H](NC(=O)OCc1ccccc1)C(=O)O", [], "C[C@H](N)C(=O)O", ["Cc1ccccc1", "O=C=O"]),
+    "benzyl-ester-hydrogenolysis": ("C[C@H](N)C(=O)OCc1ccccc1", [], "C[C@H](N)C(=O)O", ["Cc1ccccc1"]),
+    "tert-butyl-ester-removal": ("C[C@H](N)C(=O)OC(C)(C)C", [], "C[C@H](N)C(=O)O", ["C=C(C)C"]),
+    # The hindered twin of the above, added 2026-10-15 so the aspartimide advice in compat_tables
+    # names a side-chain ester the toolkit can actually carry. Its own rule rather than a widened
+    # tert-butyl one: the two site phrases must stay disjoint, or a program that asks for the
+    # bulky ester would silently strip a tert-butyl one instead.
+    "mpe-ester-removal": ("C[C@H](N)C(=O)OC(C)(CC)CC", [], "C[C@H](N)C(=O)O", ["C=C(CC)CC"]),
+    "n-carbamoylation": ("C[C@H](N)C(=O)O", ["ClC(=O)OCc1ccccc1"],
+                         "C[C@H](NC(=O)OCc1ccccc1)C(=O)O", ["Cl"]),
+    # Protection, added 2026-10-15. The set could REMOVE eleven groups and ADD only one, which is
+    # fine for a peptide route — solid-phase synthesis buys its blocks protected — but blocks arm 2,
+    # where the block is the thing being made. A protection is NOT the removal reversed: Fmoc comes
+    # off as dibenzofulvene and CO2 under base but goes on from the chloroformate releasing HCl, and
+    # trityl comes off with water giving triphenylmethanol. Only the tert-butyl ether is a true
+    # reverse, isobutylene adding across the O-H, which is why it alone has no co-product.
+    # Trityl chloride is the attested reagent: 68 templates over 2188 reactions in index-v10.
+    # The dipeptide endgame, added 2026-10-15. A dipeptide BLOCK needs no new coupling verb — its
+    # free acid couples exactly as a monomer's does — but the groups it carries must come off, or a
+    # chain built from one can be assembled and never finished. The pseudoproline case is the one
+    # worth reading: the oxazolidine is a cyclic N,O-acetal, so opening it restores BOTH the
+    # side-chain hydroxyl and the backbone N-H and gives back the native serine, which is the whole
+    # reason the kink is allowed to be temporary.
+    "dmb-removal": ("CN(Cc1ccc(OC)cc1OC)C(=O)C[C@H](N)C(=O)O", ["O"],
+                    "CNC(=O)C[C@H](N)C(=O)O", ["COc1ccc(CO)c(OC)c1"]),
+    "pseudoproline-opening": ("C[C@H](N)C(=O)N1[C@@H](C(=O)O)COC1(C)C", ["O"],
+                              "C[C@H](N)C(=O)N[C@H](CO)C(=O)O", ["CC(C)=O"]),
+    "s-tritylation": ("N[C@@H](CS)C(=O)O", ["ClC(c1ccccc1)(c1ccccc1)c1ccccc1"],
+                      "N[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["Cl"]),
+    "n-tritylation": ("N[C@@H](CC(=O)N)C(=O)O", ["ClC(c1ccccc1)(c1ccccc1)c1ccccc1"],
+                      "N[C@@H](CC(=O)NC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["Cl"]),
+    "o-tert-butylation": ("COC(=O)[C@@H](CO)NC(=O)OC(C)(C)C", ["CC(C)=C"],
+                          "COC(=O)[C@@H](COC(C)(C)C)NC(=O)OC(C)(C)C", []),
+    # The remaining installers, added 2026-10-15. Each shipped removal had no counterpart, so a
+    # route could take a group OFF and never put one ON. Probing the seven side-chain types the
+    # 478-entry library needs showed phenol, alcohol, thiol, the Asn/Gln carboxamide and the
+    # side-chain acid were already reachable (o-tert-butylation, s-tritylation, n-tritylation,
+    # ester-formation with tBuOH); these four were not.
+    #
+    # Boc with the ANHYDRIDE, not the chloroformate: n-carbamoylation is written for Cl-CO-OR and
+    # returns no-match on Boc2O, which is what is actually used — Boc-Cl is unstable. The leaving
+    # tert-butyl carbonate is not isolable, so the equation ends at CO2 + tert-butanol.
+    "boc-protection": ("NCCCC", ["CC(C)(C)OC(=O)OC(=O)OC(C)(C)C"],
+                       "CCCCNC(=O)OC(C)(C)C", ["CC(C)(C)O", "O=C=O"]),
+    # Only the TERMINAL NH2 of the guanidine. A pattern accepting any guanidine N-H matches two
+    # nitrogens and the executor correctly refuses with ambiguous-site; the delta-NH carries the
+    # side chain and is not where Pbf goes.
+    "pbf-sulfonylation": ("NC(=N)NCCC", ["Cc1c(C)c2c(c(C)c1S(=O)(=O)Cl)CC(C)(C)O2"],
+                          "CCCNC(=N)NS(=O)(=O)c1c(C)c(C)c2c(c1C)CC(C)(C)O2", ["Cl"]),
+    # [nH] on the reactant side and [n] on the product: an aromatic nitrogen cannot be recounted
+    # the way an aliphatic one can, which is the same asymmetry imidazole-trityl-removal needed.
+    "imidazole-tritylation": ("c1cnc[nH]1", ["ClC(c1ccccc1)(c1ccccc1)c1ccccc1"],
+                              "c1ccc(C(c2ccccc2)(c2ccccc2)n2ccnc2)cc1", ["Cl"]),
+    # Dmb arrives by reductive amination on the amine BEFORE the residues are joined - it is not
+    # installed onto an assembled chain - so the equation needs the aldehyde and a hydrogen.
+    "dmb-installation": ("CNCC(=O)O", ["COc1ccc(C=O)c(OC)c1", "[H][H]"],
+                         "COc1ccc(CN(C)CC(=O)O)c(OC)c1", ["O"]),
+    # Peptide coupling in the C-to-N direction, added 2026-10-14. `amide-formation` carries the
+    # ACID, and a curated verb can only occupy reactant slot 0 (see the `flexible` test below), so
+    # a growing chain whose free end is the AMINE had no verb at all — which is the direction
+    # solid-phase synthesis actually runs. Measured on chainP-6: a correct Fmoc hexapeptide died at
+    # line 3 because the carried benzyl ester has no free carboxyl for `amide-formation` to use.
+    "n-peptide-coupling": ("Nc1ccccc1", ["OC(=O)c1ccccc1"], "O=C(Nc1ccccc1)c1ccccc1", ["O"]),
+    # The SPPS endgame, added 2026-10-15. Until these existed a program could assemble a fully
+    # protected chain on the support and had no way to finish it: no side-chain removal for trityl,
+    # tert-butyl ether or Pbf, and no cleavage from the support at all. Each releases what the acid
+    # actually carries away, so the equation balances: triphenylmethanol from a trityl, isobutylene
+    # from a tert-butyl ether, the sulfonic acid from Pbf.
+    #
+    # Trityl is three rules rather than one because the freed atom differs: a thiol and an
+    # aliphatic nitrogen let the toolkit recount their hydrogens, but an imidazole ring nitrogen
+    # must be written [nH:1] or the product cannot be kekulised. `trityl-removal` is the family
+    # that picks between them, and it is in FAMILIES below.
+    "s-trityl-removal": ("N[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["O"], "N[C@@H](CS)C(=O)O",
+                         ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
+    "n-trityl-removal": ("O=C(NC(c1ccccc1)(c1ccccc1)c1ccccc1)C[C@H](N)C(=O)O", ["O"],
+                         "NC(=O)C[C@H](N)C(=O)O", ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
+    "imidazole-trityl-removal": ("N[C@@H](Cc1cn(C(c2ccccc2)(c2ccccc2)c2ccccc2)cn1)C(=O)O", ["O"],
+                                 "N[C@@H](Cc1c[nH]cn1)C(=O)O", ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
+    "tert-butyl-ether-removal": ("N[C@@H](COC(C)(C)C)C(=O)O", [], "N[C@@H](CO)C(=O)O", ["C=C(C)C"]),
+    "pbf-removal": ("N[C@@H](CCCN=C(N)NS(=O)(=O)c1c(C)c(C)c2c(c1C)CC(C)(C)O2)C(=O)O", ["O"],
+                    "NC(N)=NCCC[C@H](N)C(=O)O", ["Cc1c(C)c(S(=O)(=O)O)c(C)c2c1OC(C)(C)C2"]),
+    # The chain is the PEPTIDE, not the support. This entry asserted the reverse until 2026-10-15,
+    # and the suite passed the whole time: `carries` was 1, which is `[#0:1]`, the resin dummy atom,
+    # so the last step of every solid-phase route handed back `*O` and returned the peptide as a
+    # co-product. Caught by assembling a hexapeptide from non-natural blocks and reading what came
+    # out of the cleavage. `carries` is now 2, the ester oxygen that stays with the acid.
+    "resin-cleavage": ("*OC(=O)[C@@H](C)N", ["O"], "C[C@@H](N)C(=O)O", ["*O"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
-CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge")
+CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge", "head-to-tail-macrolactamisation")
+
+# A family verb names the intent and dispatches to the member that fits the molecule, so it has no
+# SMARTS, no single site, and no one product to claim -- the member it picks has all three. Listed
+# apart from CURATED for exactly that reason; FamilyVerbs below covers what it does instead.
+FAMILIES = ("n-deprotect", "trityl-removal")
 
 KETONE_REDUCTION_SMARTS = "[#6:1][C:2](=[O:3])[#6:4]>>[#6:1][CH1:2]([OH:3])[#6:4]"
 HYDROGENATION_SMARTS = "[CX3:1]=[CX3:2]>>[C:1][C:2]"
@@ -70,11 +182,16 @@ class CuratedSet(unittest.TestCase):
         self.assertTrue(listed["ok"])
         ids = [t["id"] for t in listed["transforms"]]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids), set(CURATED) | set(CLOSURES))
+        self.assertEqual(set(ids), set(CURATED) | set(CLOSURES) | set(FAMILIES))
         for entry in listed["transforms"]:
             self.assertEqual(sorted(entry), ["id", "site", "siteSlots", "summary"])
             self.assertTrue(entry["summary"].endswith("."), entry)
-            if entry["id"] in CLOSURES:
+            if entry["id"] in FAMILIES:
+                # It declares no site: which group it acts on depends on the molecule in hand.
+                self.assertIsNone(entry["site"])
+                self.assertEqual(entry["siteSlots"], [])
+                self.assertTrue(route_program._tables()["byId"][entry["id"]]["family"])
+            elif entry["id"] in CLOSURES:
                 # A closure declares the two sites it joins and no single site of its own.
                 self.assertIsNone(entry["site"])
                 self.assertEqual(len(entry["siteSlots"]), 2)
@@ -111,6 +228,169 @@ class CuratedSet(unittest.TestCase):
         missing = named("ester-formation", "OC(=O)c1ccccc1")
         self.assertEqual(missing["error"], "no-match")
         self.assertIn("alcohol", missing["message"])
+
+
+class ProtectingGroups(unittest.TestCase):
+    """Which fragment continues the route when a step cuts the molecule in two.
+
+    The toolkit cannot read this off the chemistry: both sides of an ester hydrolysis are made of
+    the atoms that went in, and the route is the only thing that knows which one it is following.
+    So a curated transformation that cleaves declares the map number riding on the chain
+    (`carries`), and a caller may override with `carry`. Everything here is a case where getting it
+    wrong is silent — the step succeeds, the wrong molecule goes forward, and the route fails
+    several lines later on something that is not the mistake."""
+
+    FMOC_LYS_BOC = "O=C(O)[C@H](CCCCNC(=O)OC(C)(C)C)NC(=O)OCC1c2ccccc2-c2ccccc21"
+
+    def test_a_deprotection_carries_the_chain_and_not_the_protecting_group(self):
+        # The point of `carries`. Without it the default rule hands back carbon dioxide, which has
+        # the most template-named atoms of any fragment here.
+        for transform_id, substrate in (
+            ("fmoc-removal", "C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O"),
+            ("boc-removal", "C[C@H](NC(=O)OC(C)(C)C)C(=O)O"),
+            ("cbz-removal", "C[C@H](NC(=O)OCc1ccccc1)C(=O)O"),
+        ):
+            with self.subTest(transform_id):
+                out = named(transform_id, substrate)
+                self.assertTrue(out.get("ok"), out)
+                self.assertEqual(out["product"], "C[C@H](N)C(=O)O")
+                self.assertIn("O=C=O", out["coProducts"])
+
+    def test_size_would_get_fmoc_and_cbz_backwards(self):
+        # Why `carries` is a declaration and not a heuristic. Dibenzofulvene (14 heavy atoms) and
+        # toluene (7) are both bigger than alanine (6); isobutylene (4) is smaller. Any rule that
+        # reads size alone is wrong for two of these three.
+        for transform_id, substrate, byproduct in (
+            ("fmoc-removal", "C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O", "C=C1c2ccccc2-c2ccccc21"),
+            ("cbz-removal", "C[C@H](NC(=O)OCc1ccccc1)C(=O)O", "Cc1ccccc1"),
+        ):
+            with self.subTest(transform_id):
+                out = named(transform_id, substrate)
+                self.assertIn(byproduct, out["coProducts"])
+                biggest = named(transform_id, substrate, carry="largest")
+                self.assertEqual(biggest["product"], byproduct)
+
+    def test_each_protecting_group_is_removed_without_touching_the_other(self):
+        # Fmoc-Lys(Boc)-OH holds two carbamates. This is the selectivity a peptide route needs and
+        # the reason the site vocabulary gained the precise phrases: `carbamate` cannot choose.
+        fmoc_off = named("fmoc-removal", self.FMOC_LYS_BOC)
+        self.assertEqual(fmoc_off["product"], "CC(C)(C)OC(=O)NCCCC[C@H](N)C(=O)O")
+        boc_off = named("boc-removal", self.FMOC_LYS_BOC)
+        self.assertEqual(boc_off["product"], "NCCCC[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O")
+        loose = named("fmoc-removal", self.FMOC_LYS_BOC, site="carbamate")
+        self.assertEqual(loose["error"], "ambiguous-site")
+
+    def test_the_stereocentre_survives_a_deprotection(self):
+        # The alpha carbon is untouched by every one of these, so an inverted product would mean
+        # the SMARTS is reordering branches around it.
+        for transform_id, substrate in (
+            ("fmoc-removal", "C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O"),
+            ("boc-removal", "C[C@H](NC(=O)OC(C)(C)C)C(=O)O"),
+            ("tert-butyl-ester-removal", "C[C@H](N)C(=O)OC(C)(C)C"),
+        ):
+            with self.subTest(transform_id):
+                self.assertEqual(named(transform_id, substrate)["product"], "C[C@H](N)C(=O)O")
+
+    def test_carry_names_a_fragment_outright(self):
+        # TFA-Gly-OMe, one amide, so the site is unambiguous and only the fragment choice is in
+        # question. `amide-hydrolysis` declares no `carries`: either side of an amide can be the
+        # chain, which is exactly when the caller has to say.
+        tfa_gly_ome, peptide, tfa = "COC(=O)CNC(=O)C(F)(F)F", "COC(=O)CN", "O=C(O)C(F)(F)F"
+        default = named("amide-hydrolysis", tfa_gly_ome, site="amide")
+        self.assertEqual(default["product"], tfa)
+        # And `largest` is no help here either: trifluoroacetic acid has 7 heavy atoms against the
+        # glycine ester's 6. Naming the fragment is the only reliable way to say it.
+        self.assertEqual(named("amide-hydrolysis", tfa_gly_ome, site="amide",
+                               carry="largest")["product"], tfa)
+        out = named("amide-hydrolysis", tfa_gly_ome, site="amide", carry=peptide)
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"], peptide)
+        self.assertEqual(out["coProducts"], [tfa])
+
+    def test_a_carry_the_step_cannot_form_is_an_error_and_lists_what_it_does_form(self):
+        # The value of saying it outright: a line that misunderstands its own reaction is caught
+        # here rather than three steps downstream.
+        out = named("boc-removal", "C[C@H](NC(=O)OC(C)(C)C)C(=O)O", carry="c1ccccc1")
+        self.assertEqual(out["error"], "no-match")
+        self.assertIn("C[C@H](N)C(=O)O", out["message"])
+        self.assertEqual(named("boc-removal", "C[C@H](NC(=O)OC(C)(C)C)C(=O)O",
+                               carry={"kind": "banana"})["error"], "unparsable")
+
+    def test_protection_accepts_a_chloroformate(self):
+        # The chainP-4 block: Cbz-Cl is a chloroformate, so `n-acylation` rejects it.
+        self.assertEqual(named("n-acylation", "C[C@H](N)C(=O)O", ["ClC(=O)OCc1ccccc1"])["error"],
+                         "no-match")
+        out = named("n-carbamoylation", "C[C@H](N)C(=O)O", ["ClC(=O)OCc1ccccc1"])
+        self.assertEqual(out["product"], "C[C@H](NC(=O)OCc1ccccc1)C(=O)O")
+
+    def test_a_dipeptide_route_runs_end_to_end(self):
+        # chainP-2's target, which program mode could not build at all before this.
+        coupled = named("amide-formation", "CC(C)(C)OC(=O)NCC(=O)O", ["COC(=O)[C@H](C)N"])
+        self.assertEqual(coupled["product"], "COC(=O)[C@H](C)NC(=O)CNC(=O)OC(C)(C)C")
+        freed = named("boc-removal", coupled["product"])
+        self.assertEqual(freed["product"], "COC(=O)[C@H](C)NC(=O)CN")
+
+
+class WhichVerbsApply(unittest.TestCase):
+    """Step two of the three-part recipe: name the class, CHECK IT AGAINST THE LIBRARY, implement.
+
+    Steps one and three were already here — `named=` is the class and the engine derives the
+    product, so a mass-balance error is impossible by construction — and nothing checked the
+    middle. A verb that cannot act on the carried molecule was discovered only by failing, and the
+    refusal named what was missing rather than what would have worked.
+
+    Measured 2026-10-14 on chainP-6: a correct Fmoc solution-phase hexapeptide, five `fmoc-removal`
+    steps and a final hydrogenolysis, died at line 3 on `amide-formation` applied to a benzyl ester.
+    The message said "The carried molecule has no carboxylic acid", which is true and useless: the
+    chain was the amine, and the verb for that direction is `n-peptide-coupling`."""
+
+    PHE_OBN = "O=C(OCc1ccccc1)[C@H](Cc1ccccc1)N"   # H-Phe-OBn: free amine, carboxyl esterified
+    FMOC_LEU = "O=C(OCC1c2ccccc2-c2ccccc21)N[C@@H](CC(C)C)C(=O)O"
+
+    def test_a_wrong_verb_is_told_which_verb_does_apply(self):
+        out = named("amide-formation", self.PHE_OBN, [self.FMOC_LEU])
+        self.assertEqual(out["error"], "absent-site")
+        self.assertIn("no carboxylic acid", out["message"])
+        self.assertIn("n-peptide-coupling", out["message"])
+
+    def test_the_verb_it_names_actually_works(self):
+        # The point of naming it: following the advice has to succeed, or the advice is the
+        # chainL-3 pattern — correct, and pointing at something the reader cannot do.
+        out = named("n-peptide-coupling", self.PHE_OBN, [self.FMOC_LEU])
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"],
+                         "CC(C)C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)N[C@@H](Cc1ccccc1)C(=O)OCc1ccccc1")
+        self.assertEqual(out["coProducts"], ["O"])
+        # Both centres stay L, and the product writes them with OPPOSITE tags — `[C@H]` for the
+        # leucine, `[C@@H]` for the phenylalanine — because the atom order differs. That is why the
+        # configuration is asserted with a CIP labeller and never by comparing the @/@@ tag.
+        from rdkit import Chem
+        from rdkit.Chem import rdCIPLabeler
+        mol = Chem.MolFromSmiles(out["product"])
+        rdCIPLabeler.AssignCIPLabels(mol)
+        labels = sorted(a.GetPropsAsDict()["_CIPCode"] for a in mol.GetAtoms() if a.HasProp("_CIPCode"))
+        self.assertEqual(labels, ["S", "S"], "both amino acids must remain L through the coupling")
+
+    def test_the_two_coupling_directions_are_separate_verbs(self):
+        # A curated verb only ever occupies reactant slot 0, so the carried molecule decides which
+        # verb applies. Carrying the acid is amide-formation; carrying the amine is the new one.
+        acid, amine = "CC(C)(C)OC(=O)NCC(=O)O", "COC(=O)[C@H](C)N"
+        self.assertTrue(named("amide-formation", acid, [amine]).get("ok"))
+        self.assertEqual(named("n-peptide-coupling", acid, [amine])["error"], "absent-site")
+        self.assertTrue(named("n-peptide-coupling", amine, [acid]).get("ok"))
+        self.assertEqual(named("amide-formation", amine, [acid])["error"], "absent-site")
+
+    def test_nothing_is_offered_when_nothing_applies(self):
+        # Methane with no reagents: the clause is absent rather than empty, so a failure stays one
+        # sentence when there is no help to give.
+        out = named("amide-formation", "C")
+        self.assertNotIn("DO apply", out["message"])
+
+    def test_the_advice_respects_the_reagents_actually_given(self):
+        # A verb is only offered when it fires with what the line has. Without the acid partner,
+        # n-peptide-coupling cannot run, so it must not be suggested.
+        out = named("amide-formation", self.PHE_OBN)
+        self.assertNotIn("n-peptide-coupling", out.get("message", ""))
 
 
 class SiteResolution(unittest.TestCase):
@@ -828,3 +1108,186 @@ class DisconnectionSite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class SuppliedConditions(unittest.TestCase):
+    """A transformation may declare the conditions it implies, and they must not enter the balance.
+
+    Why, from the independent chemistry review on 2026-10-14 (claude-opus-5, blind to the app's
+    verdict): it raised against BOTH reviewed routes that every acidic deprotection delivers the
+    amine as its ammonium salt and the following coupling "as written contains no base, so the
+    amine is non-nucleophilic". The route was unrunnable while the engine called it correct.
+
+    The fix has to land in the AGENT slot, not a reaction slot. A reaction slot is balance-bearing
+    -- `cbz-removal` says so in its own summary, "the hydrogen is written as a reactant so the
+    equation balances" -- so a base put there would unbalance every coupling unless the protonated
+    base were also written as a product, which is a far larger change. The balancer's own error
+    text names the right place: "If they are catalysts and not consumed, list them under Agents
+    instead."
+    """
+
+    CHAIN = "COC(=O)CN"                                    # a growing chain, free amine
+    BOC_ALA = "CC(C)(C)OC(=O)N[C@@H](C)C(=O)O"             # the incoming residue
+
+    def test_the_coupling_supplies_a_base_as_an_agent(self):
+        out = apply(molecule=self.CHAIN, operation={"kind": "named", "id": "n-peptide-coupling"},
+                    reagents=[self.BOC_ALA])
+        self.assertTrue(out["ok"], out)
+        # The acid fills the declared slot, so it is a co-REACTANT and balance-bearing.
+        self.assertEqual(len(out["coReactants"]), 1, out["coReactants"])
+        # The base is a condition: present, and in the slot the balance ignores.
+        self.assertEqual(out["agents"], ["CCN(C(C)C)C(C)C"], out["agents"])
+        self.assertNotIn("CCN(C(C)C)C(C)C", out["coReactants"])
+
+    def test_a_caller_reagent_beyond_the_slots_still_becomes_an_agent(self):
+        """The supplied conditions are appended to the caller's surplus, not substituted for it."""
+        out = apply(molecule=self.CHAIN, operation={"kind": "named", "id": "n-peptide-coupling"},
+                    reagents=[self.BOC_ALA, "CO"])
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["agents"], ["CO", "CCN(C(C)C)C(C)C"], out["agents"])
+
+    def test_a_transformation_without_conditions_declares_no_agents(self):
+        out = apply(molecule="CC(C)(C)OC(=O)NCC(=O)OC", operation={"kind": "named", "id": "boc-removal"})
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["agents"], [], out["agents"])
+
+
+class FamilyVerbs(unittest.TestCase):
+    """A family verb names the intent and the toolkit picks the member the molecule fits.
+
+    Why, measured 2026-10-14: this is the ONE error that survived turning thinking off. A route
+    installed Cbz on line 3 and asked for `boc-removal` on line 4; the verb matched nothing, and
+    because a statement that produces nothing leaves every later statement without an input, that
+    single line left 15 of 17 steps unbuilt. The model was being asked to remember which group it
+    had installed three lines earlier, which is bookkeeping -- the work this toolkit exists to take
+    over, and the work the reasoning tokens were being spent on.
+
+    Dispatch adds no chemistry: each member is a curated verb with its own tests above.
+    """
+
+    GLY_OME = "COC(=O)CN"
+
+    def deprotect(self, molecule):
+        return apply(molecule=molecule, operation={"kind": "named", "id": "n-deprotect"})
+
+    def test_it_picks_the_group_the_molecule_actually_carries(self):
+        for label, molecule, phrase in (
+            ("cbz", "O=C(OCc1ccccc1)NCC(=O)OC", "cbz carbamate"),
+            ("boc", "CC(C)(C)OC(=O)NCC(=O)OC", "boc carbamate"),
+            ("fmoc", "O=C(OCC1c2ccccc2-c2ccccc21)NCC(=O)OC", "fmoc carbamate"),
+        ):
+            with self.subTest(label):
+                out = self.deprotect(molecule)
+                self.assertTrue(out.get("ok"), out)
+                # The member's own site, not the family's: the family declares none.
+                self.assertEqual(out["site"]["phrase"], phrase)
+                self.assertEqual(out["product"], self.GLY_OME)
+
+    def test_two_different_groups_are_refused_rather_than_guessed(self):
+        # Fmoc-Lys(Boc)-OH, from the user's own prompts. Which group the route means is intent, and
+        # inferring it would be wrong silently -- the rule the site resolver already follows.
+        out = self.deprotect("O=C(OCC1c2ccccc2-c2ccccc21)N[C@@H](CCCCNC(=O)OC(C)(C)C)C(=O)O")
+        self.assertEqual(out["error"], "ambiguous-site")
+        self.assertIn("fmoc carbamate", out["message"])
+        self.assertIn("boc carbamate", out["message"])
+        # It must name the verbs that WOULD settle it, or the author has nowhere to go.
+        self.assertIn("fmoc-removal", out["message"])
+        self.assertIn("boc-removal", out["message"])
+
+    def test_no_protecting_group_says_so(self):
+        out = self.deprotect(self.GLY_OME)
+        self.assertEqual(out["error"], "absent-site")
+        self.assertIn("none of the groups", out["message"])
+
+    def test_the_specific_removals_still_work_on_their_own(self):
+        """The family is an addition, not a replacement: naming the member must keep working."""
+        out = apply(molecule="CC(C)(C)OC(=O)NCC(=O)OC",
+                    operation={"kind": "named", "id": "boc-removal"})
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"], self.GLY_OME)
+
+    def test_a_wrong_specific_removal_still_fails_loudly(self):
+        """Dispatch must not make a mis-named member silently succeed -- that would hide the bug
+        this verb exists to prevent, rather than fix it."""
+        out = apply(molecule="O=C(OCc1ccccc1)NCC(=O)OC",
+                    operation={"kind": "named", "id": "boc-removal"})
+        self.assertEqual(out["error"], "absent-site")
+
+
+class EveryMatchingSite(unittest.TestCase):
+    """`site="every ester"` is one transformation at every place that phrase matches.
+
+    Why, measured 2026-10-14 on chainP-8: a route masked two side-chain hydroxyls and wrote ONE
+    `ester-hydrolysis` to free both. That is correct chemistry -- one saponification takes both --
+    against a grammar of one site per line, so the toolkit refused a route that was right and the
+    run ended with the refusal unread.
+
+    Implemented as consecutive single applications, so each pass contributes its own co-reactants
+    and co-products and the equation balances over all of them without anything here knowing that
+    two esters consume two waters. Verified against the real balancer: balanced, charge-balanced,
+    no differences.
+    """
+
+    DIACETATE = "CC(=O)OCC(COC(C)=O)NC(=O)OC(C)(C)C"   # two acetates on one Boc-protected backbone
+
+    def test_one_line_takes_both_esters(self):
+        out = apply(molecule=self.DIACETATE, operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site="every ester", carry="largest")
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["appliedTimes"], 2)
+        # The backbone continues and the Boc is untouched; both acetates leave.
+        self.assertEqual(out["product"], "CC(C)(C)OC(=O)NC(CO)CO")
+        self.assertEqual(out["coProducts"], ["CC(=O)O", "CC(=O)O"])
+        # Two hydrolyses consume two waters. This is what makes the derived equation balance.
+        self.assertEqual(out["coReactants"], ["O", "O"])
+
+    def test_without_every_the_refusal_stands(self):
+        """The ambiguity refusal must NOT be weakened: it is the guard against a silent guess, and
+        `every` is an opt-in that says all of them, never a way to pick one."""
+        out = apply(molecule=self.DIACETATE, operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site="ester", carry="largest")
+        self.assertEqual(out["error"], "ambiguous-site")
+        self.assertIn("2 places matching", out["message"])
+
+    def test_a_single_place_is_unchanged_by_every(self):
+        out = apply(molecule="CCOC(=O)c1ccccc1", operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site="every ester")
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"], "O=C(O)c1ccccc1")
+        self.assertEqual(out["coProducts"], ["CCO"])
+        self.assertNotIn("appliedTimes", out)
+
+    def test_a_phrase_that_matches_nothing_says_so(self):
+        out = apply(molecule="CCO", operation={"kind": "named", "id": "ester-hydrolysis"},
+                    site="every ester")
+        self.assertIn(out["error"], ("absent-site", "no-match"))
+
+    def test_it_fires_through_the_key_the_adapter_actually_sends(self):
+        """The adapter sends `sites`, plural, as a list of objects. Reading only the singular `site`
+        is why this feature never fired in the application while every test here passed: the tests
+        called the engine with the shape the adapter does not use. Measured on chainP-24,
+        2026-10-14 -- three of its four turns died on
+        "'every tert-butyl ester' is not a site phrase this toolkit knows"."""
+        out = route_program.handle({"op": "apply", "molecule": self.DIACETATE,
+                                    "operation": {"kind": "named", "id": "ester-hydrolysis"},
+                                    "sites": [{"kind": "phrase", "phrase": "every ester"}],
+                                    "carry": "largest"})
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["appliedTimes"], 2)
+        self.assertEqual(out["coProducts"], ["CC(=O)O", "CC(=O)O"])
+
+    def test_the_plural_key_still_refuses_an_ambiguous_phrase(self):
+        """And the opt-in stays an opt-in on that key too."""
+        out = route_program.handle({"op": "apply", "molecule": self.DIACETATE,
+                                    "operation": {"kind": "named", "id": "ester-hydrolysis"},
+                                    "sites": [{"kind": "phrase", "phrase": "ester"}],
+                                    "carry": "largest"})
+        self.assertEqual(out["error"], "ambiguous-site")
+
+    def test_each_and_all_are_the_same_request(self):
+        for word in ("all esters", "each ester"):
+            with self.subTest(word):
+                out = apply(molecule=self.DIACETATE, operation={"kind": "named", "id": "ester-hydrolysis"},
+                            site=word, carry="largest")
+                self.assertTrue(out.get("ok"), out)
+                self.assertEqual(out["appliedTimes"], 2)

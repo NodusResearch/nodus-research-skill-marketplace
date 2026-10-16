@@ -322,6 +322,53 @@ test('skeleton: a C–heteroatom bond at an unactivated carbon is refused (bromi
   assert.equal(alpha.continuous, true, alpha.blocked.join(' | '));
 });
 
+test('an imbalance of hydrogen alone names the metal-bearing species instead of asking for a reagent', async () => {
+  // The exact chainL-3 shape, 2026-10-13: a salt declared with the acid's hydrogens AND its sodium.
+  // The counts were reported correctly, but the advice said to add a missing reagent — nothing was
+  // missing, a formula was wrong — and the model re-emitted the same two steps for four turns, the
+  // failure text byte-identical each time. Labels group the salt as ONE species, as the author's
+  // declaration does.
+  const ACID = 'NCC(=O)N[C@@H](C)C(=O)N[C@@H](COCc1ccccc1)C(=O)O';
+  const step = `${ACID}.[Na].Cl>>${ACID}.[Na+].[Cl-]`;
+  const labels = [[
+    { role: 'reactant', name: 'the salt as declared', smiles: `${ACID}.[Na]` },
+    { role: 'reactant', name: 'hydrogen chloride', smiles: 'Cl' },
+    { role: 'product', name: 'the free acid', smiles: ACID },
+    { role: 'product', byproduct: true, name: 'sodium chloride', smiles: '[Na+].[Cl-]' },
+  ]];
+  const audit = await lib.auditRoute({ steps: [step], labels });
+  const said = audit.steps[0].differences?.join(' ') ?? '';
+  assert.match(said, /Only hydrogen is off/);
+  assert.match(said, /carries a metal/);
+  assert.doesNotMatch(said, /Add the missing reagent or byproduct/);
+  // The salt is named; the chloride, which carries no hydrogen, is not offered beside it.
+  assert.match(said, /C15H21N3NaO5/);
+  assert.doesNotMatch(said, /"ClNa"/);
+});
+
+test('a step whose products are its reactants is refused, not balanced', async () => {
+  // Found 2026-10-13 while preparing a graduated chain series. The atoms balance trivially when
+  // both sides hold the same species, and nothing downstream catches it: a step that changes no
+  // bond renders an EMPTY bond summary rather than a complaint. The cost is misattribution — a
+  // deprotection the author forgot to apply passes here and the route fails at the next step.
+  const nothing = await lib.auditRoute({ steps: ['CCO.CCOCC>>CCO.CCOCC'] });
+  assert.equal(nothing.continuous, false);
+  assert.match(nothing.steps[0].differences?.join(' ') ?? '', /products are the same species as its reactants/);
+
+  // Order must not matter: it is a multiset comparison, not a positional one.
+  const reordered = await lib.auditRoute({ steps: ['CCO.CCOCC>>CCOCC.CCO'] });
+  assert.equal(reordered.continuous, false);
+
+  // A real transformation with the same atom count on both sides is untouched.
+  const real = await lib.auditRoute({ steps: ['CCBr.CC[O-].[Na+]>>CCOCC.[Na+].[Br-]'] });
+  assert.equal(real.continuous, true, real.blocked.join(' | '));
+
+  // A species that genuinely passes through unchanged alongside a real change is NOT the same
+  // multiset, so it still balances: only a step where NOTHING changes is refused.
+  const passenger = await lib.auditRoute({ steps: ['CCBr.CC[O-].[Na+].CCO>>CCOCC.[Na+].[Br-].CCO'] });
+  assert.equal(passenger.continuous, true, passenger.blocked.join(' | '));
+});
+
 test('skeleton: an SN2 substitution is one change at one carbon, so a symmetric product does not mislead (Williamson)', async () => {
   const audit = await lib.auditRoute({ steps: ['CC[O-].[Na+].CCBr>>CCOCC.[Na+].[Br-]'] });
   assert.equal(audit.continuous, true, audit.blocked.join(' | '));
@@ -2200,10 +2247,15 @@ test('the application route-program tool rejects syntax and oversized programs b
   const host = stubHost();
   host.python = { ensureRuntime: async () => { throw new Error('must not access Python'); } };
   const worker = lib.createWorker(host);
+  // One past the worker's own cap, read from the bundle rather than repeated here. It is the
+  // parser's MAX_STATEMENTS and not a number of its own, which is the parser's MAX_STATEMENTS rather than a number of its
+  // own: a shorter program is legitimate work, and a solid-phase chain of any length spends one
+  // apply per residue per operation.
+  const oversized = lib.MAX_PROGRAM_APPLIES + 1;
   for (const program of ['nonsense', 'M1 = start(smiles="CCO")\ntarget = M1', [
     'M1 = start(smiles="CCO")',
-    ...Array.from({ length: 25 }, (_, i) => `M${i + 2} = apply(M${i + 1}, named="primary-alcohol-oxidation")`),
-    'target = M26',
+    ...Array.from({ length: oversized }, (_, i) => `M${i + 2} = apply(M${i + 1}, named="primary-alcohol-oxidation")`),
+    `target = M${oversized + 1}`,
   ].join('\n')]) {
     const result = await worker.invoke({ toolId: 'execute-route-program', input: { program }, locale: 'en' });
     assert.equal(result.artifacts[0].data.continuous, false);
@@ -4130,4 +4182,33 @@ test('a call from a reply never reaches the local OPSIN or mirror folder the rep
   sent.length = 0;
   await worker.invoke({ invocationId: 'hp2', toolId: 'compile', locale: 'en', input: { plan: plan(), question: 'Draw ethanol.', opsinDir: '/opsin' } });
   assert.equal(sent.filter((request) => request.opsinDir === '/opsin').length, 1, 'a host call keeps its local OPSIN');
+});
+
+// The conditions a transformation supplies ride in the AGENT slot, and the balance must not see
+// them. Measured 2026-10-14: the independent review found that a coupling written with no base is
+// unrunnable, and the fix is only safe if adding the base leaves every verdict untouched. A
+// reaction slot would NOT be safe — `cbz-removal` writes its hydrogen as a reactant precisely so
+// the equation balances — so this pins the distinction rather than the convenience.
+test('a supplied base in the agent slot does not enter the balance', async () => {
+  const chain = 'COC(=O)CN';
+  const acid = 'C[C@H](NC(=O)OC(C)(C)C)C(=O)O';
+  const product = 'COC(=O)CNC(=O)[C@H](C)NC(=O)OC(C)(C)C';
+  const base = 'CCN(C(C)C)C(C)C';
+  const bare = await lib.auditRoute({ steps: [`${chain}.${acid}>>${product}.O`], target: product });
+  const withBase = await lib.auditRoute({ steps: [`${chain}.${acid}>${base}>${product}.O`], target: product });
+  for (const [label, audit] of [['bare', bare], ['with the base', withBase]]) {
+    assert.equal(audit.steps[0].balanced, true, `${label}: ${audit.steps[0].differences.join(' | ')}`);
+    assert.equal(audit.steps[0].chargeBalanced, true, label);
+    assert.deepEqual(audit.steps[0].differences, [], label);
+    assert.equal(audit.target?.reason, 'formed', label);
+  }
+  // Identical verdicts, and the same bond ledger: the base changed nothing it should not.
+  assert.deepEqual(withBase.steps[0].bonds, bare.steps[0].bonds);
+  // The base is still THERE — an agent that vanished would also pass the assertions above.
+  assert.ok((withBase.steps[0].agents ?? []).some((a) => a.canonicalSmiles === base),
+    'the base must appear on the step as an agent');
+  // Control: the probe can tell. Drop the water and the same balancer objects.
+  const broken = await lib.auditRoute({ steps: [`${chain}.${acid}>${base}>${product}`], target: product });
+  assert.equal(broken.steps[0].balanced, false, 'the control must fail, or this test proves nothing');
+  assert.match(broken.steps[0].differences.join(' '), /H2O|H:/);
 });

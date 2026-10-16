@@ -439,6 +439,28 @@ function imbalanceAdvice(compositions: Composition[], roles: ReactionSpecies['ro
   const size = nonZero.reduce((sum, [, count]) => sum + Math.abs(count), 0);
   // Only one element off, by one or two atoms, and not hydrogen: no reagent supplies a lone O or
   // C. A mixed difference (O gained and H lost) is usually a missing oxidant or reductant.
+  // Only hydrogen is off, and a declared species carries a metal. A metal salt holds one fewer
+  // hydrogen per metal equivalent than the acid it comes from, so a salt written with the acid's
+  // hydrogen count AND its metal is short by exactly that — and nothing is missing from the step.
+  // Naming which species carries the metal is arithmetic, not advice (the author's Corollary 2:
+  // make the check deterministic rather than rewording the guidance). Measured on chainL-3,
+  // 2026-10-13: GENERIC_ADVICE sent a model round the same two steps for four turns, the failure
+  // text byte-identical each time, because it says to add a reagent when a formula is wrong.
+  const hydrogenOnly = nonZero.length === 1 && nonZero[0][0].startsWith('1:');
+  if (hydrogenOnly) {
+    const carriers = compositions
+      .map((composition, index) => ({ composition, index }))
+      // A metal species that carries NO hydrogen cannot be the one written with a hydrogen too
+      // many, so sodium chloride is not offered beside the salt that is actually wrong.
+      .filter(({ composition, index }) => (roles[index] === 'reactant' || roles[index] === 'product')
+        && Object.keys(composition.atoms).some(key => isMetalKey(key) && composition.atoms[key] > 0)
+        && (composition.atoms['1:0'] ?? 0) > 0);
+    if (carriers.length) {
+      const named = carriers.map(({ composition }) => `"${formulaOf(composition.atoms)}"`).join(', ');
+      const many = carriers.length > 1;
+      return `Only hydrogen is off, and ${named} ${many ? 'carry metals' : 'carries a metal'}: a metal salt holds one fewer hydrogen for each metal equivalent than the acid it is made from, so a salt written with both the acid's hydrogens and its metal is over by exactly that. Check ${many ? 'those formulae' : 'that formula'} before adding a reagent — nothing need be missing from this step.`;
+    }
+  }
   const lone = nonZero.length === 1 && size <= 2 && !nonZero[0][0].startsWith('1:');
   if (lone && organic('reactant') === 1 && organic('product') === 1) {
     const described = nonZero.map(([key, count]) => `${count > 0 ? 'the products lack' : 'the products have an extra'} ${Math.abs(count)} ${elementLabel(key)}`).join(' and ');

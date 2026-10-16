@@ -241,6 +241,7 @@ function parseApply(ref: MolRef, line: number, args: Arg[]): ApplyLine {
   const ops: Operation[] = [];
   let reagentsValue: Value | undefined;
   let siteValue: Value | undefined;
+  let carryValue: Value | undefined;
   const seen = new Set<string>();
   for (const a of args.slice(1)) {
     if (a.key === undefined) throw new Refusal('syntax', 'Every argument after the reference must be written as key=value.');
@@ -265,6 +266,9 @@ function parseApply(ref: MolRef, line: number, args: Arg[]): ApplyLine {
         break;
       case 'site':
         siteValue = a.value;
+        break;
+      case 'carry':
+        carryValue = a.value;
         break;
       default:
         throw new Refusal('syntax', `The apply call does not take ${a.key}=.`);
@@ -295,6 +299,31 @@ function parseApply(ref: MolRef, line: number, args: Arg[]): ApplyLine {
   if (reagentsValue !== undefined) {
     if (reagentsValue.t !== 'list') throw new Refusal('syntax', 'The reagents= argument must be a list in square brackets.');
     result.reagents = speciesFromList(reagentsValue.items);
+  }
+  if (carryValue !== undefined) {
+    // Two forms: the word, or a one-item list in exactly the shape reagents= takes, so there is no
+    // new grammar to learn. A fragment is named as a STRUCTURE and not as a name, because the
+    // fragment has to be compared against what the step actually formed and a name would have to
+    // be resolved first — and the comparison is the point: a carry the step cannot form is an
+    // error that names what it does form, instead of silently carrying the wrong molecule.
+    if (carryValue.t === 'list') {
+      const items = carryValue.items;
+      if (items.length !== 1) throw new Refusal('syntax', 'The carry= list names exactly one fragment.');
+      if (items[0].key !== 'smiles') throw new Refusal('syntax', 'A carried fragment is written as a structure: carry=[smiles="..."].');
+      const smiles = asString(items[0].value, 'carry=[smiles=').trim();
+      if (smiles === '') throw new Refusal('syntax', 'The carry=[smiles="..."] argument is given but empty.');
+      result.carry = { kind: 'smiles', smiles };
+    } else {
+      const word = asString(carryValue, 'carry=').trim().toLowerCase();
+      if (word === 'largest' || word === 'smallest') result.carry = { kind: word };
+      else if (word === '') throw new Refusal('syntax', 'The carry= argument is given but empty.');
+      else {
+        throw new Refusal(
+          'syntax',
+          `carry="${word}" is not one of largest or smallest. To name the fragment instead, write it as a structure: carry=[smiles="..."].`,
+        );
+      }
+    }
   }
   return result;
 }
