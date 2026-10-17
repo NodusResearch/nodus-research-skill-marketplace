@@ -101,26 +101,35 @@ class TheGateIsResidueTwo(unittest.TestCase):
 
 
 class TheFlagFires(unittest.TestCase):
-    def test_an_fmoc_removal_at_the_dipeptide_stage(self):
+    def test_the_deprotection_that_CREATES_the_free_amine(self):
+        # THE CASE THAT MATTERS, and the one the first version of this file got wrong. Taken from
+        # harness-runs/hazard-7 step 4 verbatim: the reactant still carries the Fmoc, so the group
+        # exists ONLY in the product. An earlier draft passed the same already-deprotected molecule
+        # as both sides, which cannot happen in a real route, and the gate was inert in production
+        # while this file was green.
+        found = hazards_for(FMOC_GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
+        self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_it_also_fires_when_the_amine_is_already_free(self):
         found = hazards_for(GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
         self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
 
     def test_it_is_high(self):
-        hazard = next(h for h in hazards_for(GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
+        hazard = next(h for h in hazards_for(FMOC_GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
                       if h["group"] == GROUP)
         self.assertEqual(hazard["severity"], "high", "it ends the synthesis rather than eroding it")
 
     def test_it_names_the_block_that_answers_it(self):
         # The to-do's own requirement: "this item is now only the DETECTOR, not the fix, and it
         # should name the block".
-        hazard = next(h for h in hazards_for(GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
+        hazard = next(h for h in hazards_for(FMOC_GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
                       if h["group"] == GROUP)
         words = f"{hazard['why']} {hazard.get('suggestion') or ''}"
         self.assertIn("Fmoc-Gly-Pro-OH", words, f"name the shipped block: {words}")
         self.assertIn("diketopiperazine", words.lower(), f"name what forms: {words}")
 
     def test_it_says_the_atom_checks_cannot_see_it(self):
-        hazard = next(h for h in hazards_for(GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
+        hazard = next(h for h in hazards_for(FMOC_GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
                       if h["group"] == GROUP)
         words = f"{hazard['why']} {hazard.get('suggestion') or ''}".lower()
         self.assertTrue(any(k in words for k in ("balance", "cleav", "off the resin", "support")),

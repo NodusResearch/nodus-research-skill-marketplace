@@ -93,6 +93,13 @@ class TheSubstratesAreWhatTheyClaim(unittest.TestCase):
 
 
 class TheFlagFires(unittest.TestCase):
+    def test_the_step_that_UNMASKS_the_indole(self):
+        # The shape a real route has, from harness-runs/hazard-7 step 16: the Boc comes off the
+        # indole in the same acid that is shedding every other cation, so the bare indole exists
+        # only on the PRODUCT side. Read from the reactants alone this fires a step late, or never.
+        found = hazards_for(TRP_PEPTIDE_BOC, TRP_PEPTIDE, BARE_TFA)
+        self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
     def test_bare_tfa_on_a_trp_peptide_with_a_tbu_ester(self):
         found = hazards_for(TRP_PEPTIDE, CLEAVED, BARE_TFA)
         self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")

@@ -99,6 +99,14 @@ class ThePatternPicksTheRightResidue(unittest.TestCase):
 
 
 class TheFlagFiresOnCleavage(unittest.TestCase):
+    def test_the_step_that_UNMASKS_the_side_chain_amide(self):
+        # harness-runs/hazard-7 step 19: the trityl comes off the glutamine side chain in acid, so
+        # the primary amide the alpha-amine closes onto exists only on the PRODUCT side. The
+        # tritylated reactant deliberately matches nothing, which is what made the reactant-side
+        # reading miss this step entirely.
+        found = hazards_for(GLN_TRT_ALA, GLN_ALA, CLEAVAGE)
+        self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
     def test_acid_cleavage_raises_it(self):
         found = hazards_for(TBU_GLN_ALA, GLN_ALA, CLEAVAGE)
         self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")

@@ -335,15 +335,6 @@ ATTACKS = {
         ("fmoc", "high", "is cleaved by base"), ("alkyl-halide", "medium", "may be substituted or eliminated"),
         ("aldehyde", "medium", "may condense (aldol, Cannizzaro)")],
     "amine-base": [("fmoc", "high", "is cleaved by amine base"), ("acid-chloride", "high", "is aminolysed"),
-        ("resin-dipeptide-dkp", "high", "closes to the DIKETOPIPERAZINE and takes the peptide off the support: "
-                                        "freeing this amine puts it six atoms from the ester holding the first "
-                                        "residue to the resin, and glycine or proline in that position closes it "
-                                        "fast. This ENDS the synthesis rather than eroding it — what is left on the "
-                                        "support is bare linker — and the atom checks cannot see it, because a "
-                                        "cyclic peptide and a resin alcohol both balance perfectly. The answer is to "
-                                        "never have the resin-bound dipeptide: load the pair as one block, "
-                                        "Fmoc-Gly-Pro-OH, in place of the anchored monomer. Failing that, deprotect "
-                                        "with a weaker base or a shorter treatment, or use a bulkier linker"),
         ("aspartimide-gly", "high", "closes to the aspartimide — Asp-Gly is the classic worst case, the glycine having "
                                     "no side chain to hinder it — which reopens to a mixture of alpha- and beta-linked "
                                     "peptide and epimerises the aspartate. The usual answer for this pair is backbone "
@@ -383,17 +374,6 @@ ATTACKS = {
         ("boc", "high", "is cleaved by acid"), ("acetal", "high", "is hydrolysed by aqueous acid"),
         ("tbu-ester", "high", "is cleaved by acid"), ("silyl-ether", "medium", "may be cleaved (TMS, TES, TBS more than TBDPS, TIPS)"),
         ("trityl", "high", "is cleaved by acid"), ("epoxide", "medium", "may be opened"),
-        ("n-terminal-gln", "high", "cyclises to PYROGLUTAMATE: the free alpha-amine closes onto its own "
-                                   "side-chain amide and ammonia leaves, so the peptide ends up with no "
-                                   "N-terminus. Acid at the end of a synthesis is where this bites, because the "
-                                   "amine is free and nothing further acylates it. Carry the residue as "
-                                   "Fmoc-Gln(Trt)-OH, which ships and is also the answer to the side-chain "
-                                   "dehydration flag, or keep the N-terminal Fmoc on until after cleavage"),
-        ("free-indole", "high", "is alkylated by the CATIONS this step sets loose: the tert-butyl, trityl and "
-                                "sulfonyl groups coming off the other residues leave as cations, and the indole is "
-                                "the most electron-rich ring in the peptide, so it takes them. The alkylated "
-                                "tryptophan cannot be recovered, and the cleaved peptide carries the damage")],
-    "aqueous-acid": [("acetal", "medium", "may be hydrolysed"), ("trityl", "medium", "may be cleaved"),
                      ("silyl-ether", "medium", "may be cleaved (TMS, TES)")],
     "fluoride": [("silyl-ether", "high", "is cleaved by fluoride")],
     "chromium-oxidant": [
@@ -448,6 +428,43 @@ ATTACKS = {
               ("acid", "medium", "quenches the ylide (acidic O–H)"), ("alcohol", "medium", "may quench the ylide (acidic O–H)")],
     "pd-coupling": [("aryl-halide", "medium", "may couple as well (a second aryl halide competes)"),
                     ("terminal-alkyne", "medium", "may couple (Sonogashira) or homocouple")],
+}
+
+# ------------------------------------------------------------- what the step UNMASKS, which then reacts
+# reagent class -> [(group, severity, why)], read against the groups PRESENT IN THE PRODUCTS.
+#
+# The third reading, and it exists because the first two cannot see this shape at all. ATTACKS asks
+# whether a group SURVIVES a step that attacks it, so it is evaluated only for groups already in
+# the reactants. But a deprotection CREATES the reactive thing: the free amine, the bare indole,
+# the primary amide. Before the step it is masked and matches nothing; after it, it is sitting in
+# the very conditions that made it.
+#
+# Found 2026-10-17 by running a real route rather than a unit test (harness-runs/hazard-7): the
+# diketopiperazine gate never fired on `Fmoc-Gly-Ala-resin + piperidine -> H-Gly-Ala-resin`, which
+# is precisely its case, because the group exists only on the product side. The test that was
+# supposed to prove it used the same already-deprotected molecule as both reactant and product,
+# so it passed for the wrong reason. Two more gates had the same flaw and were firing a step late.
+UNMASKED_RISKS = {
+    "strong-acid": [
+        ("free-indole", "high", "is laid BARE by this step, in the acid that is still full of the cations the other "
+                                "protecting groups are shedding — tert-butyl, trityl, Pbf sulfonyl. The indole is "
+                                "the most electron-rich ring in the peptide, so it takes them, and the alkylated "
+                                "tryptophan cannot be recovered"),
+        ("n-terminal-gln", "high", "is left free by this step, and it then cyclises to PYROGLUTAMATE: the alpha-amine "
+                                   "closes onto its own side-chain amide and ammonia leaves, so the peptide ends up "
+                                   "with no N-terminus. Acid at the end of a synthesis is where this bites, because "
+                                   "nothing further acylates the amine"),
+    ],
+    "amine-base": [
+        ("resin-dipeptide-dkp", "high", "is what this step CREATES, and it closes to the diketopiperazine, taking the "
+                                        "peptide off the support: the amine this deprotection frees sits six atoms "
+                                        "from the ester holding the first residue to the resin, and glycine or "
+                                        "proline in that position closes it fast. This ENDS the synthesis rather "
+                                        "than eroding it — bare linker is left behind — and the atom checks cannot "
+                                        "see it, because a cyclic peptide and a resin alcohol both balance "
+                                        "perfectly. The answer is to never have the resin-bound dipeptide: load the "
+                                        "pair as one block, Fmoc-Gly-Pro-OH, in place of the anchored monomer"),
+    ],
 }
 
 # --------------------------------------------------------------------- what a species does to ITSELF

@@ -1978,13 +1978,6 @@ def _compatibility(steps, textbook_dir=None):
                 # to compete with, and flagging it would be wallpaper.
                 if group == "free-alpha-carboxyl" and not (reacted & {"alcohol", "phenol"}):
                     continue
-                # A tryptophan indole is only at risk when this step actually sets a cation loose
-                # and nothing in the cocktail is there to take it. Both halves matter: strong acid
-                # on a peptide carrying nothing acid-labile releases no cation, and a cocktail with
-                # a silane, a thiol or thioanisole in it is the standard answer.
-                if group == "free-indole" and (T.has_cation_scavenger(text)
-                                               or not (before.keys() & {"boc", "tbu-ester", "tbu-ether", "trityl"})):
-                    continue
                 seen.add((group, cls))
                 # Another group of the same kind reacts in this step: the step is meant to tell them
                 # apart, so it is a selectivity question rather than a clash.
@@ -1996,6 +1989,26 @@ def _compatibility(steps, textbook_dir=None):
                                 "reagentLabel": T.label_of(cls), "severity": severity,
                                 "why": (f"another {T.GROUPS[group][0]} reacts in this step while this one must survive; under {T.label_of(cls)} conditions it {why} — check the selectivity"
                                         if selective else f"the {T.GROUPS[group][0]} survives into the product, but under {T.label_of(cls)} conditions it {why}"),
+                                "suggestion": text_hint, "_forms": forms})
+        # What the step UNMASKS. Read against the PRODUCTS: a deprotection creates the reactive
+        # thing, so before the step it is masked and matches nothing, and the ATTACKS loop above —
+        # which only ever sees reactant-side survivors — cannot reach it at all. The cation-source
+        # test still reads the REACTANTS, which is right: the cations come from the groups this step
+        # is removing.
+        for cls in classes:
+            for group, severity, why in T.UNMASKED_RISKS.get(cls, []):
+                if not after.get(group) or (group, cls) in seen:
+                    continue
+                # An indole is only at risk when this step actually sets a cation loose and nothing
+                # in the cocktail is there to take it.
+                if group == "free-indole" and (T.has_cation_scavenger(text)
+                                               or not (before.keys() & {"boc", "tbu-ester", "tbu-ether", "trityl"})):
+                    continue
+                seen.add((group, cls))
+                text_hint, forms = T.suggestion(group, cls)
+                hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
+                                "reagentLabel": T.label_of(cls), "severity": severity,
+                                "why": f"the {T.GROUPS[group][0]} {why}",
                                 "suggestion": text_hint, "_forms": forms})
         # What the activated species may do to ITSELF. Read against the reactants, not the
         # survivors: an arginine being activated loses its carboxyl whether it couples or closes
