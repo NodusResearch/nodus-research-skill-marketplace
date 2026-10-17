@@ -262,6 +262,13 @@ export interface RouteStepAudit {
   /** Set when the equation balances only by assembling a product molecule from more than one
    *  substrate molecule — chemically impossible for a single transformation. */
   assemblyProblem?: string;
+  /** Set when a stereocentre comes out of the step with the opposite configuration. The equation
+   *  balances — an epimer has the same formula — so this is its own channel rather than a balance
+   *  difference. It used to be written into `differences` with `balanced` cleared, which made the
+   *  report say `NOT balanced` about atoms that counted correctly; a reader then counts atoms,
+   *  finds nothing and never looks at the configuration. Measured on
+   *  harness-runs/spps-06-ladder1-names-first-thinking-none, where that cost three rounds. */
+  stereoProblem?: string;
   /** Set when the coefficient search gave up because more species are free to vary than it
    *  determines coefficients for. `balanced` stays false, so nothing passes the step, but it is
    *  unchecked rather than unbalanced, and its one action is to split the step. */

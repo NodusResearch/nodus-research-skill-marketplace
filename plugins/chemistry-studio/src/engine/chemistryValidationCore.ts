@@ -29,7 +29,8 @@ function rdkit(): Promise<RDKitModule> {
  *  a salt are atoms of the same graph with no bond between them. */
 export interface MoleculeGraph { elements: number[]; charges: number[]; radicals: number[]; bonds: Array<[number, number, number]> }
 
-/** The reason a SMILES was refused, when the reason is mechanically visible before RDKit is asked.
+/** The reason a SMILES was refused, when the reason is mechanically visible before RDKit is asked —
+ *  an unmatched delimiter, an unclosed ring bond, or a hydrogen written outside brackets.
  *
  *  RDKit reports only that it could not build a graph, which leaves the author re-deriving a long
  *  string from scratch instead of repairing it. Measured on real routes: a 242-character species
@@ -37,7 +38,7 @@ export interface MoleculeGraph { elements: number[]; charges: number[]; radicals
  *  whole species in a different orientation rather than fix the character — because nothing told
  *  them which character was wrong. Counting delimiters costs nothing and names that defect
  *  exactly. Anything else keeps the general message: a guess would be worse than silence. */
-function delimiterFault(smiles: string): string | null {
+function characterFault(smiles: string): string | null {
   for (const [open, close] of [['(', ')'], ['[', ']']] as const) {
     const opened = smiles.split(open).length - 1;
     const closed = smiles.split(close).length - 1;
@@ -51,6 +52,19 @@ function delimiterFault(smiles: string): string | null {
       }
     }
   }
+  // Hydrogen is not in the organic subset (B, C, N, O, P, S, F, Cl, Br, I), so a bare `H` outside
+  // a bracket atom can never parse — it is implicit, or it is written inside brackets. Measured on
+  // harness-runs/spps-02-ladder1-names-first-thinking-high: the free support was written `*OH`,
+  // twice in one turn, because "resin–OH" is how a chemist says it. The general message named no
+  // cause, and the correction round went on finding it. No other two-letter organic symbol
+  // contains an H, so there is nothing here to false-positive on.
+  for (let at = 0; at < smiles.length; at += 1) {
+    if (smiles[at] === '[') { const close = smiles.indexOf(']', at); if (close < 0) break; at = close; continue; }
+    if (smiles[at] !== 'H') continue;
+    const before = smiles.slice(Math.max(0, at - 1), at);
+    return `a bare "H"${before ? ` after "${before}"` : ''}: hydrogen is not an element symbol outside brackets. Write it implicitly — the free support is \`*O\`, not \`*OH\` — or inside a bracket atom (\`[NH3+]\`, \`[H]\`)`;
+  }
+
   // A ring bond is opened and closed by the same label, so outside a bracket atom every label
   // appears an even number of times. Measured: a route wrote one species with ring 2 opened and
   // never closed, was told only that RDKit rejected it, and resubmitted the identical string in
@@ -71,7 +85,7 @@ function delimiterFault(smiles: string): string | null {
 
 /** One message for both parse sites, so they cannot drift apart. */
 function rejectedGraph(smiles: string): Error {
-  const fault = delimiterFault(smiles);
+  const fault = characterFault(smiles);
   return new Error(fault
     ? `RDKit rejected the molecular graph: the SMILES has ${fault}. The rest of the string may be sound, so repair that one defect rather than rewriting the species.`
     : 'RDKit rejected the molecular graph.');

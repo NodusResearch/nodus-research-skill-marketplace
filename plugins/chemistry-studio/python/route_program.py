@@ -683,13 +683,24 @@ def _resolve_site(spec, mol, marks, tables, one_of_many=False):
         mark = spec.get("mark")
         if not _is_mark(mark):
             return _fail("unparsable", f"A handle site needs a mark, a whole number from {MARK_MIN} to {MARK_MAX}.")
+        # A mark is an atom-map integer this toolkit issues. It is not stable between runs and means
+        # nothing to the author, so every message names the reference the author WROTE — the
+        # adapter sends it as `label` ("@last", "@M17"). Measured on
+        # harness-runs/spps-10-ladder2-program-mode-thinking-none, where the only thing three
+        # successive failures said about WHERE they failed was "the mark 914", and then "the mark
+        # 913" for the same route. Without a label the fallback is prose, never the number.
+        label = spec.get("label") if isinstance(spec.get("label"), str) and spec.get("label").strip() else None
+        # Without a label the mark number is still the only identifier there is, and a direct
+        # caller needs to know WHICH of two handles was missing. That path does not reach the
+        # author: the adapter always sends a label, and route-program-ops.test.mjs holds it to that.
+        named_site = f"the site {label} points at" if label else f"the site mark {mark} points at"
         atoms = frozenset(index for index, number in marks.items() if number == mark)
         if not atoms:
-            return _fail("absent-site", f"Mark {mark} is not on the carried molecule: it was never set, or a later operation took its atoms.")
+            return _fail("absent-site", f"{named_site.capitalize()} is not on the carried molecule: it was never set, or a later operation took its atoms.")
         pieces = _components(mol, atoms)
         if pieces > 1:
-            return _fail("ambiguous-site", f"Mark {mark} sits in {pieces} separate places, so it cannot say where to act.")
-        return {"phrase": None, "mark": mark, "atoms": atoms}
+            return _fail("ambiguous-site", f"{named_site.capitalize()} sits in {pieces} separate places, so it cannot say where to act.")
+        return {"phrase": None, "mark": mark, "label": label, "named": named_site, "atoms": atoms}
     return _fail("unparsable", f"Site kind {kind!r} is not one of phrase or handle.")
 
 
@@ -878,7 +889,10 @@ def _apply(payload, deadline):
         if isinstance(ordered, dict) and "error" in ordered:
             return ordered
         sites = ordered
-    site_label = " and ".join((site["phrase"] or f"mark {site['mark']}") for site in sites) or None
+    site_label = " and ".join((f"the {site['phrase']}" if site["phrase"] else site.get("named") or "the site an earlier line marked") for site in sites) or None
+    # A phrase names a group, so it reads as "at the ester OF the carried molecule". A handle label
+    # already says whose site it is ("the site @M17 points at"), and the suffix would double up.
+    site_where = f"{site_label} of the carried molecule" if site_label and all(site["phrase"] for site in sites) else site_label
     _check(deadline)
 
     guard = mol
@@ -970,12 +984,34 @@ def _apply(payload, deadline):
 
     if not distinct:
         helps = _which_apply(mol, filled, deadline)
+        # WHICH HALF failed. The carried molecule reached this point having matched its own
+        # reactant template, so when a reagent matches none of its slot's pattern the reagent is
+        # the fault — and naming the carried molecule's site instead sends the author to the half
+        # that was never wrong. Measured on
+        # harness-runs/spps-10-ladder2-program-mode-thinking-none, all four turns: the reagent had
+        # the protecting group on the carboxyl instead of the nitrogen, so there was no acid to
+        # couple, and the message blamed the carried molecule's free amine. The author spent all
+        # three correction rounds qualifying that site. Only the conventional assignment is
+        # diagnosed this way: under `flexible` the carried molecule may sit in any slot, so which
+        # template a given reagent was held to is not fixed.
+        if len(assignments) == 1 and assignments[0][0] == 0:
+            slots = built.get("reagents") or []
+            blamed = []
+            for at, reagent in enumerate(filled):
+                if at + 1 >= arity or reagent.HasSubstructMatch(rxn.GetReactantTemplate(at + 1)):
+                    continue
+                role = (slots[at] or {}).get("role") if at < len(slots) else None
+                blamed.append(f"the reagent {Chem.MolToSmiles(reagent)!r} is not "
+                              + (f"the {role} it takes" if role else "what it takes there"))
+            if blamed:
+                return _fail("no-match", "The carried molecule matches this transformation, but "
+                             + " and ".join(blamed) + f".{helps}")
         if site_label:
-            return _fail("no-match", f"This transformation does not apply at the {site_label} of the carried molecule.{helps}")
+            return _fail("no-match", f"This transformation does not apply at {site_where}.{helps}")
         return _fail("no-match", f"This transformation does not apply to the carried molecule as given.{helps}")
     if len(distinct) > 1:
         if site_label:
-            return _fail("ambiguous-site", f"This transformation gives {len(distinct)} different outcomes at the {site_label}; name a narrower site or a mark.")
+            return _fail("ambiguous-site", f"This transformation gives {len(distinct)} different outcomes at {site_label}; name a narrower site or a mark.")
         return _fail("ambiguous-site", f"This transformation applies in {len(distinct)} places and no site was named.")
 
     chosen = next(iter(distinct.values()))

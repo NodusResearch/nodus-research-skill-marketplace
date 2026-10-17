@@ -216,10 +216,10 @@ test('a handle site becomes a mark, markAs is issued per apply, and productHandl
   const second = await applyOn(o, first.product, NAMED, [], { kind: 'handle', ref: 'last' });
   assert.equal(python.requests[1].body.moleculeHandle, 'H1');
   assert.equal(python.requests[1].body.molecule, 'P1');
-  assert.deepEqual(python.requests[1].body.sites, [{ kind: 'handle', mark: 900 }]);
+  assert.deepEqual(python.requests[1].body.sites, [{ kind: 'handle', mark: 900, label: '@last' }]);
   assert.equal(python.requests[1].body.markAs, 901);
   await applyOn(o, second.product, NAMED, [], { kind: 'handle', ref: 'M2' });
-  assert.deepEqual(python.requests[2].body.sites, [{ kind: 'handle', mark: 900 }]);
+  assert.deepEqual(python.requests[2].body.sites, [{ kind: 'handle', mark: 900, label: '@M2' }]);
 });
 
 test('a mark never appears in Molecule.smiles', async () => {
@@ -269,9 +269,9 @@ test('a mark is filed under the ref the line assigns, on a program whose refs ar
   const b = await applyOn(o, a.product, NAMED, [], undefined, 'M2');
   // The third line returns to the first (M5), not to whatever the count would have called M2.
   const c = await applyOn(o, b.product, NAMED, [], { kind: 'handle', ref: 'M5' });
-  assert.deepEqual(python.requests[2].body.sites, [{ kind: 'handle', mark: 900 }]);
+  assert.deepEqual(python.requests[2].body.sites, [{ kind: 'handle', mark: 900, label: '@M5' }]);
   await applyOn(o, c.product, NAMED, [], { kind: 'handle', ref: 'M2' });
-  assert.deepEqual(python.requests[3].body.sites, [{ kind: 'handle', mark: 901 }]);
+  assert.deepEqual(python.requests[3].body.sites, [{ kind: 'handle', mark: 901, label: '@M2' }]);
 });
 
 test('a handle ref for a line that declared no assigns is absent-site with no Python call', async () => {
@@ -286,7 +286,7 @@ test('a handle ref for a line that declared no assigns is absent-site with no Py
   assert.equal(python.requests.length, 1);
   // `last` still works for that line.
   await applyOn(o, a.product, NAMED, [], { kind: 'handle', ref: 'last' });
-  assert.deepEqual(python.requests[1].body.sites, [{ kind: 'handle', mark: 900 }]);
+  assert.deepEqual(python.requests[1].body.sites, [{ kind: 'handle', mark: 900, label: '@last' }]);
 });
 
 test('a two-entry sites list reaches the wire in order', async () => {
@@ -295,7 +295,7 @@ test('a two-entry sites list reaches the wire in order', async () => {
   const o = ops(python);
   const a = await applyOn(o, { smiles: 'A' }, NAMED, [], undefined, 'M2');
   await applyOn(o, a.product, NAMED, [], [{ kind: 'phrase', phrase: 'the acid' }, { kind: 'handle', ref: 'M2' }]);
-  assert.deepEqual(python.requests[1].body.sites, [{ kind: 'phrase', phrase: 'the acid' }, { kind: 'handle', mark: 900 }]);
+  assert.deepEqual(python.requests[1].body.sites, [{ kind: 'phrase', phrase: 'the acid' }, { kind: 'handle', mark: 900, label: '@M2' }]);
 });
 
 test('one unresolvable handle in a two-entry list fails the whole call with no Python call', async () => {
@@ -307,4 +307,25 @@ test('one unresolvable handle in a two-entry list fails the whole call with no P
   assert.equal(out.error, 'absent-site');
   assert.match(out.message, /M7/);
   assert.equal(python.requests.length, 1);
+});
+
+test('every handle site carries the reference the author wrote, never only the mark', () => {
+  // SPPS-FIXES-2026-10-17 fix 7, the invariant. The mark is this adapter's own integer: not stable
+  // between runs and meaningless to the author. The toolkit's failure messages name the reference
+  // instead, and they can only do that if this adapter sends it. Measured on
+  // harness-runs/spps-10-ladder2-program-mode-thinking-none, where three successive failures said
+  // only "the mark 914", then "the mark 913" for the same route.
+  //
+  // Asserted against the source rather than a call, so that a handle site added on a new path
+  // cannot reach the wire without a label.
+  const source = fs.readFileSync(path.join(root, 'src/engine/routeProgramOps.ts'), 'utf8');
+  // Read to the end of each push statement rather than to the first `}`: the label is written as
+  // a template literal, so a brace-counting pattern stops inside `${site.ref}`.
+  const pushes = source.split('wireSites.push(').slice(1)
+    .map((rest) => rest.slice(0, rest.indexOf('\n')))
+    .filter((push) => push.includes("kind: 'handle'"));
+  assert.ok(pushes.length, 'the adapter still sends handle sites');
+  for (const push of pushes) {
+    assert.match(push, /label:/, `a handle site reaches the wire without a label: ${push}`);
+  }
 });

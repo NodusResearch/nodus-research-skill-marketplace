@@ -296,3 +296,35 @@ test('carry: absent on an ordinary line, so nothing changes for a step that does
 test('carry: given twice is caught like any other repeated argument', () => {
   only(parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", carry="largest", carry="smallest")\ntarget = M1'), 'syntax', 2);
 });
+
+test('target assigned an operation is told that target takes a reference', () => {
+  // SPPS-FIXES-2026-10-17 fix 3. Measured at
+  // harness-runs/spps-02-ladder2-program-mode-thinking-none turn 0: the model wrote the final
+  // cleavage as `target = apply(M5, named="resin-cleavage")`, a natural reading of "the last
+  // statement is the target". The TARGET pattern wants a bare reference, so the line fell through
+  // to ASSIGN and was reported as `The name "target" is not a valid reference; use M1 to M999.`
+  // followed by `The program has no target line.` — two complaints that are each true and that
+  // together never say what the line should have been.
+  const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x")\ntarget = apply(M2, named="y")');
+  const message = r.diagnostics.map((d) => d.message).join(' ');
+  assert.match(message, /target/, `the line is still reported: ${message}`);
+  // What the model has to be told: the operation needs its own line first.
+  assert.match(message, /M<n> = apply|its own .*line|earlier line/i,
+    `the message says to give the operation its own line: ${message}`);
+  assert.doesNotMatch(message, /is not a valid reference; use M1 to M999/,
+    `the misleading complaint is gone: ${message}`);
+  // One finding, not two: "no target line" on top of it is what made the pair read as a
+  // contradiction.
+  assert.equal(r.diagnostics.length, 1, JSON.stringify(r.diagnostics));
+});
+
+test('target assigned a reference is still the ordinary, legal form', () => {
+  const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="y")\ntarget = M2');
+  assert.deepEqual(r.diagnostics, []);
+});
+
+test('a variable that is not called target keeps the plain reference complaint', () => {
+  // The old message is right for every other left-hand side, so it must not move.
+  const r = parseRouteProgram('M1 = start("a")\nfoo = apply(M1, named="y")\ntarget = M1');
+  assert.match(r.diagnostics.map((d) => d.message).join(' '), /The name "foo" is not a valid reference; use M1 to M999\./);
+});
