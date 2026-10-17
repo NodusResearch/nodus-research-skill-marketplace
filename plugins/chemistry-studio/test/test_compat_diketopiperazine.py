@@ -103,7 +103,7 @@ class TheGateIsResidueTwo(unittest.TestCase):
 class TheFlagFires(unittest.TestCase):
     def test_the_deprotection_that_CREATES_the_free_amine(self):
         # THE CASE THAT MATTERS, and the one the first version of this file got wrong. Taken from
-        # harness-runs/hazard-7 step 4 verbatim: the reactant still carries the Fmoc, so the group
+        # The measured route's step 4, verbatim: the reactant still carries the Fmoc, so the group
         # exists ONLY in the product. An earlier draft passed the same already-deprotected molecule
         # as both sides, which cannot happen in a real route, and the gate was inert in production
         # while this file was green.

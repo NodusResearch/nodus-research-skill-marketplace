@@ -439,7 +439,7 @@ ATTACKS = {
 # the primary amide. Before the step it is masked and matches nothing; after it, it is sitting in
 # the very conditions that made it.
 #
-# Found 2026-10-17 by running a real route rather than a unit test (harness-runs/hazard-7): the
+# Found 2026-10-17 by running a real route rather than a unit test on a measured seven-residue route: the
 # diketopiperazine gate never fired on `Fmoc-Gly-Ala-resin + piperidine -> H-Gly-Ala-resin`, which
 # is precisely its case, because the group exists only on the product side. The test that was
 # supposed to prove it used the same already-deprotected molecule as both reactant and product,

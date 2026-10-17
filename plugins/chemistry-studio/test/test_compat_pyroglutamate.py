@@ -100,7 +100,7 @@ class ThePatternPicksTheRightResidue(unittest.TestCase):
 
 class TheFlagFiresOnCleavage(unittest.TestCase):
     def test_the_step_that_UNMASKS_the_side_chain_amide(self):
-        # harness-runs/hazard-7 step 19: the trityl comes off the glutamine side chain in acid, so
+        # The measured route's step 19: the trityl comes off the glutamine side chain in acid, so
         # the primary amide the alpha-amine closes onto exists only on the PRODUCT side. The
         # tritylated reactant deliberately matches nothing, which is what made the reactant-side
         # reading miss this step entirely.
