@@ -7,6 +7,13 @@
  */
 export const PEPTIDE_BUILDING_BLOCKS: Record<string, string> = {
   "Fmoc-Ala-OH": "C[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
+  // Fmoc-Ala-OH acylating L-serine, then acetone closing the serine's side-chain OH and backbone
+  // N-H into the cyclic N,O-acetal (derived here as the reverse of pseudoproline-opening, and
+  // proved by reopening it onto the independently built dipeptide). The oxazolidine removes the
+  // backbone N-H and kinks the chain, which is what breaks up the beta-sheet aggregation that
+  // stalls a coupling mid-sequence; `pseudoproline-opening` restores the native serine, so the
+  // kink is temporary and the peptide asked for is the one that comes back. C24H26N2O6.
+  "Fmoc-Ala-Ser(psiMe,Mepro)-OH": "C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)N1[C@H](C(=O)O)COC1(C)C",
   "Fmoc-Arg(Pbf)-OH": "CC1=C(C(=C(C2=C1OC(C2)(C)C)C)S(=O)(=O)NC(=NCCC[C@@H](C(=O)O)NC(=O)OCC3C4=CC=CC=C4C5=CC=CC=C35)N)C",
   "Fmoc-Asn(Trt)-OH": "C1=CC=C(C=C1)C(C2=CC=CC=C2)(C3=CC=CC=C3)NC(=O)C[C@@H](C(=O)O)NC(=O)OCC4C5=CC=CC=C5C6=CC=CC=C46",
   "Fmoc-Asp(OMpe)-OH": "CCC(C)(CC)OC(=O)C[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",

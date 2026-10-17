@@ -71,9 +71,12 @@ class DipeptideBlocks(unittest.TestCase):
     def setUp(self):
         self.blocks = blocks()
 
-    def test_both_dipeptide_blocks_are_present_and_well_formed(self):
+    # Renamed from "both": there are three blocks now, the pseudoproline having arrived with the
+    # aggregation remedy.
+    def test_every_dipeptide_block_is_present_and_well_formed(self):
         for name, expected in (("Fmoc-Asp(OtBu)-(Dmb)Gly-OH", "C34H38N2O9"),
-                               ("Fmoc-Gly-Pro-OH", "C22H22N2O5")):
+                               ("Fmoc-Gly-Pro-OH", "C22H22N2O5"),
+                               ("Fmoc-Ala-Ser(psiMe,Mepro)-OH", "C24H26N2O6")):
             self.assertIn(name, self.blocks)
             smiles = self.blocks[name]
             self.assertIsNotNone(Chem.MolFromSmiles(smiles), name)
@@ -111,6 +114,71 @@ class DipeptideBlocks(unittest.TestCase):
         freed = apply_named("fmoc-removal", self.blocks["Fmoc-Gly-Pro-OH"])
         self.assertEqual(canonical(freed["product"]), canonical("NCC(=O)N1CCC[C@H]1C(=O)O"))
         self.assertEqual(formula(freed["product"]), "C7H12N2O3")
+
+
+class PseudoprolineBlock(unittest.TestCase):
+    """Fmoc-Ala-Ser(psiMe,Mepro)-OH — the aggregation remedy, and the third dipeptide block.
+
+    PEPTIDE-TODO Phase 2.5 had the aggregation item BLOCKED, and not on chemistry: the transforms
+    and `pseudoproline-opening` shipped in 5398d30, and what was missing was this entry, so a
+    pseudoproline had nowhere to be placed. Aggregation is explicitly NOT predictable from sequence,
+    which is why this block answers the part that IS concrete — where a remedy can go.
+
+    The same two things have to hold for it as for its neighbours: the auxiliary must come back off
+    and land on the molecule the plain route would have reached, and it must survive the repeated
+    piperidine of the rest of the synthesis, or it would not last long enough to help.
+    """
+
+    def setUp(self):
+        self.blocks = blocks()
+        self.block = self.blocks["Fmoc-Ala-Ser(psiMe,Mepro)-OH"]
+
+    def test_the_stereocentres_are_the_shipped_alanine_and_serine(self):
+        def centres(smiles):
+            mol = Chem.MolFromSmiles(smiles)
+            return [code for _, code in
+                    Chem.FindMolChiralCenters(mol, includeUnassigned=True, useLegacyImplementation=False)]
+        self.assertEqual(centres(self.block),
+                         centres(self.blocks["Fmoc-Ala-OH"]) + centres(self.blocks["L-serine"]))
+        self.assertEqual(centres(self.block), ["S", "S"], "both residues are L")
+
+    def test_opening_it_lands_on_the_plain_dipeptide(self):
+        # The pseudoproline is TEMPORARY. Open it and the result must be the molecule the ordinary
+        # two couplings would have given - built here independently by acylating L-serine with
+        # Fmoc-Ala-OH, so the two routes are compared rather than assumed.
+        opened = apply_named("pseudoproline-opening", self.block, ["O"])
+        plain = apply_named("n-peptide-coupling", self.blocks["L-serine"], [self.blocks["Fmoc-Ala-OH"]])
+        self.assertEqual(canonical(opened["product"]), canonical(plain["product"]))
+        self.assertEqual(formula(opened["product"]), "C21H22N2O6")
+        # and the auxiliary leaves as acetone, the ketone it was made from
+        self.assertEqual([canonical(x) for x in opened.get("coProducts") or []],
+                         [canonical("CC(C)=O")])
+
+    def test_the_ring_survives_fmoc_removal(self):
+        # The reason a pseudoproline is useful is that it stays on through every later cycle. If
+        # piperidine opened it, the kink would vanish at the first deprotection and the block would
+        # be pointless.
+        freed = apply_named("fmoc-removal", self.block)
+        self.assertEqual(formula(freed["product"]), "C9H16N2O4")
+        ring = Chem.MolFromSmarts("[NX3]1[CX4;H1][CH2][OX2][CX4]1([CH3])[CH3]")
+        self.assertTrue(Chem.MolFromSmiles(freed["product"]).HasSubstructMatch(ring),
+                        f"the oxazolidine must still be there: {freed['product']}")
+
+    def test_it_couples_like_a_monomer(self):
+        # The chemistry layer needed nothing for the other two blocks because a dipeptide's free
+        # acid couples exactly as a monomer's does. Same claim, pinned for this one.
+        grown = apply_named("n-peptide-coupling", self.blocks["glycine"], [self.block])
+        self.assertEqual(formula(grown["product"]), "C26H29N3O7")
+
+    def test_the_whole_chain_is_the_same_peptide_either_way(self):
+        # End to end: block then open, against serine coupled then alanine coupled. The two must
+        # arrive at one molecule, which is the only thing that makes this a route to the SAME
+        # peptide rather than a different one.
+        via_block = apply_named("n-peptide-coupling", self.blocks["glycine"], [self.block])
+        via_block = apply_named("pseudoproline-opening", via_block["product"], ["O"])
+        stepwise = apply_named("n-peptide-coupling", self.blocks["glycine"], [self.blocks["L-serine"]])
+        stepwise = apply_named("n-peptide-coupling", stepwise["product"], [self.blocks["Fmoc-Ala-OH"]])
+        self.assertEqual(canonical(via_block["product"]), canonical(stepwise["product"]))
 
 
 class EveryDmbIsOneTreatment(unittest.TestCase):
