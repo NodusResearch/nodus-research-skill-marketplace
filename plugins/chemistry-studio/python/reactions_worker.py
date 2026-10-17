@@ -1971,6 +1971,13 @@ def _compatibility(steps, textbook_dir=None):
                 # A ketone flagged as such is not flagged again as an enolizable ketone.
                 if group == "enolizable-ketone" and any(h["group"] == "ketone" and h["reagentClass"] == cls for h in hazards):
                     continue
+                # A free alpha-carboxyl is only a competing site when the step is masking an oxygen
+                # nucleophile — the same shape as the enolizable-ketone rule above. In a coupling
+                # the alpha-carboxyl is MEANT to react, and it does not survive into the product,
+                # so it never reaches here; in a step that touches no O–H there is nothing for it
+                # to compete with, and flagging it would be wallpaper.
+                if group == "free-alpha-carboxyl" and not (reacted & {"alcohol", "phenol"}):
+                    continue
                 seen.add((group, cls))
                 # Another group of the same kind reacts in this step: the step is meant to tell them
                 # apart, so it is a selectivity question rather than a clash.
@@ -1983,6 +1990,52 @@ def _compatibility(steps, textbook_dir=None):
                                 "why": (f"another {T.GROUPS[group][0]} reacts in this step while this one must survive; under {T.label_of(cls)} conditions it {why} — check the selectivity"
                                         if selective else f"the {T.GROUPS[group][0]} survives into the product, but under {T.label_of(cls)} conditions it {why}"),
                                 "suggestion": text_hint, "_forms": forms})
+        # What the step UNMASKS. Read against the PRODUCTS: a deprotection creates the reactive
+        # thing, so before the step it is masked and matches nothing, and the ATTACKS loop above —
+        # which only ever sees reactant-side survivors — cannot reach it at all. The cation-source
+        # test still reads the REACTANTS, which is right: the cations come from the groups this step
+        # is removing.
+        for cls in classes:
+            for group, severity, why in T.UNMASKED_RISKS.get(cls, []):
+                if not after.get(group) or (group, cls) in seen:
+                    continue
+                # An indole is only at risk when this step actually sets a cation loose and nothing
+                # in the cocktail is there to take it.
+                if group == "free-indole" and (T.has_cation_scavenger(text)
+                                               or not (before.keys() & {"boc", "tbu-ester", "tbu-ether", "trityl"})):
+                    continue
+                seen.add((group, cls))
+                text_hint, forms = T.suggestion(group, cls)
+                hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
+                                "reagentLabel": T.label_of(cls), "severity": severity,
+                                "why": f"the {T.GROUPS[group][0]} {why}",
+                                "suggestion": text_hint, "_forms": forms})
+        # What the activated species may do to ITSELF. Read against the reactants, not the
+        # survivors: an arginine being activated loses its carboxyl whether it couples or closes
+        # the lactam, so the ATTACKS loop above can never reach it. Same `seen` set, so a pair
+        # already reported there is not repeated here.
+        for cls in classes:
+            for group, severity, why in T.ACTIVATION_RISKS.get(cls, []):
+                if not before.get(group) or (group, cls) in seen:
+                    continue
+                # An epimerisation flag is answered by the conditions, not by a protecting group,
+                # so a coupling that already names a weaker base or a suppressing additive has
+                # taken the precaution and is not nagged about it.
+                if group.endswith("-epimerisation") and T.has_epimerisation_care(text):
+                    continue
+                seen.add((group, cls))
+                text_hint, forms = T.suggestion(group, cls)
+                hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
+                                "reagentLabel": T.label_of(cls), "severity": severity,
+                                "why": f"the {T.GROUPS[group][0]} {why}",
+                                "suggestion": text_hint, "_forms": forms})
+        # One flag per site: where the specific alpha-carboxyl reading fires, the generic `acid`
+        # entry for the same reagent is dropped rather than printed beside it. Both match the same
+        # carboxyl, and the generic wording ("may be alkylated (as the carboxylate)") is true of
+        # any acid and says nothing about which oxygen the step was aiming at.
+        specific = {h["reagentClass"] for h in hazards if h["group"] == "free-alpha-carboxyl"}
+        if specific:
+            hazards = [h for h in hazards if not (h["group"] == "acid" and h["reagentClass"] in specific)]
         for group, removers in _REMOVED_BY.items():
             if group in reacted and before[group] > after.get(group, 0) and classes and not (removers & set(classes)):
                 text_hint, forms = T.suggestion(group, None)
@@ -2140,6 +2193,16 @@ def handle(request):
         steps = [x for x in request.get("compatibility", []) if isinstance(x, dict)][:24]
         textbook = request.get("textbookDir")
         return {"compatibility": _compatibility(steps, textbook if isinstance(textbook, str) and textbook else None)}
+    if "aggregation" in request:
+        # Same sys.path dance as routeProgram above: -I keeps this file's directory off sys.path.
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import peptide_aggregation
+
+        target = request.get("aggregation")
+        return {"aggregation": peptide_aggregation.advise_for_target(
+            target if isinstance(target, str) else "")}
     if "stereoChoices" in request:
         import time
 
