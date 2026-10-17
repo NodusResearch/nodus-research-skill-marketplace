@@ -149,6 +149,7 @@ export default function createWorker(capabilityHost: CapabilityHost) {
       if (toolId === 'search-routes') return searchRoutes(input);
       // Its `steps` are objects (reactants, products, reagents), not verify-route's equation strings.
       if (toolId === 'check-compatibility') return checkCompatibility(input as unknown as { steps?: CompatibilityStepInput[]; textbookDir?: string });
+      if (toolId === 'aggregation-advisory') return aggregationAdvisory(input as unknown as { target?: string });
       if (toolId !== 'compile') throw new Error(`Unknown tool: ${toolId}`);
       const question = input.question ?? '';
       const notices: Array<Record<string, unknown>> = [];
@@ -1244,6 +1245,41 @@ interface CompatibilityStepInput { reactants?: string[]; products?: string[]; re
  *  reagent named in the step's conditions attacks them, and protecting groups that vanish with no
  *  reagent that removes them, each with how to protect it (and textbook examples of putting that
  *  protecting group on, from a textbook index when one is given). Application-invoked only. */
+/** On-resin aggregation for one peptide target: the suspect hydropathy spans and where a remedy
+ *  could go.
+ *
+ *  Unlike every other check here this one is a SUSPICION, not a finding — the literature is
+ *  explicit that aggregation cannot be predicted reliably from sequence — so the artifact says
+ *  which window is suspect and which positions could carry a pseudoproline, and never that the
+ *  synthesis will stall. `applies` distinguishes "not a peptide, nothing to say" from "a peptide
+ *  with nothing suspect in it", because an empty advisory would otherwise read as a clean bill of
+ *  health on a target this cannot assess at all. */
+async function aggregationAdvisory(input: { target?: string }) {
+  const target = typeof input?.target === 'string' ? input.target.trim().slice(0, 4000) : '';
+  if (!target) throw new Error('An aggregation advisory needs a target structure.');
+  const ready = await host().python.ensureRuntime(REACTIONS_RUNTIME_ID);
+  if (!ready.ready) throw new Error(ready.detail ?? 'The chemistry runtime could not be installed.');
+  const run = await host().python.run({
+    runtimeId: REACTIONS_RUNTIME_ID,
+    args: ['-I', REACTIONS_SCRIPT], persistent: true,
+    stdin: JSON.stringify({ aggregation: target }),
+    timeoutMs: 30_000,
+  });
+  if (run.code !== 0) throw new Error(pythonFailure('The aggregation advisory failed', run));
+  const data = JSON.parse(run.stdout) as {
+    aggregation?: { applies?: boolean; sequence?: string; spans?: unknown[]; placeable?: unknown[] };
+  };
+  const advisory = data.aggregation ?? {};
+  const spans = advisory.spans?.length ?? 0;
+  const summary = !advisory.applies
+    ? 'Aggregation advisory: the target is not a readable peptide chain, so nothing is assessed.'
+    : spans === 0
+      ? `Aggregation advisory: ${advisory.sequence?.length ?? 0} residues, no suspect window.`
+      : `Aggregation advisory: ${spans} suspect window(s) in ${advisory.sequence?.length ?? 0} residues, `
+        + `${advisory.placeable?.length ?? 0} placeable remedy position(s).`;
+  return { artifacts: [{ artifactType: 'aggregation-advisory', artifactVersion: 1, summary, data: advisory }], notices: [] };
+}
+
 async function checkCompatibility(input: { steps?: CompatibilityStepInput[]; textbookDir?: string }) {
   const strings = (value: unknown) => (Array.isArray(value) ? value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').slice(0, 12) : []);
   const steps = (Array.isArray(input?.steps) ? input.steps : []).slice(0, 24).map(step => ({

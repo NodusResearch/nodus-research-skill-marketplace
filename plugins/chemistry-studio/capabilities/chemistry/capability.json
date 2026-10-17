@@ -352,6 +352,25 @@
       "answerMode": "replace-block",
       "metered": false,
       "billing": "none"
+    },
+    {
+      "id": "aggregation-advisory",
+      "description": "On-resin aggregation for one peptide target: read the chain from its structure, then report which hydropathy window is suspect and which positions could carry a pseudoproline. A suspicion, not a finding - aggregation cannot be predicted reliably from sequence - so it never says a synthesis will stall. `applies` is false when the target is not a readable peptide chain, which differs from one with nothing suspect in it. Called from the route path; not offered to the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string", "minLength": 1, "maxLength": 4000 }
+        },
+        "required": ["target"],
+        "additionalProperties": false
+      },
+      "artifactTypes": ["aggregation-advisory"],
+      "timeoutMs": 30000,
+      "concurrency": 4,
+      "maxPerReply": 1,
+      "answerMode": "replace-block",
+      "metered": false,
+      "billing": "none"
     }
   ],
   "chat": {
@@ -427,6 +446,12 @@
       "type": "candidate-routes",
       "version": 1,
       "label": { "en": "Candidate routes", "es": "Rutas candidatas", "fr": "Voies candidates", "de": "Kandidatenrouten", "pt": "Rotas candidatas", "pt-BR": "Rotas candidatas", "it": "Vie candidate", "tr": "Aday rotalar" },
+      "modelVisibility": "none"
+    },
+    {
+      "type": "aggregation-advisory",
+      "version": 1,
+      "label": { "en": "Aggregation advisory", "es": "Aviso de agregación", "fr": "Avertissement d'agrégation", "de": "Aggregationshinweis", "pt": "Aviso de agregação", "pt-BR": "Aviso de agregação", "it": "Avviso di aggregazione", "tr": "Agregasyon uyarısı" },
       "modelVisibility": "none"
     },
     {

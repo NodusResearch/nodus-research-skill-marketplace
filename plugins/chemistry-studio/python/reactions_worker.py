@@ -2193,6 +2193,16 @@ def handle(request):
         steps = [x for x in request.get("compatibility", []) if isinstance(x, dict)][:24]
         textbook = request.get("textbookDir")
         return {"compatibility": _compatibility(steps, textbook if isinstance(textbook, str) and textbook else None)}
+    if "aggregation" in request:
+        # Same sys.path dance as routeProgram above: -I keeps this file's directory off sys.path.
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import peptide_aggregation
+
+        target = request.get("aggregation")
+        return {"aggregation": peptide_aggregation.advise_for_target(
+            target if isinstance(target, str) else "")}
     if "stereoChoices" in request:
         import time
 
