@@ -813,7 +813,9 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       const inverted = balance.balanced
         ? await invertedConfiguration(reactants, products, nameOf)
         : '';
-      if (inverted) balance = { ...balance, balanced: false, differences: [inverted] };
+      // Kept out of the balance channel: the atoms DO balance, and saying otherwise sends the
+      // reader to count them. Carried as `stereoProblem` and blocked below, exactly as
+      // `skeletonProblem` is. SPPS-FIXES-2026-10-17 fix 8.
       const mayRepairBalance = !balancedBeforeRefusals && freeAnions.length === 0 && !inverted;
       // A reactant-side species that takes no part in the only balance is a reagent or a
       // condition (a catalyst, a solvent) the author listed with the reactants: file it under
@@ -843,7 +845,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
             const list = refiled.map(name => `"${name}"`).join(' and ');
             // One explicit edit, named: either reading closes the equation, and only the author knows which.
             const many = refiled.length > 1;
-            step.refiledReactant = `${list} ${many ? 'were' : 'was'} listed under Reactants, and the step balances only if ${many ? 'they take' : 'it takes'} no part, so the check treated ${many ? 'them' : 'it'} as ${many ? 'conditions' : 'a condition'}. Make one edit to this step: move ${list} to Agents, or name under Products the ${many ? 'products they become' : 'product it becomes'}.`;
+            step.refiledReactant = `${list} ${many ? 'were' : 'was'} listed under Reactants, and the step balances only if ${many ? 'they take' : 'it takes'} no part, so the check treated ${many ? 'them' : 'it'} as ${many ? 'conditions' : 'a condition'}. Move ${list} to Agents, name under Products the ${many ? 'products they become' : 'product it becomes'}, or split this step if it is doing two transformations at once — ${many ? 'those species then belong' : 'that species then belongs'} to whichever part consumes ${many ? 'them' : 'it'}.`;
             reactants.splice(0, reactants.length, ...kept);
             agents.splice(0, agents.length, ...asAgents);
             balance = retried;
@@ -872,6 +874,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       if (balance.unchecked) step.balanceUnchecked = balance.differences.join(' ');
       step.chargeBalanced = balance.chargeBalanced;
       step.differences = balance.differences;
+      if (inverted) step.stereoProblem = inverted;
       // Only the species the step makes are the route's responsibility to specify. A purchased
       // reagent with stereocentres (a commercial mixture) is not something the author chose, and
       // an intermediate is checked in the step that produces it, so products alone cover every
@@ -1189,6 +1192,10 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       blocked.push(step.balanceUnchecked
         ? `Step ${step.index + 1} was not checked for balance: ${sentence(step.balanceUnchecked)}`
         : `Step ${step.index + 1} is not balanced: ${sentence(step.differences.join('; '))}`);
+      continue;
+    }
+    if (step.stereoProblem) {
+      blocked.push(`Step ${step.index + 1}: ${sentence(step.stereoProblem)}`);
       continue;
     }
     const packing = checkPerMoleculePacking(step);

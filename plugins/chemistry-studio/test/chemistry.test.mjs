@@ -1584,6 +1584,57 @@ test('a refused SMILES names the delimiter that is wrong, not just that RDKit re
   assert.match(other, /RDKit rejected the molecular graph\./, 'the general message is kept');
 });
 
+test('a bare H outside brackets is named as the fault, with the valid form given', async () => {
+  // SPPS-FIXES-2026-10-17 fix 1. Measured: harness-runs/spps-02-ladder1-names-first-thinking-high,
+  // turn 0, steps 1 and 5 both wrote the free support as `*OH` — "resin–OH" read straight off the
+  // page. `H` is not an organic-subset symbol, so a bare H outside brackets can never parse, but
+  // the message said only "RDKit rejected the molecular graph". That cost the cell its one
+  // correction round on a one-character mechanical defect.
+  const worker = lib.createWorker(stubHost());
+  const refusal = async (smiles, id) => {
+    const result = await worker.invoke({
+      invocationId: `bareh-${id}`, toolId: 'verify-route', locale: 'en',
+      input: { steps: [`${smiles}>>CC=O`] },
+    });
+    const step = result.artifacts[0].data.steps[0];
+    assert.equal(step.ok, false, smiles);
+    return step.error ?? '';
+  };
+
+  const resin = await refusal('*OH', 'resin');
+  assert.match(resin, /bare "H"/, `the bare H is named: ${resin}`);
+  assert.match(resin, /outside brackets/, `the rule is stated: ${resin}`);
+  assert.match(resin, /\*O\b/, `the valid form is given: ${resin}`);
+  assert.match(resin, /repair that one defect rather than rewriting/, 'the repair framing is kept');
+
+  // The same defect on the other two supports the species rule shows.
+  for (const smiles of ['*NH', '*SH']) {
+    const message = await refusal(smiles, smiles);
+    assert.match(message, /bare "H"/, `${smiles}: ${message}`);
+  }
+
+  // Mid-string, not only at the end, and on a species that is not a support at all.
+  const chain = await refusal('CC(C)NH', 'chain');
+  assert.match(chain, /bare "H"/, `a bare H anywhere is the same fault: ${chain}`);
+
+  // H inside a bracket atom is legal and must NOT be reported. This string is refused for the
+  // "Q" instead, and the bare-H branch must keep quiet about the [NH3+].
+  const bracketed = await refusal('[NH3+]CCQ', 'bracketed');
+  assert.doesNotMatch(bracketed, /bare "H"/, `bracketed H is legal: ${bracketed}`);
+
+  // A delimiter fault is the more specific finding and keeps priority: this string has both.
+  const both = await refusal('CC(C)(C))OH', 'both');
+  assert.match(both, /2 "\(" against 3 "\)"/, `the delimiter count still leads: ${both}`);
+
+  // And the valid support form really is valid, so the advice the message gives is sound.
+  const good = await worker.invoke({
+    invocationId: 'bareh-valid', toolId: 'verify-route', locale: 'en',
+    input: { steps: ['*O.CC(=O)O>>*OC(C)=O.O'] },
+  });
+  const goodStep = good.artifacts[0].data.steps[0];
+  assert.equal(goodStep.error, undefined, `*O parses: ${goodStep.error}`);
+});
+
 test('the two species real runs were refused for are each diagnosed down to the count', async () => {
   // Verbatim from harness-runs/chain-ladder-2026-10-07--chain-12--deepseek-flash--{high,none},
   // turn 1. Each is one delimiter away from a sound string, in opposite directions. Against the
@@ -2154,8 +2205,10 @@ test('a step that inverts a stereocentre is refused, though its equation balance
     steps: [`${reactants}>>C[C@@H](N)C(=O)N(C)C.O`],
     labels: [[acid, amine, label('product', 'the amide', 'C[C@@H](N)C(=O)N(C)C'), water]],
   });
-  assert.equal(flipped.steps[0].balanced, false);
-  const why = flipped.steps[0].differences.join(' ');
+  // The equation balances — an epimer has the same formula — so the complaint rides in its own
+  // channel rather than in `differences`. SPPS-FIXES-2026-10-17 fix 8.
+  assert.equal(flipped.steps[0].balanced, true);
+  const why = flipped.steps[0].stereoProblem ?? '';
   assert.match(why, /inverts a stereocentre/);
   assert.match(why, /atom 1 of L-alanine \(S\) comes out as atom 1 of the amide \(R\) with the opposite configuration/);   // which centre, in and out
 
@@ -2223,12 +2276,13 @@ test('a step refused for chemistry is not also told to refile a reactant', async
     ]],
   });
   const step = audit.steps[0];
-  // Still refused, and for the right reason.
-  assert.equal(step.balanced, false);
-  assert.match(step.differences.join(' '), /inverts a stereocentre/);
+  // Still refused, and for the right reason. The atoms balance (that is the whole point of the
+  // degeneracy being tested), so the refusal is the stereo channel's. SPPS-FIXES fix 8.
+  assert.equal(step.balanced, true);
+  assert.match(step.stereoProblem ?? '', /inverts a stereocentre/);
   // The contradictory second instruction is what must not appear.
   assert.equal(step.refiledReactant, undefined, 'a chemistry refusal must not produce refiling advice');
-  const why = step.differences.join(' ');
+  const why = step.stereoProblem ?? '';
   assert.ok(!why.includes('to Agents'), why);
   assert.ok(!why.includes('takes no part'), why);
 });
@@ -3224,8 +3278,14 @@ test('a reactant nothing accounts for is named, not silently refiled', async () 
   assert.ok(step.refiledReactant, 'the assumption is reported');
   assert.match(step.refiledReactant, /"the carbodiimide" was listed under Reactants/);
   assert.match(step.refiledReactant, /treated it as a condition/);
-  // One explicit edit, not a conditional to weigh: the author either moves it or names its product.
-  assert.match(step.refiledReactant, /Make one edit to this step: move "the carbodiimide" to Agents, or name under Products the product it becomes\.$/);
+  // Explicit repairs, not a conditional to weigh. The list grew by one in
+  // SPPS-FIXES-2026-10-17 fix 9: "Make one edit to this step" was false wherever the step was
+  // doing two transformations at once, which is a case neither of the first two edits can reach —
+  // measured on harness-runs/spps-06-ladder1-names-first-thinking-none, step 12, where the route
+  // review had found exactly that and the step stood unchanged for three rounds. Splitting is
+  // offered as a third item in the same list rather than as a condition attached to the other two,
+  // so the original intent holds: the author reads alternatives, not a judgement call about them.
+  assert.match(step.refiledReactant, /Move "the carbodiimide" to Agents, name under Products the product it becomes, or split this step if it is doing two transformations at once/);
   assert.doesNotMatch(step.refiledReactant, /If that is right/);
 
   // A step that balances on its own terms carries no such note.
@@ -4211,4 +4271,195 @@ test('a supplied base in the agent slot does not enter the balance', async () =>
   const broken = await lib.auditRoute({ steps: [`${chain}.${acid}>${base}>${product}`], target: product });
   assert.equal(broken.steps[0].balanced, false, 'the control must fail, or this test proves nothing');
   assert.match(broken.steps[0].differences.join(' '), /H2O|H:/);
+});
+
+test('a consumed reagent that comes out at zero is never advised deleted, metal or not', () => {
+  // SPPS-FIXES-2026-10-17 fix 5, the largest fault in that run. The metal branch above already
+  // refuses to say "delete it" about a reagent the step consumes. These two are the same situation
+  // with no metal in sight, and they got the generic advice instead — which is false, so the model
+  // correctly declined to act on it and the turn came back byte-identical three times running.
+  const r = (n) => Array(n).fill('reactant'), p = (n) => Array(n).fill('product');
+  const thrown = (fn) => { try { fn(); } catch (error) { return error.message; } return null; };
+
+  // harness-runs/spps-08-ladder1-names-first-thinking-none, turn 3, step 3 — unchanged from turn 2,
+  // which is the signature of a message the model cannot act on. The coupling itself is right:
+  // HBTU is consumed and HOBt and tetramethylurea ARE what it becomes. What does not balance is the
+  // hexafluorophosphate: F and P enter here and appear in no product.
+  // The support is pseudo-element 0, as the engine writes it (`C29H37N2O6-(support)`).
+  const amine = comp({ '6:0': 6, '1:0': 12, '7:0': 1, '8:0': 2, '0:0': 1 });
+  const acid = comp({ '6:0': 23, '1:0': 27, '7:0': 1, '8:0': 5 });
+  const hbtu = comp({ '6:0': 11, '1:0': 16, '9:0': 6, '7:0': 5, '8:0': 1, '15:0': 1 });
+  const dipea = comp({ '6:0': 8, '1:0': 19, '7:0': 1 });
+  const amide = comp({ '6:0': 29, '1:0': 37, '7:0': 2, '8:0': 6, '0:0': 1 });
+  const hobt = comp({ '6:0': 6, '1:0': 5, '7:0': 3, '8:0': 1 });
+  const tmu = comp({ '6:0': 5, '1:0': 12, '7:0': 2, '8:0': 1 });
+  const coupling = thrown(() => lib.balanceReaction(
+    [amine, acid, hbtu, dipea, amide, hobt, tmu], [...r(4), ...p(3)], [1, 1, 1, 1, 1, 1, 1]));
+  assert.ok(coupling, 'the step as the model wrote it does not balance');
+  assert.doesNotMatch(coupling, /Delete the molecule/,
+    `a consumed coupling reagent is never advised deleted: ${coupling}`);
+  // The evidence the solver already has, and the only thing that would have moved the model:
+  // name the elements that enter and leave nowhere.
+  assert.match(coupling, /\bF\b/, `the orphaned fluorine is named: ${coupling}`);
+  assert.match(coupling, /\bP\b/, `the orphaned phosphorus is named: ${coupling}`);
+  assert.match(coupling, /no product|nothing on the product side|appears? only/i,
+    `the message says those elements reach no product: ${coupling}`);
+  // And the two ways out, since one of them is always right.
+  assert.match(coupling, /Agents/, `moving it to Agents is offered: ${coupling}`);
+
+  // harness-runs/spps-10-ladder1-names-first-thinking-none, turn 3, step 2, the same class with
+  // every element accounted for: piperidine and the piperidinium it would become are both zeroed.
+  // Deleting the piperidine from an Fmoc removal is not a repair in any reading.
+  const chain = comp({ '6:0': 30, '1:0': 32, '7:0': 2, '8:0': 5 });
+  const pip = comp({ '6:0': 5, '1:0': 11, '7:0': 1 });
+  const pipium = comp({ '6:0': 5, '1:0': 12, '7:0': 1 }, 1);
+  const free = comp({ '6:0': 15, '1:0': 22, '7:0': 2, '8:0': 3 });
+  const dbf = comp({ '6:0': 14, '1:0': 10 });
+  const co2 = comp({ '6:0': 1, '8:0': 2 });
+  const removal = thrown(() => lib.balanceReaction(
+    [chain, pip, free, dbf, co2, pipium], [...r(2), ...p(4)], [1, 1, 1, 1, 1, 1]));
+  assert.ok(removal, 'the step as the model wrote it does not balance');
+  assert.doesNotMatch(removal, /Delete the molecule/,
+    `a consumed base is never advised deleted either: ${removal}`);
+  assert.match(removal, /Agents|what it becomes/,
+    `the message offers a repair that is actually available: ${removal}`);
+
+  // What must NOT change: a spurious species on the PRODUCT side still gets the delete advice,
+  // because there deleting it is the repair. Same case the metal test pins, re-checked here so
+  // splitting the branch by role cannot quietly take it away.
+  const benzil = comp({ '6:0': 14, '1:0': 10, '8:0': 2 }), hydroxide = comp({ '11:0': 1, '8:0': 1, '1:0': 1 });
+  const benzilate = comp({ '6:0': 14, '1:0': 11, '11:0': 1, '8:0': 3 });
+  const water = thrown(() => lib.balanceReaction([benzil, hydroxide, benzilate, H2O], [...r(2), ...p(2)], [1, 1, 1, 1]));
+  assert.match(water, /"H2O" take\(s\) no part/);
+  assert.match(water, /Delete the molecule the step neither consumes nor produces/,
+    'a spurious byproduct keeps its advice');
+});
+
+test('an inverted stereocentre is reported as a stereo problem, not as a balance failure', async () => {
+  // SPPS-FIXES-2026-10-17 fix 8. The equation balances on every element; the complaint is
+  // stereochemical. Folding it into `differences` and clearing `balanced` makes the nodus renderer
+  // print `FAIL — NOT balanced (This step inverts a stereocentre: ...)`, and a model told a step is
+  // not balanced counts atoms. Measured on
+  // harness-runs/spps-06-ladder1-names-first-thinking-none, turns 1 to 3 unchanged: step 1's
+  // equation was `C24H21NO4 + OH-(support) -> C24H20NO4-(support) + H2O`, closed on every element,
+  // and the one wrong `@`/`@@` in the product went unexamined for three rounds.
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const amine = label('reactant', 'N-methylmethanamine', 'CNC');
+  const acid = label('reactant', 'L-alanine', 'N[C@@H](C)C(=O)O');
+  const water = label('product', 'water', 'O', true);
+  const flipped = await lib.auditRoute({
+    steps: ['N[C@@H](C)C(=O)O.CNC>>C[C@@H](N)C(=O)N(C)C.O'],
+    labels: [[acid, amine, label('product', 'the amide', 'C[C@@H](N)C(=O)N(C)C'), water]],
+  });
+  const step = flipped.steps[0];
+
+  // The step still fails — nothing here relaxes the refusal.
+  assert.equal(step.ok, true, 'the step parsed');
+  assert.ok(flipped.blocked.some((entry) => /inverts a stereocentre/.test(entry)),
+    `the route is still blocked for it: ${JSON.stringify(flipped.blocked)}`);
+
+  // But it is carried in its own channel, as assemblyProblem and skeletonProblem already are,
+  // and the balance verdict tells the truth about the atoms.
+  assert.match(step.stereoProblem ?? '', /inverts a stereocentre/,
+    `the complaint has its own field: ${JSON.stringify(step.stereoProblem)}`);
+  assert.equal(step.balanced, true, 'the equation does balance, and now says so');
+  assert.ok(!step.differences.join(' ').includes('inverts a stereocentre'),
+    `the balance channel no longer carries it: ${step.differences.join(' ')}`);
+
+  // And the detail that makes it actionable is unchanged.
+  assert.match(step.stereoProblem, /atom 1 of L-alanine \(S\) comes out as atom 1 of the amide \(R\)/);
+});
+
+test('a refiled reactant is not promised that one edit will fix it', async () => {
+  // SPPS-FIXES-2026-10-17 fix 9. Measured on
+  // harness-runs/spps-06-ladder1-names-first-thinking-none, step 12: the advice was "Make one edit
+  // to this step", while the route review had found that the step folded a TFA cleavage into the
+  // piperidine Fmoc deprotection. One edit cannot fix a step doing two transformations, so the
+  // instruction and the situation never met and the step stood unchanged for three rounds.
+  const label = (role, name, smiles, byproduct = false) => ({ role, name, smiles, byproduct });
+  const audit = await lib.auditRoute({
+    // Trifluoroacetic acid listed as consumed, with no fluorine anywhere among the products: the
+    // measured shape at step 12, where the TFA of a cleavage was filed with the reagents of the
+    // deprotection it had been folded into.
+    steps: ['CC(=O)OCC.O.OC(=O)C(F)(F)F>>CC(=O)O.CCO'],
+    labels: [[
+      label('reactant', 'ethyl acetate', 'CC(=O)OCC'),
+      label('reactant', 'water', 'O'),
+      label('reactant', 'trifluoroacetic acid', 'OC(=O)C(F)(F)F'),
+      label('product', 'acetic acid', 'CC(=O)O'),
+      label('product', 'ethanol', 'CCO', true),
+    ]],
+  });
+  const step = audit.steps[0];
+  assert.ok(step.refiledReactant, `the sulfuric acid is refiled: ${JSON.stringify(step.differences)}`);
+  // The false promise.
+  assert.doesNotMatch(step.refiledReactant, /Make one edit to this step/,
+    `no claim that one edit suffices: ${step.refiledReactant}`);
+  // The two repairs it always had, still offered.
+  assert.match(step.refiledReactant, /to Agents/, step.refiledReactant);
+  assert.match(step.refiledReactant, /name under Products/, step.refiledReactant);
+  // And the third, which is the one the measured step actually needed. Offered as a list item, not
+  // as a condition on the other two — see the carbodiimide test above for why that matters.
+  assert.doesNotMatch(step.refiledReactant, /^.*If this step/, 'the repairs stay a list, not a conditional');
+  assert.match(step.refiledReactant, /or split this step/i,
+    `splitting a step that does two things is offered: ${step.refiledReactant}`);
+});
+
+test('a species declared both as an agent and as a product is named as the likely wrong byproduct', async () => {
+  // SPPS-FIXES-2026-10-17 fix 10, found by re-running length 8 after fix 5 landed. The model took
+  // fix 5's advice and added the hexafluorophosphate, so F and P are accounted for. What remained,
+  // byte-identical at turns 2 and 3 of
+  // harness-runs/spps-08-ladder1-names-first-thinking-none: it had written the SOLVENT, DMF, where
+  // HBTU's second fragment (tetramethylurea) belongs — and DMF is also declared under Agents.
+  //
+  // The species rules permit a solvent in both places ("a solvent the step also forms ... goes
+  // under Agents as the solvent and under Byproducts as the amount formed"), so the model was
+  // applying a real rule in a case where it does not hold, and nothing in the message said which
+  // reading it was in. The deficit it reported, H (5) C (2) N (1), is exactly TMU minus DMF.
+  const r = (n) => Array(n).fill('reactant'), p = (n) => Array(n).fill('product');
+  const thrown = (fn) => { try { fn(); } catch (error) { return error.message; } return null; };
+
+  const amine = comp({ '6:0': 6, '1:0': 12, '7:0': 1, '8:0': 2, '0:0': 1 });
+  const acid = comp({ '6:0': 23, '1:0': 27, '7:0': 1, '8:0': 5 });
+  const hbtu = comp({ '6:0': 11, '1:0': 16, '9:0': 6, '7:0': 5, '8:0': 1, '15:0': 1 });
+  const dipea = comp({ '6:0': 8, '1:0': 19, '7:0': 1 });
+  const dmf = comp({ '6:0': 3, '1:0': 7, '7:0': 1, '8:0': 1 });
+  const product = comp({ '6:0': 29, '1:0': 37, '7:0': 2, '8:0': 6, '0:0': 1 });
+  const hobt = comp({ '6:0': 6, '1:0': 5, '7:0': 3, '8:0': 1 });
+  const salt = comp({ '6:0': 8, '1:0': 20, '9:0': 6, '7:0': 1, '15:0': 1 });
+
+  const message = thrown(() => lib.balanceReaction(
+    [amine, acid, hbtu, dipea, dmf, product, hobt, dmf, salt],
+    [...r(4), 'agent', ...p(4)],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1]));
+  assert.ok(message, 'the step as the model wrote it does not balance');
+
+  // The element deficit is the actionable part, so it leads rather than trailing a sentence about
+  // the coefficient search.
+  assert.match(message, /^At the coefficients as declared/,
+    `the deficit leads: ${message}`);
+  assert.match(message, /products are short of/, message);
+
+  // And the duplicate is named, because it is the species the step does not form.
+  assert.match(message, /both under Agents and on the product side|declared under Agents and as a product/,
+    `the agent/product duplicate is named: ${message}`);
+  assert.match(message, /C3H7NO/, `and identified: ${message}`);
+});
+
+test('a solvent the step genuinely forms is not called a duplicate', async () => {
+  // What must NOT change. Sodium ethoxide in ethanol forms ethanol: the rules say to list it under
+  // Agents as the solvent and under Byproducts as the amount formed, and that step balances, so no
+  // message is produced at all. The guard is that the duplicate note only appears on a step that
+  // is already failing for a deficit.
+  const r = (n) => Array(n).fill('reactant'), p = (n) => Array(n).fill('product');
+  const ethanol = comp({ '6:0': 2, '1:0': 6, '8:0': 1 });
+  const ethoxide = comp({ '6:0': 2, '1:0': 5, '8:0': 1, '11:0': 1 });
+  const chloride = comp({ '6:0': 1, '1:0': 3, '17:0': 1 });
+  const ether = comp({ '6:0': 3, '1:0': 8, '8:0': 1 });
+  const salt = comp({ '11:0': 1, '17:0': 1 });
+  const coefficients = lib.balanceReaction(
+    [ethoxide, chloride, ethanol, ether, salt],
+    [...r(2), 'agent', ...p(2)],
+    [1, 1, 1, 1, 1]);
+  assert.ok(Array.isArray(coefficients), 'a step that balances is simply balanced');
 });

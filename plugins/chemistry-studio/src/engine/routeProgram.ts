@@ -351,6 +351,14 @@ function parseStatement(text: string, lineNo: number): Statement {
   const assign = ASSIGN.exec(text);
   if (!assign) throw new Refusal('syntax', 'This line is not a start, apply, note or target statement.');
   const [head, lhs, fn] = assign;
+  // `target = apply(...)` reaches here because TARGET wants a bare reference. The generic
+  // complaint then says "target" is not a valid reference AND that there is no target line, which
+  // is two true statements that together never name the repair. Measured on
+  // harness-runs/spps-02-ladder2-program-mode-thinking-none turn 0, where the final cleavage was
+  // written this way — a fair reading of "the last statement is the target".
+  if (lhs.toLowerCase() === 'target') {
+    throw new Refusal('syntax', `\`target\` takes a reference an earlier line produced, not an operation: give this ${fn} its own \`M<n> = ${fn}(...)\` line and end with \`target = M<n>\`.`);
+  }
   if (!MOL_REF.test(lhs)) throw new Refusal('syntax', `The name "${lhs}" is not a valid reference; use M1 to M999.`);
   if (fn !== 'start' && fn !== 'apply') throw new Refusal('syntax', `The name "${fn}" is not an operation; use start or apply.`);
   const sc = new Scanner(text);
@@ -370,6 +378,12 @@ export function parseRouteProgram(text: string): ParseResult {
   let lastStatementLine = 1;
   let statements = 0;
   let truncated = false;
+  // A target line that was written and refused is already reported. Saying "the program has no
+  // target line" on top of it sends the model to add what it already wrote — the same reasoning
+  // the `truncated` guard below applies. Measured on
+  // harness-runs/spps-02-ladder2-program-mode-thinking-none turn 0, where the two complaints
+  // together read as a contradiction.
+  let attemptedTarget = false;
 
   const raw = String(text ?? '').split(/\r\n|\r|\n/);
   for (let i = 0; i < raw.length; i++) {
@@ -388,6 +402,7 @@ export function parseRouteProgram(text: string): ParseResult {
       else lines.push(st.line);
     } catch (e) {
       if (!(e instanceof Refusal)) throw e;
+      if (/^target\s*=/i.test(trimmed)) attemptedTarget = true;
       report(lineNo, e.code, e.message);
     }
   }
@@ -465,7 +480,7 @@ export function parseRouteProgram(text: string): ParseResult {
   // missing would send the model to add what it already wrote.
   if (!truncated) {
     if (!sawStart) report(lastStatementLine, 'no-start', 'The program has no start line.');
-    if (!sawTarget) report(lastStatementLine, 'no-target', 'The program has no target line.');
+    if (!sawTarget && !attemptedTarget) report(lastStatementLine, 'no-target', 'The program has no target line.');
   }
 
   diagnostics.sort((a, b) => a.line - b.line);

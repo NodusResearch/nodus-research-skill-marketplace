@@ -1106,10 +1106,6 @@ class DisconnectionSite(unittest.TestCase):
         self.assertEqual(canonical, ())
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
 class SuppliedConditions(unittest.TestCase):
     """A transformation may declare the conditions it implies, and they must not enter the balance.
 
@@ -1291,3 +1287,184 @@ class EveryMatchingSite(unittest.TestCase):
                             site=word, carry="largest")
                 self.assertTrue(out.get("ok"), out)
                 self.assertEqual(out["appliedTimes"], 2)
+
+
+class NoWayOntoABareSupport(unittest.TestCase):
+    """SPPS-FIXES-2026-10-17 fix 2. A program-mode route cannot load a bare support: the curated set
+    has no transformation that does it, so the only start is the monomer already anchored.
+
+    This is the fact the prompt rule asserts, pinned here so the rule cannot outlive it. If a
+    `resin-loading` transform is ever added, this class fails and the rule is rewritten in the same
+    change rather than quietly becoming false.
+
+    Measured: harness-runs/spps-02-ladder2-program-mode-thinking-none turns 1-3 (terminal, the same
+    message three times), spps-04-ladder2-program-mode-thinking-high turn 0, and
+    spps-10-ladder2-program-mode-thinking-high turn 0 all wrote `start(smiles="*O")` and then tried
+    to couple the first monomer onto it.
+    """
+
+    SUPPORT = "*O"
+    FMOC_ALA = "C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O"
+
+    def test_carrying_the_support_and_offering_the_acid_is_refused(self):
+        """One of the two directions the model wrote. `ester-formation` wants the CARRIED molecule to
+        be the acid, so carrying the support and offering the acid cannot match — and here the
+        message is right about why.
+
+        Measured at spps-02-ladder2-program-mode-thinking-none turn 1 (and 2 and 3, identical)."""
+        out = named("ester-formation", self.SUPPORT, [self.FMOC_ALA])
+        self.assertFalse(out.get("ok"), out)
+        self.assertEqual(out["error"], "absent-site")
+        self.assertIn("no carboxylic acid", out["message"])
+
+    def test_carrying_the_acid_and_offering_the_support_is_refused_too(self):
+        """The other direction, and the one that matters more: here the model had the chemistry
+        RIGHT. The carried molecule is the acid and the support is offered as the alcohol, which is
+        how the reaction actually goes. It still cannot run, because the alcohol half of the SMARTS
+        is `[O;H1;X2][#6;X4]` — an oxygen on an sp3 CARBON — and the support oxygen hangs off the
+        dummy atom instead.
+
+        So the curated set cannot express resin loading in EITHER direction, which is what makes the
+        anchored start the only way in rather than merely the tidier one.
+
+        Measured at spps-04-ladder2-program-mode-thinking-high turn 0 and
+        spps-10-ladder2-program-mode-thinking-high turn 0."""
+        out = named("ester-formation", self.FMOC_ALA, [self.SUPPORT])
+        self.assertFalse(out.get("ok"), out)
+        self.assertEqual(out["error"], "no-match")
+        # And since fix 6, the message says which half failed rather than blaming the carried
+        # molecule's carboxylic acid, which was never the problem.
+        self.assertIn("The carried molecule matches this transformation", out["message"])
+        self.assertIn("*O", out["message"])
+
+    def test_no_curated_transformation_puts_a_molecule_onto_a_support(self):
+        """The whole table, not just the one the model reached for. Only `resin-cleavage` mentions a
+        dummy atom, and only in the release direction: dummy on the left, dummy on the left of the
+        product too, with the ester broken rather than made."""
+        loaders = []
+        table = route_program._transforms()
+        self.assertTrue(table.get("ok"), table)
+        entries = table["transforms"]
+        entries = list(entries.values()) if isinstance(entries, dict) else list(entries)
+        self.assertGreater(len(entries), 40, "the whole curated table loaded, not a stub")
+        for entry in entries:
+            smarts = entry.get("smarts", "") if isinstance(entry, dict) else ""
+            if "#0" not in smarts:
+                continue
+            left, _, right = smarts.partition(">>")
+            # A loader would introduce the dummy's bond on the product side: a support appearing
+            # only in the products, or an ester to the dummy formed rather than broken.
+            if "#0" in right and "#0" not in left:
+                loaders.append(entry)
+        self.assertEqual(loaders, [], f"a transformation now loads a bare support: {loaders}")
+
+    def test_the_anchored_start_this_leaves_as_the_only_way_in_does_work(self):
+        """And the start the rule tells the model to write really runs, so the advice is sound."""
+        out = named("fmoc-removal", "*OC(=O)[C@@H](C)NC(=O)OCC1c2ccccc2-c2ccccc21")
+        self.assertTrue(out.get("ok"), out)
+
+
+class WhichHalfFailedToMatch(unittest.TestCase):
+    """SPPS-FIXES-2026-10-17 fix 6. A two-component transformation that cannot run must say WHICH
+    half did not match. When the reagent is the bad half and the message blames the carried
+    molecule's site, the model goes looking where there is nothing to find.
+
+    Measured at harness-runs/spps-10-ladder2-program-mode-thinking-none, all four turns: line 17
+    offered glycine with the fluorenylmethyl group on the CARBOXYL as an ester and the amine left
+    free — not Fmoc-Gly-OH, so there was no acid to couple. The message said the transformation
+    "does not apply at the free amine of the carried molecule", the amine was fine, and the model
+    spent all three correction rounds adding `site=` qualifiers to a route that was otherwise
+    correct.
+    """
+
+    # The chain's free N-terminus: matches `n-peptide-coupling` slot 0 perfectly.
+    CHAIN = "*OC(=O)[C@@H](C)N"
+    # What the model wrote. Fmoc on the wrong end: an ester of the acid, amine free.
+    GLY_WRONG_END = "NCC(=O)OCC1c2ccccc2-c2ccccc21"
+    # What it meant to write.
+    GLY_RIGHT = "OC(=O)CNC(=O)OCC1c2ccccc2-c2ccccc21"
+
+    def test_a_reagent_with_no_acid_is_named_as_the_half_that_failed(self):
+        out = named("n-peptide-coupling", self.CHAIN, [self.GLY_WRONG_END])
+        self.assertFalse(out.get("ok"), out)
+        message = out["message"]
+        # The reagent is named, so the model looks at the right half.
+        self.assertIn(self.GLY_WRONG_END, message, message)
+        # And the carried molecule is explicitly cleared, because that is where it went looking.
+        self.assertNotIn("does not apply at the free amine of the carried molecule", message)
+
+    def test_the_same_reagent_written_correctly_couples(self):
+        """The control: with Fmoc on the nitrogen the line runs, so the diagnosis above points at
+        the one thing that was actually wrong."""
+        out = named("n-peptide-coupling", self.CHAIN, [self.GLY_RIGHT])
+        self.assertTrue(out.get("ok"), out)
+
+    def test_the_support_offered_as_an_alcohol_names_the_reagent_too(self):
+        """The other measured case, from fix 2: at lengths 4 and 10 the model had the DIRECTION
+        right — acid carried, support offered as the alcohol — and was told the transformation does
+        not apply at its carboxylic acid, which it has. The half that failed is the support."""
+        out = named("ester-formation", "C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O", ["*O"])
+        self.assertFalse(out.get("ok"), out)
+        self.assertIn("*O", out["message"], out["message"])
+        self.assertNotIn("does not apply at the carboxylic acid of the carried molecule", out["message"])
+
+    def test_a_carried_molecule_that_really_is_wrong_still_says_so(self):
+        """What must NOT change. Here the reagent is a fine acid and the carried molecule has no
+        free amine, so blaming the carried molecule is correct and must stay."""
+        out = named("n-peptide-coupling", "CCOC(=O)c1ccccc1", [self.GLY_RIGHT])
+        self.assertFalse(out.get("ok"), out)
+        self.assertNotIn(self.GLY_RIGHT, out["message"], out["message"])
+
+
+class MarkNumbersStayInternal(unittest.TestCase):
+    """SPPS-FIXES-2026-10-17 fix 7. A mark is an atom-map integer this toolkit issues. It is not
+    stable between runs, it means nothing to the author, and it must never be the only thing a
+    failure message says about WHERE it failed.
+
+    Measured at harness-runs/spps-10-ladder2-program-mode-thinking-none: turns 1 and 2 reported
+    "does not apply at the mark 914 of the carried molecule" and turn 3 "the mark 913" — the same
+    route, a different number, after the author wrote `site=@last` and then `site=@M17`. The
+    reference the author actually wrote is what the message has to name.
+    """
+
+    # An ester the mark can sit on, with a second one that keeps the phrase ambiguous.
+    DIACETATE = "CC(=O)OCCOC(=O)CC"
+
+    def test_a_resolved_handle_that_cannot_act_names_the_reference_not_the_number(self):
+        """The measured shape: the mark IS on the molecule, so the site resolves, and the
+        transformation then does not apply there. This is the path that printed "the mark 914"."""
+        marked = named("primary-alcohol-oxidation", "COC(=O)c1ccc(CO)cc1", markAs=914)
+        self.assertTrue(marked.get("ok"), marked)
+        self.assertIn(914, marked["marks"], marked)
+        out = apply(moleculeHandle=marked["productHandle"],
+                    operation={"kind": "named", "id": "ester-hydrolysis"},
+                    sites=[{"kind": "handle", "mark": 914, "label": "@M17"}])
+        self.assertFalse(out.get("ok"), out)
+        self.assertNotIn("914", out["message"], out["message"])
+        self.assertIn("@M17", out["message"], out["message"])
+
+    def test_a_mark_that_is_not_on_the_molecule_names_the_reference_too(self):
+        out = apply(molecule="CCO", operation={"kind": "named", "id": "ester-hydrolysis"},
+                    sites=[{"kind": "handle", "mark": 913, "label": "@last"}])
+        self.assertFalse(out.get("ok"), out)
+        self.assertNotIn("913", out["message"], out["message"])
+        self.assertIn("@last", out["message"], out["message"])
+
+    def test_without_a_label_the_mark_is_still_the_only_identifier(self):
+        """A direct caller that sends no label still needs to know WHICH handle was missing, so the
+        number stays on that path. It is not the author's path: the adapter always sends a label,
+        and route-program-ops.test.mjs is what holds it to that."""
+        out = apply(molecule="CCO", operation={"kind": "named", "id": "ester-hydrolysis"},
+                    sites=[{"kind": "handle", "mark": 913}])
+        self.assertFalse(out.get("ok"), out)
+        self.assertIn("913", out["message"], out["message"])
+
+    def test_a_phrase_site_is_unchanged(self):
+        """What must NOT change: a phrase site still names the group, with no reference wording."""
+        out = named("amide-hydrolysis", "CCOC(=O)c1ccccc1", site="ester")
+        self.assertFalse(out.get("ok"), out)
+        self.assertNotIn("@", out["message"], out["message"])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

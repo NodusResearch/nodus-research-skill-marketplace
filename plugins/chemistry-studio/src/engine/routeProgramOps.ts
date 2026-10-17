@@ -187,7 +187,10 @@ export function createMoleculeOps(options: MoleculeOpsOptions = {}): MoleculeOps
       if (site.kind === 'phrase') { wireSites.push({ kind: 'phrase', phrase: site.phrase }); continue; }
       const mark = siteMark(molecule, site);
       if (typeof mark !== 'number') return mark;
-      wireSites.push({ kind: 'handle', mark });
+      // The mark is this adapter's own integer. The toolkit's failure messages have to name the
+      // reference the AUTHOR wrote, so it travels with the mark rather than being reconstructed
+      // there — see SPPS-FIXES-2026-10-17 fix 7.
+      wireSites.push({ kind: 'handle', mark, label: site.ref === 'last' ? '@last' : `@${site.ref}` });
     }
     const resolved: Molecule[] = [];
     for (const reagent of reagents) {

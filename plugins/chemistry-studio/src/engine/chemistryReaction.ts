@@ -408,7 +408,22 @@ function missingSpeciesAdvice(compositions: Composition[], roles: ReactionSpecie
   const parts: string[] = [];
   if (reactantsShort.length) parts.push(`the reactants are short of ${named(reactantsShort)}, so a species this step consumes is missing from Reactants`);
   if (productsShort.length) parts.push(`the products are short of ${named(productsShort)}, so a species this step forms is missing from Products or Byproducts, or a declared structure is not the compound intended`);
-  return parts.length ? `At the coefficients as declared, ${parts.join('; and ')}.` : '';
+  if (!parts.length) return '';
+  // A species declared on the product side that is ALSO declared under Agents is the likeliest
+  // wrong byproduct on a step that is already short of atoms: a solvent belongs in both places
+  // only when the step forms it, and where it does not, it is standing where the real byproduct
+  // should be. Measured on harness-runs/spps-08-ladder1-names-first-thinking-none, turns 2 and 3
+  // byte-identical: the author had written DMF, the solvent, where the coupling reagent's second
+  // fragment belongs, and the deficit was exactly the difference between the two. The species
+  // rules permit the double listing for a solvent the step forms, so the author was applying a
+  // real rule in a case where it does not hold — and nothing said which case this was.
+  const formulaAt = (index: number) => formulaOf(compositions[index].atoms);
+  const agentFormulas = new Set(compositions.flatMap((composition, index) => (roles[index] === 'agent' ? [formulaOf(composition.atoms)] : [])));
+  const duplicated = [...new Set(compositions.flatMap((composition, index) => (roles[index] === 'product' && agentFormulas.has(formulaAt(index)) ? [formulaAt(index)] : [])))];
+  const duplicateNote = duplicated.length
+    ? ` ${duplicated.map(formula => `"${formula}"`).join(', ')} ${duplicated.length > 1 ? 'are' : 'is'} declared both under Agents and on the product side. A solvent or condition belongs in both only if the step forms it; where it does not, it is standing where the real byproduct should be — so check ${duplicated.length > 1 ? 'those' : 'that one'} first.`
+    : '';
+  return `At the coefficients as declared, ${parts.join('; and ')}.${duplicateNote}`;
 }
 
 /** What to do about an unbalanced step, read from the difference at one of each species. When
@@ -627,7 +642,12 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
     if (minimal === null) {
       // No candidate inside the ceiling: the species do balance (the null space is not empty), only
       // not with every coefficient small enough to be searched. That is not two equations tying.
-      throw new Error(`The declared species admit balanced equations, but none with every species taking part at a coefficient of at most ${searchCeiling(basis.length)}, so no coefficients were chosen. ${missingSpeciesAdvice(compositions, roles, supplied)}`.trim());
+      // The deficit leads. The ceiling is true but it is a statement about the coefficient search,
+      // and read first it says the fault is arithmetic — which sends the author to adjust numbers
+      // they do not choose. SPPS-FIXES-2026-10-17 fix 10.
+      const advice = missingSpeciesAdvice(compositions, roles, supplied);
+      const ceiling = `The declared species admit balanced equations, but none with every species taking part at a coefficient of at most ${searchCeiling(basis.length)}, so no coefficients were chosen.`;
+      throw new Error((advice ? `${advice} ${ceiling}` : ceiling).trim());
     }
     throw new Error(`The declared species admit more than one balanced equation; name the intended byproducts, or split this transformation into consecutive balanced steps. ${missingSpeciesAdvice(compositions, roles, supplied)}`.trim());
   }
@@ -708,6 +728,34 @@ export function balanceReaction(compositions: Composition[], roles: ReactionSpec
       const rest = incidental.filter(position => !orphans.includes(position));
       const restNote = rest.length ? ` Separately, ${quote(rest)} take(s) no part and can be deleted if the step neither consumes nor produces ${rest.length > 1 ? 'them' : 'it'}.` : '';
       throw new Error(`The declared species cannot be balanced: ${quote(orphans)} ${many ? 'carry a metal' : 'carries a metal'} that nothing under Reactants supplies, so the equation balances only with ${many ? 'them' : 'it'} at zero. Either the reagent that brings the metal is missing from Reactants (a base or a salt the step consumes — name it), or ${many ? 'they are' : 'it is'} not formed and should be removed.${restNote}`);
+    }
+    // A zeroed REACTANT is the same situation the metal branch above refuses to say "delete it"
+    // about, minus the metal. "Delete the molecule — water and a solvent are the usual ones" is
+    // advice for a spurious PRODUCT or an inert solvent, and it is simply false about a reagent the
+    // step consumes: the author knows the step consumes it, will not delete it, and so rewrites
+    // nothing. Measured on harness-runs/spps-08-ladder1-names-first-thinking-none (HBTU, turns 2
+    // and 3 byte-identical, nine steps each) and spps-10-ladder1-names-first-thinking-none
+    // (piperidine, turns 1 to 3 identical): three correction rounds spent being told to do the one
+    // thing that is wrong. Both routes were chemically right about the reagent being consumed.
+    const idleReactants = idle.filter(position => roles[reduced[position].index] === 'reactant');
+    const idleRest = idle.filter(position => !idleReactants.includes(position));
+    if (idleReactants.length && !balancedSomethingElse) {
+      const many = idleReactants.length > 1;
+      // The evidence the solver already holds: an element that enters here and reaches no declared
+      // product. For HBTU that is the hexafluorophosphate — F and P — which is exactly the part the
+      // author left out, and naming it turns a dead end into one edit.
+      const productElements = new Set(compositions.flatMap((composition, index) => (roles[index] === 'product'
+        ? Object.keys(composition.atoms).filter(key => composition.atoms[key] > 0) : [])));
+      const orphanElements = [...new Set(idleReactants.flatMap(position => Object.keys(reduced[position].composition.atoms)
+        .filter(key => reduced[position].composition.atoms[key] > 0 && !productElements.has(key))))]
+        .map(key => elementSymbol(Number(key.split(':')[0])));
+      const elementNote = orphanElements.length
+        ? ` ${orphanElements.map(symbol => `"${symbol}"`).join(', ')} ${orphanElements.length > 1 ? 'enter here and reach' : 'enters here and reaches'} no product, so what ${many ? 'they become is' : 'it becomes is'} missing: name the species those atoms end up in (an unaccounted counter-ion is the usual cause).`
+        : ` Name under Products or Byproducts what ${many ? 'they become' : 'it becomes'}.`;
+      const restNote = idleRest.length
+        ? ` Separately, ${quote(idleRest)} take(s) no part and can be deleted if the step neither consumes nor produces ${idleRest.length > 1 ? 'them' : 'it'}.`
+        : '';
+      throw new Error(`The declared species cannot be balanced: ${quote(idleReactants)} ${many ? 'are' : 'is'} declared under Reactants but the equation balances only with ${many ? 'them' : 'it'} at zero.${elementNote} Do not delete ${many ? 'them' : 'it'} if the step consumes ${many ? 'them' : 'it'}; if ${many ? 'they are conditions' : 'it is a condition'} rather than ${many ? 'reactants' : 'a reactant'}, list ${many ? 'them' : 'it'} under Agents instead.${restNote}`);
     }
     if (idle.length && !balancedSomethingElse) {
       const names = quote(idle);
