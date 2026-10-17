@@ -1,3 +1,9 @@
+# Chemistry Studio 2.8.0
+
+Adds sequence-dependent peptide compatibility gates, including risks created by deprotection and activation, plus a pseudoproline dipeptide building block. The application-side `aggregation-advisory` tool reads an ordered peptide sequence and returns heuristic hydropathy spans and available remedy positions; automatic presentation in route reports requires separate application integration. Asp/Glu side-chain acids cannot change the sequence reading when the same molecule is written in a different atom order. Existing aqueous-acid compatibility checks remain intact.
+
+Consumed reagents reach these checks in Nodus builds containing jorgepb96/nodus#1204; earlier builds still rely on reagent names in conditions or agents. No capability permissions or data migrations change.
+
 # Chemistry Studio 2.7.0
 
 Adds optional target decomposition into capped building blocks, with local-library identification and unnamed-fragment fallback. Every Python module is included in the archive and packaging tests run on all platforms. Explicit nitrogens regain their cut-end hydrogen; changed libraries invalidate persistent-worker caches and malformed records are ignored. Monomer directories remain application-controlled; cancellation and incomplete replies cannot report success. No permissions or data migrations change.
