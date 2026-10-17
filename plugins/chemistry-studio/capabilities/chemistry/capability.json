@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "chemistry",
   "provides": "nodus:chemistry",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "Resolve chemical identities against references, validate the structure, draw it as a verified document, and check a step against known reactions.",
   "runtime": { "kind": "nodus-trusted-worker-v1", "protocol": 1, "entry": "worker.js" },
   "requires": [{ "id": "nodus:svg", "minVersion": "1.0.0", "maxVersionExclusive": "2.0.0" }],
@@ -355,7 +355,7 @@
     },
     {
       "id": "aggregation-advisory",
-      "description": "On-resin aggregation for one peptide target: read the chain from its structure, then report which hydropathy window is suspect and which positions could carry a pseudoproline. A suspicion, not a finding - aggregation cannot be predicted reliably from sequence - so it never says a synthesis will stall. `applies` is false when the target is not a readable peptide chain, which differs from one with nothing suspect in it. Called from the route path; not offered to the model.",
+      "description": "On-resin aggregation for one peptide target: read the chain from its structure, then report which hydropathy window is suspect and which positions could carry a pseudoproline. A suspicion, not a finding - aggregation cannot be predicted reliably from sequence - so it never says a synthesis will stall. `applies` is false when the target is not a readable peptide chain, which differs from one with nothing suspect in it. Available for application-side route integration; not offered to the model.",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -120,15 +120,22 @@ def read_sequence(smiles):
         return Read("", "the structure does not parse")
 
     # Where the chain ends: a free C-terminal acid, or the ester holding it to the support.
-    tail = None
-    for match in mol.GetSubstructMatches(_SUPPORT_ESTER):
-        tail = match[2]
-    if tail is None:
-        for match in mol.GetSubstructMatches(_ACID):
-            tail = match[0]
-    if tail is None:
+    candidates = {match[2] for match in mol.GetSubstructMatches(_SUPPORT_ESTER)}
+    if not candidates:
+        candidates = {match[0] for match in mol.GetSubstructMatches(_ACID)}
+    # Asp/Glu side chains have free acids too. Only a carbonyl next to an alpha
+    # carbon bearing nitrogen can be the tail; SMILES atom order cannot choose it.
+    candidates = {index for index in candidates
+                  if any(atom.GetAtomicNum() == 6
+                         and atom.GetHybridization() == Chem.HybridizationType.SP3
+                         and any(n.GetAtomicNum() == 7 for n in atom.GetNeighbors())
+                         for atom in mol.GetAtomWithIdx(index).GetNeighbors())}
+    if not candidates:
         return Read("", "no C-terminal carboxyl or support ester: not a linear peptide chain "
                         "(a cyclic or fully amidated peptide is read elsewhere)")
+    if len(candidates) != 1:
+        return Read("", "multiple peptide termini: not one unambiguous linear chain")
+    tail = next(iter(candidates))
 
     letters, backbone, carbonyl = [], set(), tail
     while True:

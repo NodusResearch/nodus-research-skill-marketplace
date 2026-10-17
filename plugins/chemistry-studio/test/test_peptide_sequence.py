@@ -23,7 +23,7 @@ import os
 import sys
 import unittest
 
-from rdkit import RDLogger
+from rdkit import Chem, RDLogger
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "python"))
@@ -55,6 +55,18 @@ NOT_A_PEPTIDE = "CC(=O)Oc1ccccc1C(=O)O"                   # aspirin
 
 
 class ItReadsTheSequence(unittest.TestCase):
+    def test_side_chain_acids_never_choose_the_chain_direction(self):
+        # Atom order is not chemistry: Asp/Glu side-chain acids may occur after the
+        # C-terminal acid in an equivalent SMILES, including in internal residues.
+        for sequence in ("GAD", "GAE", "DGA", "EGA", "ADG", "AEG"):
+            mol = Chem.MolFromSequence(sequence)
+            for order in (list(range(mol.GetNumAtoms())), list(reversed(range(mol.GetNumAtoms())))):
+                smiles = Chem.MolToSmiles(Chem.RenumberAtoms(mol, order), canonical=False)
+                with self.subTest(sequence=sequence, smiles=smiles):
+                    read = S.read_sequence(smiles)
+                    self.assertEqual(read.sequence, sequence, read.problem)
+                    self.assertIsNone(read.problem)
+
     def test_the_hazard_route_target(self):
         read = S.read_sequence(QWRCSGA)
         self.assertEqual(read.sequence, "QWRCSGA", read.problem)

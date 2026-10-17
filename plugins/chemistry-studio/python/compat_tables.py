@@ -373,7 +373,8 @@ ATTACKS = {
     "strong-acid": [
         ("boc", "high", "is cleaved by acid"), ("acetal", "high", "is hydrolysed by aqueous acid"),
         ("tbu-ester", "high", "is cleaved by acid"), ("silyl-ether", "medium", "may be cleaved (TMS, TES, TBS more than TBDPS, TIPS)"),
-        ("trityl", "high", "is cleaved by acid"), ("epoxide", "medium", "may be opened"),
+        ("trityl", "high", "is cleaved by acid"), ("epoxide", "medium", "may be opened")],
+    "aqueous-acid": [("acetal", "medium", "may be hydrolysed"), ("trityl", "medium", "may be cleaved"),
                      ("silyl-ether", "medium", "may be cleaved (TMS, TES)")],
     "fluoride": [("silyl-ether", "high", "is cleaved by fluoride")],
     "chromium-oxidant": [
