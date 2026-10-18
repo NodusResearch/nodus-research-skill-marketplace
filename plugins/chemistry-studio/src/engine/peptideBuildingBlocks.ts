@@ -33,6 +33,27 @@ export const PEPTIDE_BUILDING_BLOCKS: Record<string, string> = {
   // removing it needs a carbamate N-H that Fmoc-Pro-OH does not have. C22H22N2O5.
   "Fmoc-Gly-Pro-OH": "O=C(NCC(=O)N1CCC[C@H]1C(=O)O)OCC1c2ccccc2-c2ccccc21",
   "Fmoc-His(Trt)-OH": "C1=CC=C(C=C1)C(C2=CC=CC=C2)(C3=CC=CC=C3)N4C=C(N=C4)C[C@@H](C(=O)O)NC(=O)OCC5C6=CC=CC=C6C7=CC=CC=C57",
+  // The OTHER ring nitrogen, and that is the entire point of carrying both. Histidine racemises
+  // because the imidazole's PI nitrogen — the one adjacent to the carbon bearing the side chain —
+  // abstracts the alpha-proton of the activated residue. Substitution THERE prevents it;
+  // substitution on the tau nitrogen only lowers the pi nitrogen's basicity and so reduces it.
+  // Fmoc-His(Trt)-OH above is tau-substituted, which is why the his-epimerisation hazard could
+  // previously only say that no pi-protected histidine ships.
+  //
+  // Bum is tert-butoxymethyl: TFA-labile, so it comes off with everything else at the end, which
+  // is what makes it the Fmoc-compatible choice. Do not confuse it with Bom (benzyloxymethyl,
+  // CAS 84891-19-0, C29H27N3O5), which is HF-labile and belongs to Boc chemistry.
+  // CAS 90653-46-6, C26H29N3O5, MW 463.53 — checked against the catalogue entry, and the
+  // substituted nitrogen is asserted to be the one adjacent to C-gamma in test_his_bum_block.py.
+  //
+  // CAUTION carried in the hazard message too: deprotection releases FORMALDEHYDE, which needs a
+  // scavenger of its own or it goes on to modify the peptide.
+  // NOTE the [C@H], not [C@@H]: this entry is written with the NITROGEN before the carboxyl,
+  // the opposite order from Fmoc-His(Trt)-OH above, and swapping two neighbours inverts what
+  // the same tag means. Written as [C@@H] it is the D residue — right formula, right mass,
+  // wrong molecule. Both blocks are now asserted to carry the same CIP code (S) rather than
+  // a hand-checked letter.
+  "Fmoc-His(Bum)-OH": "CC(C)(C)OCn1c(C[C@H](NC(=O)OCC2c3ccccc3-c3ccccc32)C(=O)O)cnc1",
   "Fmoc-Ile-OH": "CC[C@H](C)[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Leu-OH": "CC(C)C[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Lys(Boc)-OH": "CC(C)(C)OC(=O)NCCCC[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
