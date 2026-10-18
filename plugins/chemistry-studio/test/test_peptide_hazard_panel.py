@@ -56,18 +56,14 @@ _TRANSFORMS = {t["id"]: t for t in
 _COUPLE = rdChemReactions.ReactionFromSmarts(_TRANSFORMS["n-peptide-coupling"]["smarts"])
 _UNFMOC = rdChemReactions.ReactionFromSmarts(_TRANSFORMS["fmoc-removal"]["smarts"])
 
-# TEST-LOCAL, and a finding rather than a convenience. The package ships Fmoc-Trp(Boc)-OH as THE
-# remedy for the free-indole hazard, but `boc-removal`'s site is `[NX3;H1,H0]`, which cannot match
-# the indole's AROMATIC nitrogen — so no shipped transform can take that Boc off again, and a route
-# that took the remedy could not express its own final deprotection. Checked: the group pattern's
-# own comment already notes the aromatic nitrogen is invisible to the `boc` group, and the same is
-# true of the transform. Until a widened or separate transform lands deliberately (it is a product
-# change, with the endgame list and the generator to consider), the panel exposes the indole with
-# this local reaction so the cleavage fixture is the molecule a real route would hold. If a shipped
-# transform ever covers it, delete this and use that.
+# The aromatic-nitrogen Boc rule. This was a TEST-LOCAL reaction here, because the package
+# shipped Fmoc-Trp(Boc)-OH as the remedy for the free-indole hazard and had no transform that
+# could take that Boc off again — `boc-removal`'s site is an aliphatic [NX3] and the indole
+# nitrogen is aromatic. `ring-nitrogen-boc-removal` now ships, so the panel uses it like any
+# other transform; see test_indole_boc_removal.py for why it is a second rule and not a
+# widened one.
 _UNBOC_AROMATIC = rdChemReactions.ReactionFromSmarts(
-    "[nX3:1][CX3:2](=[OX1:3])[OX2:4][CX4:5]([CH3:6])([CH3:7])[CH3:8]"
-    ">>[nH:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:6]=[CX3:5]([CH3:7])[CH3:8]")
+    _TRANSFORMS["ring-nitrogen-boc-removal"]["smarts"])
 
 # The monomer table is read straight from the package's own peptideBuildingBlocks.ts, the way
 # test_peptide_dipeptides.py does, rather than through the route generator. The generator

@@ -52,7 +52,8 @@
     "dmb amide": "[NX3][CH2]c1ccc(O[CH3])cc1O[CH3]",
     "pseudoproline": "[NX3]1[CX4;H1][CH2][OX2][CX4]1([CH3])[CH3]",
     "guanidine": "[NX3;H2][CX3](=[NX2])[NX3]",
-    "imidazole nh": "[nH]"
+    "ring nitrogen boc": "[n][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
+  "imidazole nh": "[nH]"
   },
   "transforms": [
     {
@@ -290,6 +291,14 @@
       "summary": "Remove a Boc carbamate from the amine (TFA or HCl), releasing isobutylene and carbon dioxide. The acid delivers the amine as its ammonium salt, which is not nucleophilic until a base liberates it; the following acylation is supplied with a stoichiometric base.",
       "site": "boc carbamate",
       "smarts": "[NX3;H1,H0:1][CX3:2](=[OX1:3])[OX2:4][CX4:5]([CH3:6])([CH3:7])[CH3:8]>>[N:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:6]=[CX3:5]([CH3:7])[CH3:8]",
+      "reagents": [],
+      "carries": 1
+    },
+    {
+      "id": "ring-nitrogen-boc-removal",
+      "summary": "Remove a Boc carbamate from an AROMATIC ring nitrogen (TFA), releasing isobutylene and carbon dioxide. This is the rule for Fmoc-Trp(Boc)-OH's indole and for an N-im-Boc histidine; the freed ring nitrogen keeps its hydrogen, which `boc-removal` cannot express because its site is an aliphatic [NX3].",
+      "site": "ring nitrogen boc",
+      "smarts": "[nX3:1][CX3:2](=[OX1:3])[OX2:4][CX4:5]([CH3:6])([CH3:7])[CH3:8]>>[nH:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:6]=[CX3:5]([CH3:7])[CH3:8]",
       "reagents": [],
       "carries": 1
     },
