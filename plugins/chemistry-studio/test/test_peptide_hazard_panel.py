@@ -94,13 +94,42 @@ def _carried(outcome):
         return None
 
 
-def _apply(rxn, *smiles):
+# A backbone amide: a carbonyl on a nitrogen on an alpha-carbon that itself bears a carbonyl. Used
+# to tell a real coupling from a side-chain one.
+_ALPHA_AMIDE = Chem.MolFromSmarts("[CX3](=[OX1])[NX3;H1][CX4;H1,H2][CX3]=[OX1]")
+
+
+def _apply(rxn, *smiles, prefer_backbone=False):
+    """Run a transform and return the carried product.
+
+    `prefer_backbone` picks the outcome that formed a BACKBONE amide, and it is not an
+    optimisation. `n-peptide-coupling`'s site is `free amine`, written as
+    `[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+])]`, and the guanidine of the shipped
+    Fmoc-Arg(Pbf)-OH has a nitrogen that satisfies it: NH2, three-coordinate, not acylated, not
+    doubly bonded. So RunReactants offers acylation of the GUANIDINE as well as of the alpha-amine,
+    and taking the first outcome built Ala-Arg with the aspartate hanging off the guanidine - a
+    molecule no route would make, and one that silently answered False to the aspartimide pattern
+    because there was no Asp-Arg backbone bond in it to match. Found by ADR failing where ADQ
+    passed.
+
+    In the real worker this does not arise, because a route names the site it means and
+    `_resolve_site` honours it; the builder has no such instruction, so it scores the outcomes
+    instead and takes the one with the most backbone amides.
+    """
     mols = tuple(Chem.MolFromSmiles(s) for s in smiles)
     assert all(m is not None for m in mols), f"unparseable input: {smiles}"
+    best, best_score = None, -1
     for outcome in rxn.RunReactants(mols):
         got = _carried(outcome)
-        if got:
+        if not got:
+            continue
+        if not prefer_backbone:
             return got
+        score = len(Chem.MolFromSmiles(got).GetSubstructMatches(_ALPHA_AMIDE))
+        if score > best_score:
+            best, best_score = got, score
+    if best is not None:
+        return best
     raise AssertionError(f"{rxn} produced nothing from {smiles}")
 
 
@@ -156,7 +185,7 @@ def build(sequence, overrides=None, coupling=COUPLING, deprotection=PIPERIDINE):
     while position >= 1:
         override = overrides.get(position)
         name, acid = block(sequence[position - 1], override)
-        coupled = _apply(_COUPLE, chain, acid)
+        coupled = _apply(_COUPLE, chain, acid, prefer_backbone=True)
         steps.append(Step("couple", [chain, acid], [coupled], coupling, f"+{name}"))
         chain = _apply(_UNFMOC, coupled)
         steps.append(Step("deprotect", [coupled], [chain], deprotection, f"Fmoc off {name}"))
@@ -330,13 +359,73 @@ class AspartimideTheDGChallenge(unittest.TestCase):
     def test_exactly_one_aspartimide_group_fires_per_sequence(self):
         # The four groups are disjoint by construction. Two firing at once would mean the advice
         # names remedies the pattern has not established apply.
-        for sequence in ("ADG", "ADS", "ADA", "ADT", "ADC", "ADN"):
+        for sequence in ("ADG", "ADS", "ADA", "ADT", "ADC", "ADN", "ADQ", "ADR", "ADE"):
             with self.subTest(sequence):
                 _, steps = build(sequence)
                 seen = set()
                 for step in steps:
                     seen |= {g for g in step.groups() if g.startswith("aspartimide")}
                 self.assertLessEqual(len(seen), 1, f"{sequence} raised {seen}")
+
+    def test_the_motif_list_the_SOURCES_agree_on(self):
+        """The susceptibility set, settled against the literature rather than against one book.
+
+        This had to be resolved from several sources because they do not agree:
+
+          * *Amino Acids, Peptides and Proteins in Organic Chemistry* Vol 3 Section 9.2.5 names
+            Asp-Gly and Asp-Asn as most susceptible, then Asp-Ala and Asp-Gln, and then says "with
+            the other amino acids the cyclization does not occur BECAUSE OF STERIC HINDRANCE".
+          * Mergler et al., "The aspartimide problem in Fmoc-based SPPS, Part II", J Pept Sci 2003,
+            9, 518-526, MEASURED it in H-Val-Lys-Asp-Xaa-Tyr-Ile-OH and found considerable
+            by-product for Xaa = Asp(OtBu), Arg(Pbf), Asn(Mtt), Cys(Acm) and unprotected Thr.
+          * Iris Biotech's technical flyer IF18, summarising the same field: "preferably occurs at
+            Asp-Aaa motifs (Aaa = GLYCINE, ASPARTIC ACID, ASPARAGINE, GLUTAMINE OR ARGININE)".
+
+        So Vol 3's steric-hindrance claim is the OUTLIER and it is wrong: Mergler measured Cys and
+        Thr, the two residues Vol 3 would exclude. Our `aspartimide-beta-heteroatom` group, which I
+        had provisionally marked as unsupported after reading Vol 3, is correct and now cited. The
+        genuine gaps were the other way round — GLUTAMINE and ARGININE, which three sources name
+        and the pattern did not match at all. Arg is the one that matters in practice, since
+        Fmoc-Arg(Pbf)-OH is in almost every synthesis.
+        """
+        expected = {
+            "ADG": "aspartimide-gly",               # all sources, the classic worst case
+            "ADN": "aspartimide-prone-xaa",         # Vol 3 top tier; Mergler Asn(Mtt)
+            "ADD": "aspartimide-prone-xaa",         # Mergler Asp(OtBu); Iris "aspartic acid"
+            "ADQ": "aspartimide-prone-xaa",         # Vol 3; Iris "glutamine"
+            "ADR": "aspartimide-prone-xaa",         # Mergler Arg(Pbf); Iris "arginine"
+            "ADS": "aspartimide-beta-heteroatom",   # the Ser hydroxyl is an internal catalyst
+            "ADT": "aspartimide-beta-heteroatom",   # Mergler, unprotected Thr
+            "ADC": "aspartimide-beta-heteroatom",   # Mergler, Cys(Acm)
+        }
+        for sequence, group in expected.items():
+            with self.subTest(sequence):
+                _, steps = build(sequence)
+                seen = set()
+                for step in steps:
+                    seen |= step.groups()
+                self.assertIn(group, seen, f"{sequence}: expected {group}, got "
+                                           f"{{g for g in seen if 'aspart' in g}}")
+
+    def test_glutamine_and_arginine_are_not_matched_as_the_GLY_case(self):
+        # They belong in the generic tier: no dipeptide block exists for those pairs, so the advice
+        # must not promise Fmoc-Asp(OtBu)-(Dmb)Xaa-OH, which ships only for glycine.
+        for sequence in ("ADQ", "ADR"):
+            with self.subTest(sequence):
+                _, steps = build(sequence)
+                seen = set()
+                for step in steps:
+                    seen |= step.groups()
+                self.assertNotIn("aspartimide-gly", seen, f"{sequence}: {seen}")
+
+    def test_lysine_is_not_arginine(self):
+        # The arginine arm ends in a guanidine. Lysine is one carbon longer and ends in a plain
+        # amine, and nothing names Asp-Lys as prone, so it must stay silent.
+        _, steps = build("ADK")
+        seen = set()
+        for step in steps:
+            seen |= step.groups()
+        self.assertFalse({g for g in seen if g.startswith("aspartimide")}, f"ADK: {seen}")
 
 
 # --------------------------------------------------------------------------- 2. cleavage hazards

@@ -142,8 +142,22 @@ GROUPS = {
     #     Fmoc-Asp(OtBu)-(Dmb)Gly-OH dipeptide is sold for;
     #   - a serine, threonine or cysteine next door (recognised by the beta heteroatom, free or
     #     protected) is the case a pseudoproline dipeptide can cover, which glycine cannot be;
-    #   - the remaining literature-prone neighbours (alanine, asparagine, aspartate) have no
-    #     special building block, so they get the general advice;
+    #   - the remaining literature-prone neighbours have no special building block, so they get the
+    #     general advice. That list was settled against several sources, because they disagree.
+    #     *Amino Acids, Peptides and Proteins in Organic Chemistry* Vol 3 Section 9.2.5 names
+    #     Asp-Gly and Asp-Asn as most susceptible, then Asp-Ala and Asp-Gln, and then claims "with
+    #     the other amino acids the cyclization does not occur because of steric hindrance". That
+    #     last claim is WRONG and is the outlier: Mergler et al., "The aspartimide problem in
+    #     Fmoc-based SPPS, Part II" (J Pept Sci 2003, 9, 518-526) measured the whole series in
+    #     H-Val-Lys-Asp-Xaa-Tyr-Ile-OH and found considerable by-product for Xaa = Asp(OtBu),
+    #     ARG(Pbf), Asn(Mtt), CYS(Acm) and unprotected THR - including the two residues Vol 3 would
+    #     exclude. Iris Biotech's flyer IF18 summarises the field the same way: "preferably occurs
+    #     at Asp-Aaa motifs (Aaa = glycine, aspartic acid, asparagine, glutamine or arginine)".
+    #     So the arms below are glycine (its own group), the beta-heteroatom set (its own group,
+    #     vindicated by Mergler's Cys and Thr), and here: alanine, the one- and two-carbon
+    #     side-chain amides and acids (asparagine/aspartate, glutamine/glutamate) and ARGININE.
+    #     Arginine is the one that matters most in practice, since Fmoc-Arg(Pbf)-OH is in almost
+    #     every synthesis, and it was missing entirely.
     #   - a hindered trialkylmethyl ester (OMpe and relatives) downgrades the glycine case
     #     instead of silencing it, so taking the recommended precaution clears or lowers the
     #     flag rather than leaving a warning that can never be answered.
@@ -164,10 +178,13 @@ GROUPS = {
     "aspartimide-beta-heteroatom": ("aspartate side-chain ester followed by serine, threonine or cysteine",
                                     "[OX2;$(O[CX4]);!$(O[CX4]([CX4])([CX4])[CX4;!H3])][CX3](=O)[CH2]"
                                     "[CX4;H1]([NX3])[CX3](=O)[NX3;H1][CX4;H1]([CX4][OX2,SX2])[CX3]=O"),
-    "aspartimide-prone-xaa": ("aspartate side-chain ester followed by alanine, asparagine or aspartate",
+    "aspartimide-prone-xaa": ("aspartate side-chain ester followed by a literature-prone residue",
                               "[OX2;$(O[CX4]);!$(O[CX4]([CX4])([CX4])[CX4;!H3])][CX3](=O)[CH2]"
                               "[CX4;H1]([NX3])[CX3](=O)[NX3;H1]"
-                              "[CX4;H1]([$([CH3]),$([CH2][CX3](=O)[#7,#8])])[CX3]=O"),
+                              "[CX4;H1]([$([CH3]),"
+                              "$([CH2][CX3](=O)[#7,#8]),"
+                              "$([CH2][CH2][CX3](=O)[#7,#8]),"
+                              "$([CH2][CH2][CH2][#7]~[CX3](~[#7])~[#7])])[CX3]=O"),
     # The alpha-carboxyl of an amino acid or of a peptide's C-terminal residue, still FREE. It is
     # the most acidic proton in the molecule, so an O-alkylation or O-acylation aimed at a
     # side-chain hydroxyl hits it first — giving the ester, not the ether, with the side chain left
