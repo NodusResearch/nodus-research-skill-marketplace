@@ -66,6 +66,23 @@ REAGENT_CLASSES = [
         _F + r"H2SO4" + _E, r"sulfuric acid", r"sulphuric acid", _F + r"TfOH" + _E, r"triflic acid",
         r"\bp-?tsoh\b", _F + r"TsOH" + _E, r"\bcsa\b", r"camphorsulfonic",
         _F + r"BF3" + _E, _F + r"TMSOTf" + _E, _F + r"BBr3" + _E, _F + r"BCl3" + _E]),
+    # The MILD acid regime of Fmoc/tBu work: cleaving a peptide off a super-acid-labile support
+    # (2-chlorotrityl, SASRIN) or taking off a super-acid-labile side-chain group, with dilute TFA,
+    # acetic acid, trifluoroethanol or hexafluoroisopropanol. Chemically this is a different regime
+    # from the 95% TFA endgame, and it had no class at all: `AcOH/TFE/DCM 1:2:7` and `20% HFIP in
+    # DCM` classified as NOTHING, so a route cleaving from 2-CTC reached none of the gates.
+    #
+    # It carries ONE hazard deliberately (the pyroglutamate path — Vol 3 Section 9.2.4 names these
+    # exact resins as where the weak-acid regime bites). Populating it further is its own job with
+    # its own reading; an empty-ish class that classifies correctly is better than a silent hole.
+    #
+    # Dilute TFA is matched by percentage ONLY at the low end, where the figure is unambiguous and a
+    # misread cannot silence a flag — it can only add the mild class beside the strong one, and the
+    # shared `seen` set stops a double report.
+    ("mild-acid", "mild acid (dilute TFA, AcOH, TFE, HFIP — super-acid-labile cleavage)",
+     [r"\bHFIP\b", r"hexafluoro-?isopropanol", r"\bTFE\b", r"trifluoroethanol",
+      r"\bAcOH\b", r"acetic acid",
+      r"(?<![\d.])(?:0?\.\d+|[1-9]|1[0-9]|20)\s*%\s*TFA"]),
     ("aqueous-acid", "aqueous acid (work-up)", [_F + r"H3O\+", r"aqueous acid", r"\bH\+(?![A-Za-z0-9])",
                                                r"(dilute|dil\.|aq\.?|aqueous|\d+(\.\d+)?\s*[NM])\s*(HCl|H2SO4)"]),
     ("fluoride", "fluoride (TBAF, HF)", [_F + r"TBAF" + _E, r"tetrabutylammonium fluoride", _F + r"HF" + _E,
@@ -514,15 +531,34 @@ ATTACKS = {
 # supposed to prove it used the same already-deprotected molecule as both reactant and product,
 # so it passed for the wrong reason. Two more gates had the same flaw and were firing a step late.
 UNMASKED_RISKS = {
+    # Cleaving off a super-acid-labile support is the case Vol 3 Section 9.2.4 names outright:
+    # pyroglutamate "is catalyzed by weak acids, but not by strong acids such as the ones required
+    # for final cleavage ... However, weak acids are used in the Fmoc/tBu strategy in the case of
+    # super acid-labile group deprotection or for peptide cleavage from highly acid-sensitive
+    # resins, such as 2-Cl-Trt and SASRIN." Needs no catalyst named in the conditions, unlike the
+    # coupling and deprotection paths, because here the reagent is itself the weak-acid regime.
+    "mild-acid": [
+        ("n-terminal-gln", "high", "is free, and this is the weak-acid regime that catalyses its cyclisation to "
+                                   "PYROGLUTAMATE — the alpha-amine closes onto its own side-chain amide and ammonia "
+                                   "leaves, capping the chain for good. This is the case the literature singles out: "
+                                   "mild-acid cleavage from a super-acid-labile support (2-chlorotrityl, SASRIN), "
+                                   "where the acid is dilute enough to leave the amine nucleophilic for the whole "
+                                   "step. Carry the glutamine as Fmoc-Gln(Trt)-OH, which ships, or keep the step as "
+                                   "short as it can be"),
+    ],
     "strong-acid": [
         ("free-indole", "high", "is laid BARE by this step, in the acid that is still full of the cations the other "
                                 "protecting groups are shedding — tert-butyl, trityl, Pbf sulfonyl. The indole is "
                                 "the most electron-rich ring in the peptide, so it takes them, and the alkylated "
                                 "tryptophan cannot be recovered"),
-        ("n-terminal-gln", "high", "is left free by this step, and it then cyclises to PYROGLUTAMATE: the alpha-amine "
+        ("n-terminal-gln", "high", "is left free by this step and can cyclise to PYROGLUTAMATE: the alpha-amine "
                                    "closes onto its own side-chain amide and ammonia leaves, so the peptide ends up "
-                                   "with no N-terminus. Acid at the end of a synthesis is where this bites, because "
-                                   "nothing further acylates the amine"),
+                                   "with no N-terminus, and nothing further can acylate it. Note WHERE in the step "
+                                   "this happens: in concentrated acid the amine is protonated and cannot attack, so "
+                                   "the risk is the DILUTE and RESIDUAL regime the work-up passes through — "
+                                   "evaporating the acid and triturating. Remove the acid as quickly as possible, and "
+                                   "better, carry the glutamine as Fmoc-Gln(Trt)-OH, which ships: a protected "
+                                   "side-chain amide leaves nothing to close onto"),
     ],
     "amine-base": [
         ("resin-dipeptide-dkp", "high", "is what this step CREATES, and it closes to the diketopiperazine, taking the "

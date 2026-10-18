@@ -2082,6 +2082,13 @@ def _compatibility(steps, textbook_dir=None):
         capped = {h["reagentClass"] for h in hazards if h["group"] == "n-terminal-amine-capping"}
         if capped:
             hazards = [h for h in hazards if not (h["group"] == "amine" and h["reagentClass"] in capped)]
+        # Pyroglutamate has three reagent-class paths now, and a step can match two of them at
+        # once: `Ac2O/AcOH capping` is both an acylating agent and a weak acid, so it reported the
+        # hazard twice — one nitrogen, two messages. The `mild-acid` reading is the specific and
+        # more accurate one for an acid step, so where it fires the other paths are dropped.
+        if any(h["group"] == "n-terminal-gln" and h["reagentClass"] == "mild-acid" for h in hazards):
+            hazards = [h for h in hazards
+                       if not (h["group"] == "n-terminal-gln" and h["reagentClass"] != "mild-acid")]
         for group, removers in _REMOVED_BY.items():
             if group in reacted and before[group] > after.get(group, 0) and classes and not (removers & set(classes)):
                 text_hint, forms = T.suggestion(group, None)
