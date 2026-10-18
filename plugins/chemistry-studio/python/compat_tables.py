@@ -1253,6 +1253,62 @@ def classify(text):
     return found
 
 
+# ------------------------------------------------------- the bridge: a transform id -> conditions
+# `classify` reads a conditions STRING, which is what the free-text (LLM) route path supplies. A
+# PROGRAM-MODE route does not have that string: each step identifies its operation by transform
+# `id` and lists reagent SMILES, so `classify("fmoc-removal")` is [] and every hazard gate stays
+# silent on a generated route. Verified 2026-10-17 by executing the generator's own routes and
+# finding zero hazards fired — not because the molecules were clean, but because nothing told the
+# checker what reagent each step used.
+#
+# This is that missing piece: the representative conditions an operation runs under, so a
+# program-mode step can be handed to `classify` (and thence to `_compatibility`) exactly as a
+# free-text step is. One entry per transform the peptide generator can emit — assembly, the
+# dipeptide/pseudoproline endgame, global deprotection, and resin cleavage.
+#
+# The strings are real cocktails on purpose, so `classify` reads them through its ordinary
+# patterns rather than through a second code path; `conditions_for_transform` is the only new
+# surface. Checked against each transform's own `summary` in test_transform_conditions.py: where a
+# summary names its reagent, the class it classifies to must match the class these conditions give,
+# so this map cannot drift from the chemistry the executor describes.
+_FMOC_REMOVAL = "20% piperidine in DMF, 2 x 5 min"
+_COUPLING = "Fmoc-amino acid, HBTU, DIPEA, DMF, 45 min"
+_ACID_CLEAVAGE = "TFA/H2O 95:5, 2 h"
+TRANSFORM_CONDITIONS = {
+    # assembly
+    "fmoc-removal": _FMOC_REMOVAL,
+    "n-peptide-coupling": _COUPLING,
+    "n-acylation": _COUPLING,
+    "amide-formation": _COUPLING,
+    # global deprotection and resin cleavage, all under the final acid
+    "boc-removal": _ACID_CLEAVAGE,
+    "ring-nitrogen-boc-removal": _ACID_CLEAVAGE,
+    "tert-butyl-ester-removal": _ACID_CLEAVAGE,
+    "tert-butyl-ether-removal": _ACID_CLEAVAGE,
+    "mpe-ester-removal": _ACID_CLEAVAGE,
+    "trityl-removal": _ACID_CLEAVAGE,
+    "s-trityl-removal": _ACID_CLEAVAGE,
+    "n-trityl-removal": _ACID_CLEAVAGE,
+    "imidazole-trityl-removal": _ACID_CLEAVAGE,
+    "pbf-removal": _ACID_CLEAVAGE,
+    "dmb-removal": _ACID_CLEAVAGE,
+    "pseudoproline-opening": _ACID_CLEAVAGE,
+    "resin-cleavage": _ACID_CLEAVAGE,
+}
+
+
+def conditions_for_transform(transform_id):
+    """The conditions a program-mode step runs under, from its transform id, or None if unmapped.
+
+    The bridge between a generated route (which names operations by id) and the hazard checker
+    (which reads a conditions string). A caller checking a program-mode route passes this result as
+    the step's `reagents`, so the same `classify` -> `_compatibility` path serves both route forms.
+    Returns None for a transform outside the peptide set, so an unmapped id is a visible gap rather
+    than a wrong class.
+    """
+    return TRANSFORM_CONDITIONS.get(transform_id)
+
+
 def label_of(cls):
     return next((label for c, label, _ in REAGENT_CLASSES if c == cls), cls)
 
