@@ -135,6 +135,11 @@ class TheSubstituentIsOnTheRightNitrogen(unittest.TestCase):
 
 
 class TheHazardCanNowNameIt(unittest.TestCase):
+    def test_the_pi_protected_block_clears_the_epimerisation_gate(self):
+        query = Chem.MolFromSmarts(T.GROUPS["his-epimerisation"][1])
+        self.assertFalse(Chem.MolFromSmiles(blocks()[BUM]).HasSubstructMatch(query))
+        self.assertTrue(Chem.MolFromSmiles(blocks()[TRT]).HasSubstructMatch(query))
+
     def test_the_histidine_message_names_the_block_that_now_ships(self):
         for group, rows in (("acylating", T.ACTIVATION_RISKS["acylating"]),):
             text = next(why for g, _s, why in rows if g == "his-epimerisation")

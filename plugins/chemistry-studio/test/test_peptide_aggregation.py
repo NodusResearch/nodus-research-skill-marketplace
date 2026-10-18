@@ -253,6 +253,17 @@ class TheSheppardProneResidues(unittest.TestCase):
     very signal being looked for.
     """
 
+    def test_an_unknown_residue_leaves_its_whole_window_unscored(self):
+        advisory = A.aggregation_advisory("NNNNXSGADKR")
+        self.assertEqual(advisory["suspect"], [], advisory)
+        self.assertTrue(any("X" in note for note in advisory["notes"]))
+
+    def test_merging_sheet_windows_preserves_the_strongest_identity_signal(self):
+        advisory = A.aggregation_advisory("NNNNNGSDKR")
+        spans = [span for span in advisory["spans"] if span["basis"] == "sheet-prone"]
+        self.assertEqual(len(spans), 1, advisory)
+        self.assertEqual(spans[0]["level"], "strong", advisory)
+
     def test_the_cited_residue_set_is_what_the_book_names(self):
         self.assertEqual(set(A.SHEPPARD_PRONE), set("AVINQ"))
 

@@ -389,7 +389,7 @@ GROUPS = {
     "cys-resin-ester-epimerisation": ("resin-esterified cysteine",
                                       "[#0]OC(=O)[CX4;H1]([CH2][SX2])[NX3]"),
     "his-epimerisation": ("histidine with its alpha-carboxyl free",
-                          "[OX2H1][CX3](=O)[CX4;H1][CH2]c1cncn1"),
+                          "[OX2H1][CX3](=O)[CX4;H1][CH2]c1cnc[n;D2]1"),
     # Not attacked by anything in ATTACKS: it exists so a cleavage step can be told that it IS
     # releasing a tert-butyl cation. Ser(tBu)/Thr(tBu)/Tyr(tBu) are ethers, which `tbu-ester` does
     # not see, and on a real peptide they are often the only acid-labile groups present.
@@ -875,6 +875,7 @@ _URONIUM = re.compile(r"\bHBTU\b|\bTBTU\b|\bHATU\b|\bHCTU\b|\bHDMU\b|\bCOMU\b"
 _PREACTIVATION = re.compile(r"pre[- ]?activat|pre[- ]?mix|premix"
                             r"|activat\w*\s+(?:for\s+)?\d+\s*(?:s|sec|min|h)\w*\s*(?:,\s*)?then"
                             r"|then add (?:to )?(?:the )?resin", re.I)
+_NO_PREACTIVATION = re.compile(r"\b(?:no|without)\s+pre[- ]?(?:activat\w*|mix\w*)", re.I)
 
 
 # What answers an aspartimide flag in the DEPROTECTION, as opposed to in the building block.
@@ -920,6 +921,8 @@ def has_capping_risk(text):
     route that activates in situ, or that says nothing either way, does not raise it.
     """
     text = text or ""
+    if _NO_PREACTIVATION.search(text):
+        return False
     return bool(_URONIUM.search(text)) and bool(_PREACTIVATION.search(text))
 
 # ------------------------------------------------------- what the by-product WEIGHS, if anything

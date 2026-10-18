@@ -156,6 +156,8 @@ def aggregation_advisory(sequence, suspect=HYDROPATHY_SUSPECT, strong=HYDROPATHY
     # is invisible to the other: see the note on SHEPPARD_PRONE.
     for start in range(1, max(0, len(sequence) - window + 1) + 1):
         text = sequence[start - 1:start - 1 + window]
+        if any(residue not in KYTE_DOOLITTLE for residue in text):
+            continue
         count = sum(1 for residue in text if residue in SHEPPARD_PRONE)
         if count < SHEPPARD_PRONE_MIN:
             continue
@@ -231,7 +233,11 @@ def collapse(suspects, window=HYDROPATHY_WINDOW):
         if previous is not None and first <= previous["to"] + 1:
             previous["to"] = max(previous["to"], last)
             if entry["mean"] > previous["peak"]:
-                previous["peak"], previous["level"] = entry["mean"], entry["level"]
+                previous["peak"] = entry["mean"]
+            # Sheet propensity is graded by residue count, independently of the
+            # hydropathy peak. A less negative mean cannot downgrade a strong run.
+            if entry["level"] == "strong":
+                previous["level"] = "strong"
             previous["from_resin"] = [min(previous["from_resin"][0], entry["from_resin"][0]),
                                       max(previous["from_resin"][1], entry["from_resin"][1])]
         else:

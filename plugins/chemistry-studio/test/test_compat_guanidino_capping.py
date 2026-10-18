@@ -155,6 +155,13 @@ class TheFlagFires(unittest.TestCase):
 
 
 class TheFlagStaysQuietElsewhere(unittest.TestCase):
+    def test_explicitly_omitting_preactivation_does_not_trigger_the_flag(self):
+        for protocol in ("no pre-activation", "in situ, without premixing", "no pre-mixing"):
+            with self.subTest(protocol=protocol):
+                found = hazards_for([CHAIN_FREE_N, FMOC_ALA], [CHAIN_COUPLED],
+                                    f"HBTU, DIPEA, DMF, {protocol}")
+                self.assertNotIn(GROUP, groups_in(found), found)
+
     def test_an_IN_SITU_uronium_coupling_is_silent(self):
         # The whole point of the guard. This is the standard protocol and it must not be nagged.
         found = hazards_for([CHAIN_FREE_N, FMOC_ALA], [CHAIN_COUPLED], IN_SITU_URONIUM)
