@@ -156,8 +156,12 @@ class TheEpimerisationsAreExplicitlyInVISIBLE(unittest.TestCase):
 
 class TheTableIsCompleteAndHonest(unittest.TestCase):
     def test_every_peptide_hazard_has_an_entry(self):
-        # Coverage, so a new gate cannot ship without the detectability question answered. This is
-        # the durable half of the file: the next hazard added has to say whether MS can see it.
+        """Coverage, so a new gate cannot ship without the detectability question answered.
+
+        `PEPTIDE_HAZARDS` is now listed explicitly rather than derived from the table's own keys.
+        It was `frozenset(MASS_SHIFTS)` at first, which made this test tautological — it could
+        never fail, because the set it checked against was defined as whatever was in the table.
+        """
         missing = sorted(T.PEPTIDE_HAZARDS - set(T.MASS_SHIFTS))
         self.assertEqual(missing, [], f"gated peptide hazards with no mass signature: {missing}")
 
@@ -169,10 +173,12 @@ class TheTableIsCompleteAndHonest(unittest.TestCase):
         for group, entry in T.MASS_SHIFTS.items():
             with self.subTest(group):
                 self.assertEqual(sorted(entry), ["delta", "kind", "note"])
-                self.assertIn(entry["kind"], ("shift", "same-mass", "deletion", "absent"))
+                self.assertIn(entry["kind"], ("shift", "same-mass", "deletion", "absent", "residual"))
                 self.assertGreater(len(entry["note"]), 30, "a bare number helps nobody")
                 if entry["kind"] == "same-mass":
                     self.assertEqual(entry["delta"], 0)
+                if entry["kind"] == "residual":
+                    self.assertGreater(entry["delta"], 0, "a group that failed to leave adds mass")
                 if entry["kind"] in ("deletion", "absent"):
                     self.assertIsNone(entry["delta"], "these have no single number by definition")
 
@@ -235,6 +241,100 @@ class ItReachesTheHazardARouteSees(unittest.TestCase):
                  if h["group"] == "ester"]
         if found:
             self.assertNotIn("massShift", found[0])
+
+
+class AResidualProtectingGroupIsTheCommonestPeakOfAll(unittest.TestCase):
+    """A group still there when the route says it is gone — different question, same table.
+
+    This is what a crude peptide trace actually shows first, and the numbers are positive because
+    the product is HEAVIER by whatever failed to leave. Chan & White's Table 5 quotes two of them
+    and the derivations agree exactly: "+56 ... incomplete removal of t-Bu groups" and "+242 ...
+    incomplete removal of Trt".
+    """
+
+    RESIDUAL = {
+        "boc": ("C[C@@H](C(=O)O)NC(=O)OC(C)(C)C", "C[C@@H](C(=O)O)N"),
+        "cbz": ("C[C@@H](C(=O)O)NC(=O)OCc1ccccc1", "C[C@@H](C(=O)O)N"),
+        "fmoc": ("C[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21", "C[C@@H](C(=O)O)N"),
+        "trityl": ("N[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", "N[C@@H](CS)C(=O)O"),
+        "tbu-ester": ("OC(=O)C[C@H](N)C(=O)OC(C)(C)C", "OC(=O)C[C@H](N)C(=O)O"),
+        "tbu-ether": ("N[C@@H](COC(C)(C)C)C(=O)O", "N[C@@H](CO)C(=O)O"),
+        "silyl-ether": ("N[C@@H](CO[Si](C)(C)C(C)(C)C)C(=O)O", "N[C@@H](CO)C(=O)O"),
+        "benzyl-ether": ("N[C@@H](COCc1ccccc1)C(=O)O", "N[C@@H](CO)C(=O)O"),
+        "benzyl-ester": ("OC(=O)C[C@H](N)C(=O)OCc1ccccc1", "OC(=O)C[C@H](N)C(=O)O"),
+    }
+
+    def test_each_residual_group_weighs_what_the_table_says(self):
+        for group, (protected, free) in self.RESIDUAL.items():
+            with self.subTest(group):
+                self.assertEqual(T.MASS_SHIFTS[group]["delta"], derived(free, protected))
+
+    def test_they_are_all_POSITIVE_because_the_group_failed_to_leave(self):
+        for group in self.RESIDUAL:
+            with self.subTest(group):
+                self.assertEqual(T.MASS_SHIFTS[group]["kind"], "residual")
+                self.assertGreater(T.MASS_SHIFTS[group]["delta"], 0)
+
+    def test_the_two_Table_5_quotes_agree_exactly(self):
+        self.assertEqual(T.MASS_SHIFTS["tbu-ether"]["delta"], 56)
+        self.assertEqual(T.MASS_SHIFTS["trityl"]["delta"], 242)
+
+    def test_Pbf_derives_as_252_NOT_the_254_the_table_quotes(self):
+        """Settles a disagreement with the source rather than adopting its number.
+
+        Chan & White's Table 5 lists "+254/266" for an Arg(Pbf)/(Pmc) sulfonyl left on the peptide.
+        Pmc derives as +266 exactly, and Pbf is one CH2 smaller, so Pbf must be +252 — which is
+        also what the SHIPPED Fmoc-Arg(Pbf)-OH gives when Fmoc-Arg-OH is subtracted from it. Two
+        independent routes to +252, and the table's own internal consistency at +266 is what shows
+        the +254 to be wrong. So the free-indole note quotes +252.
+        """
+        import re
+        path = os.path.join(os.path.dirname(HERE), "src", "engine", "peptideBuildingBlocks.ts")
+        body = open(path, encoding="utf-8").read().split("PEPTIDE_BUILDING_BLOCKS")[1]
+        shipped = dict(re.findall(r'"([^"]+)":\s*"([^"]+)"', body))
+        fmoc_arg = "NC(=N)NCCC[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21"
+        self.assertEqual(derived(fmoc_arg, shipped["Fmoc-Arg(Pbf)-OH"]), 252)
+        # Pmc, one CH2 larger, is the +266 the same table quotes correctly.
+        self.assertEqual(derived("NC(=N)N",
+                                 "NC(=N)NS(=O)(=O)c1c(C)c(C)c2c(c1C)CCC(C)(C)O2"), 266)
+        self.assertIn("+252", T.MASS_SHIFTS["free-indole"]["note"])
+        self.assertNotIn("+254", T.MASS_SHIFTS["free-indole"]["note"])
+
+    def test_an_acetal_is_left_without_a_number_on_purpose(self):
+        # Unlike the others it is not one fixed fragment: a dimethyl acetal is +46 and a dioxolane
+        # +44, so the group name alone does not fix the shift.
+        entry = T.MASS_SHIFTS["acetal"]
+        self.assertIsNone(entry["delta"])
+        self.assertIn("depends", entry["note"].lower())
+
+
+class AllFourHazardBuildersCarryIt(unittest.TestCase):
+    """There are FOUR, not three, and the first pass at this wiring missed one.
+
+    The `_REMOVED_BY` builder — "the group is gone in the product, but none of the named reagents
+    removes it" — ends differently from the other three, so a replace that asserted a count of
+    three walked straight past it. The signature is useful precisely there: the hazard says a group
+    vanished unexplained, and the number is what a reader checks the product mass against.
+    """
+
+    def test_the_removed_by_builder_carries_a_signature(self):
+        before, after = "C[C@@H](C(=O)O)NC(=O)OC(C)(C)C", "C[C@@H](C(=O)O)N"
+        found = [h for h in W._compatibility(
+            [{"reactants": [before], "products": [after],
+              "reagents": "DMF, 45 min, 20% piperidine"}])[0]["hazards"]
+            if h["group"] == "boc" and h["reagentClass"] is None]
+        self.assertTrue(found, "the unexplained-removal hazard did not fire")
+        self.assertEqual(found[0]["massShift"], {"delta": 100, "kind": "residual",
+                                                 "note": found[0]["massShift"]["note"]})
+
+    def test_the_count_of_builders_is_pinned_so_a_fifth_cannot_be_missed(self):
+        # The lesson, as a test: the reason one was missed is that nobody had counted them.
+        worker = os.path.join(os.path.dirname(HERE), "python", "reactions_worker.py")
+        source = open(worker, encoding="utf-8").read()
+        builders = source.count("hazards.append({\"group\":")
+        wired = source.count('"massShift": T.mass_shift(group)')
+        self.assertEqual(builders, 4, "a builder was added or removed — wire it and update this")
+        self.assertEqual(wired, builders, "every hazard builder must carry the mass signature")
 
 
 # Nothing goes after this block. Appending below it has stranded tests three times in this

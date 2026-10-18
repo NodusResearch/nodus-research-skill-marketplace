@@ -983,7 +983,7 @@ MASS_SHIFTS = {
                       "note": "dehydration of the side-chain amide to the nitrile"},
     "free-indole": {"delta": None, "kind": "shift",
                     "note": "the shift is whichever cation reached the indole, so it names the culprit rather than "
-                            "one number: +56 a tert-butyl, +212 an Arg(Mtr) sulfonyl, +254/+266 an Arg(Pbf)/(Pmc) "
+                            "one number: +56 a tert-butyl, +212 an Arg(Mtr) sulfonyl, +252/+266 an Arg(Pbf)/(Pmc) "
                             "sulfonyl, +172 an EDT-derived dithioketal (Chan & White Table 5)"},
     "sulfide": {"delta": 16, "kind": "shift",
                 "note": "one oxygen, to the sulfoxide; and it is CHIRAL, so one methionine gives three species in the "
@@ -1001,17 +1001,60 @@ MASS_SHIFTS = {
     "resin-dipeptide-dkp": {"delta": None, "kind": "absent",
                             "note": "there is no product to weigh: the dipeptide cyclises off the support, so the "
                                     "evidence is lost yield and bare linker rather than a peak"},
+    # A PROTECTING GROUP STILL THERE when the route says it is gone. Different question from the
+    # side reactions above and the commonest thing a crude peptide trace actually shows, so the
+    # numbers are the ones a reader checks first. Positive, because the product is HEAVIER by the
+    # group that failed to leave. All derived; the two Chan & White Table 5 quotes agree exactly
+    # (+56 "incomplete removal of t-Bu groups", +242 "incomplete removal of Trt").
+    "boc": {"delta": 100, "kind": "residual",
+            "note": "a Boc that did not come off leaves the product 100 heavier; derived +100.12"},
+    "cbz": {"delta": 134, "kind": "residual",
+            "note": "a Cbz still in place; derived +134.13, and it needs hydrogenolysis or strong acid"},
+    "fmoc": {"delta": 222, "kind": "residual",
+             "note": "an Fmoc still in place; derived +222.24, and it is the easiest of these to spot"},
+    "trityl": {"delta": 242, "kind": "residual",
+               "note": "a trityl still in place; derived +242.32, which is exactly the +242 Chan & White's "
+                       "Table 5 files as 'incomplete removal of Trt'"},
+    "tbu-ester": {"delta": 56, "kind": "residual",
+                  "note": "a tert-butyl ester still in place; derived +56.11, Table 5's +56"},
+    "tbu-ether": {"delta": 56, "kind": "residual",
+                  "note": "a tert-butyl ether still in place; derived +56.11. Note the same +56 also appears when a "
+                          "tert-butyl cation ALKYLATES a side chain, so the number alone does not say which"},
+    "silyl-ether": {"delta": 114, "kind": "residual",
+                    "note": "a TBS ether still in place; derived +114.26. Other silyls differ - TBDPS is +238"},
+    "benzyl-ether": {"delta": 90, "kind": "residual",
+                     "note": "a benzyl ether still in place; derived +90.12"},
+    "benzyl-ester": {"delta": 90, "kind": "residual",
+                     "note": "a benzyl ester still in place; derived +90.12"},
+    "acetal": {"delta": None, "kind": "shift",
+               "note": "depends on which acetal: a dimethyl acetal on an aldehyde is +46, a 1,3-dioxolane +44, so "
+                       "the number is not one value and the group alone does not fix it"},
     "free-alpha-carboxyl": {"delta": None, "kind": "shift",
                             "note": "the shift is whatever mask went on the wrong oxygen, so it depends on the "
                                     "reagent; the wrong-selectivity product has the SAME formula as the intended one, "
                                     "which is why this was measured twice before being believed"},
 }
 
-# The hazards this table is required to cover: the peptide set the rubric is about. Deliberately
-# not every group in GROUPS - the small-molecule hazards have not had this reading done, and
-# claiming a mass signature for them without it would be the same overreach this file keeps
-# correcting elsewhere.
-PEPTIDE_HAZARDS = frozenset(MASS_SHIFTS)
+# WHY MOST OF THE REST WILL NEVER HAVE A NUMBER, which is a fact about the chemistry rather than
+# work left undone. A peptide side reaction has a characteristic shift because the chain is the
+# constant and the modification is a fixed fragment - an oxygen, an amidine, a guanidino group. A
+# small-molecule hazard is not like that: "the ester is saponified" or "the ketone is reduced"
+# changes the molecule by an amount that depends entirely on the substrate, so there is no
+# signature to tabulate. The protecting groups above are the exception, because a group that failed
+# to leave IS a fixed fragment. Asking for the rest would be asking for something that does not
+# exist.
+#
+# The hazards this table is required to cover: the peptide set the rubric is about. Listed rather
+# than derived from MASS_SHIFTS' keys, because the table also carries the residual protecting
+# groups now and a set defined as "whatever is in the table" cannot catch a missing entry - it was
+# written that way first, which made the coverage test tautological.
+PEPTIDE_HAZARDS = frozenset({
+    "n-terminal-gln", "arg-delta-lactam", "arg-urethane-guanidine", "n-terminal-amine-capping",
+    "aspartimide-gly", "aspartimide-gly-hindered", "aspartimide-beta-heteroatom",
+    "aspartimide-prone-xaa", "cys-epimerisation", "his-epimerisation",
+    "cys-resin-ester-epimerisation", "resin-dipeptide-dkp", "asn-gln-amide", "free-indole",
+    "free-alpha-carboxyl", "sulfide",
+})
 
 
 def mass_shift(group):

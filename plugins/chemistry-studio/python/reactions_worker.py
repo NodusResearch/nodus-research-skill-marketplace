@@ -2110,7 +2110,14 @@ def _compatibility(steps, textbook_dir=None):
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": None, "reagentLabel": None,
                                 "severity": "medium",
                                 "why": f"the {T.GROUPS[group][0]} is gone in the product, but none of the named reagents removes it",
-                                "suggestion": "check the product, or name the deprotection step", "_forms": []})
+                                "suggestion": "check the product, or name the deprotection step", "_forms": [],
+                                # The FOURTH hazard builder, and the one the first pass at this
+                                # wiring missed — it ends differently from the other three, so a
+                                # count-of-three replace walked straight past it. The signature is
+                                # directly useful here: this hazard says the group vanished with
+                                # nothing to explain it, and the number is what a reader would
+                                # check the product mass against to see whether it really did.
+                                **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
         if textbook_dir:
             for hazard in hazards:
                 examples = _protection_examples(textbook_dir, hazard["_forms"])
