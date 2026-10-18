@@ -65,7 +65,14 @@ REAGENT_CLASSES = [
         _F + r"TFA" + _E, r"trifluoroacetic acid", _F + r"HCl" + _E, _F + r"HBr" + _E, _F + r"HI" + _E,
         _F + r"H2SO4" + _E, r"sulfuric acid", r"sulphuric acid", _F + r"TfOH" + _E, r"triflic acid",
         r"\bp-?tsoh\b", _F + r"TsOH" + _E, r"\bcsa\b", r"camphorsulfonic",
-        _F + r"BF3" + _E, _F + r"TMSOTf" + _E, _F + r"BBr3" + _E, _F + r"BCl3" + _E]),
+        _F + r"BF3" + _E, _F + r"TMSOTf" + _E, _F + r"BBr3" + _E, _F + r"BCl3" + _E,
+        # The named SPPS cleavage cocktails and TMSBr. These are reagents OUR OWN remedy text
+        # recommends — the free-indole message says "as in Reagent B or Reagent K", and TMSBr is
+        # Chan & White's Protocol 16 — and bare "Reagent K" or bare "TMSBr" classified as nothing,
+        # so a route that took the advice reached no gate at all. `has_cation_scavenger` already
+        # matched "reagent k", which is what made the gap easy to miss: the scavenger was read and
+        # the acid was not, so the hazard could only ever be cleared, never raised.
+        _F + r"TMSBr" + _E, r"trimethylsilyl bromide", r"\breagent ?[bkhrp]\b"]),
     # The MILD acid regime of Fmoc/tBu work: cleaving a peptide off a super-acid-labile support
     # (2-chlorotrityl, SASRIN) or taking off a super-acid-labile side-chain group, with dilute TFA,
     # acetic acid, trifluoroethanol or hexafluoroisopropanol. Chemically this is a different regime
@@ -89,7 +96,9 @@ REAGENT_CLASSES = [
                                          r"hf.?pyridine", _F + r"CsF" + _E, _F + r"TASF" + _E]),
     ("chromium-oxidant", "chromium or permanganate oxidant", [
         _F + r"CrO3" + _E, r"\bjones\b", _F + r"PCC" + _E, _F + r"PDC" + _E, _F + r"(Na|K)2Cr2O7" + _E,
-        r"dichromate", r"chromic", _F + r"KMnO4" + _E, r"permanganate"]),
+        # `chlorochromate` spelled out: `PCC` was read and "pyridinium chlorochromate" was not,
+        # and the mined harness steps show routes writing it out 19 times.
+        r"dichromate", r"chlorochromate", r"chromic", _F + r"KMnO4" + _E, r"permanganate"]),
     ("alcohol-oxidant", "alcohol oxidant (Swern, DMP, TEMPO)", [
         r"\bswern\b", r"dess-?martin", _F + r"DMP" + _E, r"\btempo\b", _F + r"IBX" + _E, r"\btpap\b", r"\bley\b",
         _F + r"MnO2" + _E]),
@@ -121,6 +130,19 @@ REAGENT_CLASSES = [
         r"acyl chloride", r"anhydride", r"benzoyl chloride", _F + r"BzCl" + _E,
         _F + r"(DCC|EDC|EDCI|DIC|HATU|HBTU|TBTU|HCTU|COMU|PyBOP|PyAOP|T3P)" + _E,
         r"carbodiimide"]),
+    # Sulfonyl and triflyl chlorides, which make a leaving group out of a hydroxyl. A class of their
+    # own rather than part of `acylating`, and the distinction is chemical rather than tidiness:
+    # `acylating` carries the peptide ACTIVATION risks — the arginine lactam, the cysteine and
+    # histidine epimerisations, the pyroglutamate and capping paths — and every one of those is
+    # about a CARBOXYL being activated for a coupling. A mesylation of a serine hydroxyl activates
+    # no carboxyl, so filing MsCl under `acylating` would have raised all of them on a step that
+    # cannot cause any. What a sulfonyl chloride DOES do is acylate the heteroatoms, so those
+    # hazards are carried over; see ATTACKS["sulfonylating"].
+    ("sulfonylating", "sulfonylating agent (MsCl, TsCl, Tf2O)", [
+        _F + r"MsCl" + _E, _F + r"TsCl" + _E, _F + r"TfCl" + _E, _F + r"NsCl" + _E,
+        _F + r"Tf2O" + _E, r"triflic anhydride", r"trifluoromethanesulfonic anhydride",
+        r"methanesulfon(yl|ic) (chloride|anhydride)", r"mesyl chloride",
+        r"(p-)?toluenesulfonyl chloride", r"tosyl chloride", r"\bsulfonyl chloride\b"]),
     ("alkylating", "alkylating agent", [
         _F + r"(MeI|CH3I|EtI|EtBr|BnBr|BnCl|MeOTf|Me2SO4)" + _E, r"methyl iodide", r"iodomethane", r"benzyl bromide",
         r"dimethyl sulfate", r"alkyl halide", r"meerwein",
@@ -489,6 +511,20 @@ ATTACKS = {
     "aqueous-acid": [("acetal", "medium", "may be hydrolysed"), ("trityl", "medium", "may be cleaved"),
                      ("silyl-ether", "medium", "may be cleaved (TMS, TES)")],
     "fluoride": [("silyl-ether", "high", "is cleaved by fluoride")],
+    # A sulfonyl chloride acylates the same heteroatoms an acyl chloride does, which is why these
+    # mirror ATTACKS["acylating"] — minus every activation risk, because no carboxyl is activated.
+    # `free-alpha-carboxyl` is the important one: the alpha-carboxyl is the most acidic proton in a
+    # peptide, so a sulfonylation aimed at a side-chain hydroxyl hits it first and gives the mixed
+    # sulfonate rather than the intended ester, with the side chain left bare.
+    "sulfonylating": [
+        ("amine", "high", "is sulfonylated to the sulfonamide, which the step does not intend and acid does not undo"),
+        ("alcohol", "medium", "may be sulfonylated (which is often the point — say which hydroxyl is meant)"),
+        ("phenol", "medium", "may be sulfonylated, being more acidic than an aliphatic hydroxyl"),
+        ("thiol", "high", "is sulfonylated to the thiosulfonate"),
+        ("free-alpha-carboxyl", "high", "is the most acidic proton here, so it is sulfonylated FIRST — giving the "
+                                        "mixed sulfonate and leaving the side chain bare. Protect it as the "
+                                        "tert-butyl ester, or take the residue with its side chain already masked"),
+    ],
     "chromium-oxidant": [
         ("alcohol", "high", "is oxidized"), ("aldehyde", "high", "is oxidized to the acid"),
         ("alkene", "medium", "may be oxidized (KMnO4 cleaves or dihydroxylates)"), ("thiol", "high", "is oxidized"),
