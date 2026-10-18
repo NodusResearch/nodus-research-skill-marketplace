@@ -230,5 +230,87 @@ class TheEntryPointForTheRoutePath(unittest.TestCase):
 # the two classes appended after it were silently never collected — the run
 # reported OK on 20 tests while 7 more did not exist as far as the runner was
 # concerned. Same trap as test_route_program.py.
+class TheSheppardProneResidues(unittest.TestCase):
+    """The second signal, because hydropathy is the wrong axis for two of the five residues.
+
+    Chan & White, *Fmoc Solid Phase Peptide Synthesis: A Practical Approach*, Ch. 2 Section 3.7
+    (printed p. 30) names the residues outright: "...of ALA, VAL, ILE, ASN, GLN residues showing
+    particular propensity for this effect. The insertion of a proline or N-alkyl amino acid residue
+    into a sequence is known to disrupt formation of beta-sheets and other secondary structures
+    thought to be responsible for the aggregation."
+
+    On the Kyte-Doolittle scale this advisory scores windows with, Ala is +1.8, Val +4.2 and Ile
+    +4.5 — all above the 1.0 suspect cut. But ASN AND GLN ARE BOTH -3.5. A run of them pulls the
+    window average strongly NEGATIVE, so the hydropathy reading could never flag two of the five
+    residues the source names, no matter the threshold. The mechanism says why: Ch. 1 (printed
+    p. 31) attributes difficult sequences to "association of the peptide chains within the resin
+    matrix" and notes that proline's tertiary amide helping "suggest[s] that INTERCHAIN HYDROGEN
+    BONDING may be an important factor". Asn and Gln carry side-chain amides that donate and accept
+    hydrogen bonds; their hydrophobicity is beside the point.
+
+    So this is a second, independent window, reported as its own span rather than mixed into the
+    hydropathy average — averaging a +4.5 isoleucine against a -3.5 asparagine would cancel the
+    very signal being looked for.
+    """
+
+    def test_the_cited_residue_set_is_what_the_book_names(self):
+        self.assertEqual(set(A.SHEPPARD_PRONE), set("AVINQ"))
+
+    def test_hydropathy_ALONE_cannot_see_an_asparagine_glutamine_run(self):
+        # The defect, stated as a measurement. If this ever fails, the hydropathy reading has been
+        # changed and the second signal may no longer be needed.
+        windows = list(A.hydropathy_windows("NQNQNQNQNQNQ"))
+        self.assertTrue(windows)
+        self.assertTrue(all(mean < 0 for _start, _text, mean in windows),
+                        "an Asn/Gln run scores strongly hydrophilic, so no cut can flag it")
+
+    def test_an_asparagine_glutamine_run_IS_flagged_by_the_prone_window(self):
+        advisory = A.aggregation_advisory("GSGNQNQNQNQGSGSGS")
+        prone = [s for s in advisory["spans"] if s.get("basis") == "sheet-prone"]
+        self.assertTrue(prone, f"spans were {advisory['spans']}")
+
+    def test_a_hydrophobic_run_is_still_reported_on_the_hydropathy_basis(self):
+        advisory = A.aggregation_advisory("GSGAVILFVILFGSGSGS")
+        bases = {s.get("basis") for s in advisory["spans"]}
+        self.assertIn("hydropathy", bases, f"spans were {advisory['spans']}")
+
+    def test_an_ordinary_hydrophilic_sequence_raises_NEITHER(self):
+        # Wallpaper check. Adding a second signal must not make the advisory fire on everything.
+        for sequence in ("GSGSGSGSGSGSGSGS", "DKRSDKRSDKRSDKRS", "GSDKRTGSDKRTGSDK"):
+            with self.subTest(sequence):
+                self.assertEqual(A.aggregation_advisory(sequence)["spans"], [],
+                                 f"{sequence} should be quiet")
+
+    def test_a_single_prone_residue_is_not_a_run(self):
+        self.assertEqual(A.aggregation_advisory("GSGSGNGSGSGSGSGS")["spans"], [])
+
+    def test_the_prone_window_obeys_the_same_length_bounds(self):
+        # A run at the very C-terminus is a run on a chain too short to aggregate, same rule the
+        # hydropathy spans already follow.
+        advisory = A.aggregation_advisory("NQNQNQ")
+        self.assertEqual(advisory["spans"], [], f"spans were {advisory['spans']}")
+
+    def test_both_bases_can_fire_on_one_chain_without_merging(self):
+        advisory = A.aggregation_advisory("GSGAVILFVILFGNQNQNQNQGSGS")
+        bases = [s.get("basis") for s in advisory["spans"]]
+        self.assertIn("hydropathy", bases, bases)
+        self.assertIn("sheet-prone", bases, bases)
+
+    def test_the_notes_say_the_second_signal_is_cited_where_the_first_is_not(self):
+        advisory = A.aggregation_advisory("GSGNQNQNQNQGSGSGS")
+        text = " ".join(advisory["notes"]).lower()
+        self.assertTrue(any(k in text for k in ("ala, val, ile, asn, gln", "hydrogen bond",
+                                                "beta-sheet", "interchain")),
+                        f"notes were {advisory['notes']}")
+
+    def test_a_prone_span_still_drives_the_pseudoproline_placement(self):
+        # The placement logic reads `spans`, so a sheet-prone window has to recommend a disruptor
+        # the same way a hydrophobic one does — otherwise the new signal reports a risk with no
+        # answer attached.
+        advisory = A.aggregation_advisory("GSANQNQNQNQSGSGSG")
+        self.assertTrue(advisory["spans"])
+        self.assertTrue(advisory["recommended"], f"advisory was {advisory}")
+
+
 if __name__ == "__main__":
     unittest.main()
