@@ -1964,6 +1964,14 @@ def _compatibility(steps, textbook_dir=None):
             for group, severity, why in T.ATTACKS.get(cls, []):
                 if group not in survives or (group, cls) in seen:
                     continue
+                # An aspartimide flag is answered in the deprotection as well as in the building
+                # block: an additive in the piperidine (Oxyma, HOBt, dinitrophenol) or a milder
+                # base (piperazine, 4-methylpiperidine, dipropylamine). None of them eliminates it,
+                # so the severities are unchanged — this only stops the gate nagging a route that
+                # has already done what the literature asks. `has_aspartimide_care` fails closed on
+                # DBU, which makes it worse.
+                if group.startswith("aspartimide") and T.has_aspartimide_care(text):
+                    continue
                 # An enolizable ketone next to a strong base is only a competing site when another
                 # carbonyl is the one meant to react.
                 if group == "enolizable-ketone" and not (reacted & (carbonyl_reacting - {"ketone"})):
@@ -2009,6 +2017,15 @@ def _compatibility(steps, textbook_dir=None):
                 # writes the support as a bare `*` — so it has to be read from the conditions.
                 if group in ("resin-dipeptide-dkp", "cys-resin-ester-epimerisation") \
                         and T.has_trityl_linker(text):
+                    continue
+                # The pyroglutamate path on a DEPROTECTION needs a named catalyst, same as the
+                # coupling path: without it, every Fmoc removal on a glutamine-terminated chain
+                # would flag, which is every cycle of every such synthesis. Scoped to `amine-base`
+                # on purpose — the `strong-acid` entry in this same table is the final cleavage and
+                # has never needed a catalyst named, so guarding it here silenced it entirely and
+                # three tests in the pyroglutamate suite caught that.
+                if group == "n-terminal-gln" and cls == "amine-base" \
+                        and not T.has_pyroglutamate_catalyst(text):
                     continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)

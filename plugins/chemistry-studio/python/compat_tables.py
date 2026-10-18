@@ -45,7 +45,16 @@ REAGENT_CLASSES = [
         _F + r"(Na|K|Li|Cs|Ba)\(?OH\)?2?" + _E, r"(sodium|potassium|lithium|caesium|cesium) hydroxide", r"\bsaponif"]),
     ("alkoxide", "alkoxide base", [_F + r"(Na|K|Li)O(Me|Et|iPr|i-Pr)" + _E, r"sodium (methoxide|ethoxide)",
                                    r"potassium (methoxide|ethoxide)"]),
-    ("amine-base", "amine base (piperidine, DBU)", [r"\bpiperidine\b", _F + r"DBU" + _E, r"\bmorpholine\b"]),
+    # `\bpiperidine\b` does NOT match "4-methylpiperidine" or "piperazine", and those were the only
+    # Fmoc-removal bases listed besides DBU and morpholine. So a route doing its deprotections with
+    # piperazine, 4-methylpiperidine or dipropylamine — all of them recommended in the aspartimide
+    # literature precisely because they are milder — classified as NO reagent class at all and
+    # reached none of the amine-base gates: not aspartimide, not the diketopiperazine, not the
+    # C-terminal cysteine racemisation, not even "fmoc is cleaved by base". Found while writing the
+    # deprotection-additive suite, where a milder-base test passed for exactly that wrong reason.
+    ("amine-base", "amine base (piperidine, DBU)",
+     [r"\bpiperidine\b", r"\bmethylpiperidine\b", r"\bpiperazine\b", r"\bdipropylamine\b",
+      _F + r"DBU" + _E, r"\bmorpholine\b"]),
     ("hydrogenation", "catalytic hydrogenation", [
         _F + r"H2" + _E + r"[^;]{0,40}(pd|pt|ni|rh|ru|raney|adams)", r"(pd|pt)\s*/\s*c\b[^;]{0,40}" + _F + r"H2" + _E,
         r"hydrogenat", r"\bpd/c\b", r"\bpd\(oh\)2", r"pearlman", r"raney", r"\bpto2\b", r"adams'? catalyst",
@@ -394,25 +403,29 @@ ATTACKS = {
                                     "no side chain to hinder it — which reopens to a mixture of alpha- and beta-linked "
                                     "peptide and epimerises the aspartate. The usual answer for this pair is backbone "
                                     "protection on the glycine (Hmb or Dmb, bought as the Fmoc-Asp(OtBu)-(Dmb)Gly-OH "
-                                    "dipeptide); failing that, a hindered side-chain ester such as OMpe, a non-ester "
-                                    "side-chain mask, an acidic modifier or a shorter deprotection, or a less basic "
-                                    "amine than piperidine"),
+                                    "dipeptide). The cheapest answer, though, is in the deprotection itself: 0.1 M OXYMA in "
+                                    "the piperidine suppresses this, and unlike HOBt it does not catalyse the "
+                                    "glutamine-to-pyroglutamate cyclisation, so it is safe on a chain that also has "
+                                    "an N-terminal Gln. A milder base (piperazine, 4-methylpiperidine) does the same. "
+                                    "Failing those, a hindered side-chain ester such as OMpe, a non-ester side-chain "
+                                    "mask, or a shorter deprotection. Do NOT reach for DBU: it makes this worse"),
         ("aspartimide-gly-hindered", "medium", "may still close to the aspartimide: the hindered ester slows the "
                                                "attack but Asp-Gly is prone enough that it is not always sufficient. "
                                                "If the chain sees many base treatments, move to backbone protection on "
-                                               "the glycine (Fmoc-Asp(OtBu)-(Dmb)Gly-OH) or add an acidic modifier"),
+                                               "the glycine (Fmoc-Asp(OtBu)-(Dmb)Gly-OH), or add 0.1 M Oxyma to the piperidine"),
         ("aspartimide-beta-heteroatom", "medium", "may close to the aspartimide, reopening to alpha- and beta-linked "
                                                   "peptide and epimerising the aspartate. Because the next residue is "
                                                   "a serine, threonine or cysteine, a pseudoproline dipeptide at that "
                                                   "position removes the backbone N-H outright; a hindered side-chain "
-                                                  "ester such as OMpe, an acidic modifier or a shorter deprotection, "
-                                                  "or a less basic amine than piperidine also apply"),
+                                                  "ester such as OMpe, 0.1 M Oxyma in the piperidine, a milder base "
+                                                  "(piperazine, 4-methylpiperidine) or a shorter deprotection also "
+                                                  "apply"),
         ("aspartimide-prone-xaa", "medium", "may close to the aspartimide, reopening to alpha- and beta-linked peptide "
                                             "and epimerising the aspartate. Milder than the Asp-Gly case and dependent "
                                             "on how many base treatments the chain sees; no special dipeptide is sold "
                                             "for this neighbour, so the answers are a hindered side-chain ester such as "
-                                            "OMpe, a non-ester side-chain mask, an acidic modifier or a shorter "
-                                            "deprotection, or a less basic amine than piperidine"),
+                                            "OMpe, a non-ester side-chain mask, 0.1 M Oxyma in the piperidine, a "
+                                            "milder base (piperazine, 4-methylpiperidine) or a shorter deprotection"),
                    ("ester", "medium", "activated esters may be aminolysed")],
     "hydrogenation": [
         ("alkene", "high", "is hydrogenated"), ("alkyne", "high", "is hydrogenated"),
@@ -525,6 +538,19 @@ UNMASKED_RISKS = {
                                         "block, Fmoc-Gly-Pro-OH, in place of the anchored monomer"),
         # Same base, same support, same source — and a hazard the tables did not carry. See the
         # note on `cys-resin-ester-epimerisation` and on `_TRITYL_LINKER`.
+        # HOBt sitting in the piperidine is the collision made visible. The aspartimide advice
+        # offers an additive in the deprotection; Benoiton 6.16 lists HOBt among the catalysts of
+        # the glutamine cyclisation. Until this entry existed the pyroglutamate gate read only
+        # `acylating` steps, so a route could be advised to add HOBt and walk into the other hazard
+        # with no warning. Guarded by `has_pyroglutamate_catalyst`, which excludes Oxyma — which is
+        # why Oxyma is what the aspartimide advice now leads with.
+        ("n-terminal-gln", "medium", "is left free by this step, and this step names one of the weak acids or "
+                                     "benzotriazoles that catalyse its cyclisation to PYROGLUTAMATE — the "
+                                     "alpha-amine closes onto its own side-chain amide and ammonia leaves, so the "
+                                     "chain is capped and nothing can extend it. If the additive is here to suppress "
+                                     "aspartimide, use OXYMA instead of HOBt: it suppresses aspartimide at least as "
+                                     "well and is not a catalyst for this. Otherwise carry the glutamine as "
+                                     "Fmoc-Gln(Trt)-OH, which ships and leaves nothing to close onto"),
         ("cys-resin-ester-epimerisation", "medium",
          "EPIMERISES under the base that removes the Fmoc: the alpha-proton sits between the "
          "sulfur that acidifies it and the ester that holds the residue to the support, and "
@@ -711,6 +737,42 @@ _URONIUM = re.compile(r"\bHBTU\b|\bTBTU\b|\bHATU\b|\bHCTU\b|\bHDMU\b|\bCOMU\b"
 _PREACTIVATION = re.compile(r"pre[- ]?activat|pre[- ]?mix|premix"
                             r"|activat\w*\s+(?:for\s+)?\d+\s*(?:s|sec|min|h)\w*\s*(?:,\s*)?then"
                             r"|then add (?:to )?(?:the )?resin", re.I)
+
+
+# What answers an aspartimide flag in the DEPROTECTION, as opposed to in the building block.
+#
+#   * An ADDITIVE in the piperidine. Mergler et al. measured 0.1 M HOBt or 2,4-dinitrophenol as
+#     reducing it significantly; the 2025 ChemBioChem review "Aspartimide Formation and Its
+#     Prevention in Fmoc Chemistry SPPS" reports Oxyma Pure as more effective than HOBt or HOAt.
+#   * A MILDER BASE. Piperazine and 4-methylpiperidine remove Fmoc while suppressing aspartimide,
+#     and dipropylamine likewise at comparable deprotection efficiency.
+#
+# None of them ELIMINATES it, so this does not touch the severities — it clears the flag for a route
+# that has done what the literature asks, which is the difference between advice and nagging.
+#
+# DBU DEFEATS THE CLEARANCE, and that is deliberate rather than an omission. Vol 3 Section 9.2.5:
+# "Fmoc removal with DBU also promotes aspartimide formation." A route reaching for DBU should not
+# be able to buy its way out with an additive, so the check fails closed when DBU is named.
+#
+# OXYMA LEADS THE ADVICE because of the collision with pyroglutamate: HOBt suppresses aspartimide
+# and CATALYSES the glutamine cyclisation (Benoiton 6.16), while Oxyma is on neither list but the
+# aspartimide one. One additive answers both hazards; see `has_pyroglutamate_catalyst`.
+_ASPARTIMIDE_CARE = re.compile(r"\boxyma\b|cyanohydroxyimino|ethyl 2-cyano-2-\(hydroxyimino\)"
+                               r"|\bHOBt\b|hydroxybenzotriazole|\bHOAt\b"
+                               r"|dinitrophenol|\bDNP\b"
+                               r"|\bpiperazine\b|\bmethylpiperidine\b|\bdipropylamine\b", re.I)
+_DBU = re.compile(r"(?<![A-Za-z])DBU(?![A-Za-z])|diazabicyclo", re.I)
+
+
+def has_aspartimide_care(text):
+    """Whether a deprotection names an additive or a milder base that suppresses aspartimide.
+
+    Fails closed on DBU, which the literature names as making it worse.
+    """
+    text = text or ""
+    if _DBU.search(text):
+        return False
+    return bool(_ASPARTIMIDE_CARE.search(text))
 
 
 def has_capping_risk(text):
