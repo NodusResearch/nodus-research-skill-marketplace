@@ -621,21 +621,40 @@ PROTECT = {
 _DILUTE_ACID = re.compile(r"(dilute|dil\.|aq\.?|aqueous|\d+(\.\d+)?\s*[NM])\s*(HCl|H2SO4)"
                           r"(?!\s*(?:/|in\s+)(?:1,4-)?(?:dioxane|ether|Et2O|EtOAc|MeOH|CPME))", re.I)
 _AMIDE_BASE = re.compile(r"\bHMDS\b|hexamethyldisilazane|diisopropylamine|\biPr2NH\b|\bTMP\b|tetramethylpiperidine", re.I)
-# The cation scavengers a cleavage cocktail carries: a silane, a thiol, or an electron-rich arene
-# that takes the cation instead of the tryptophan. WATER IS DELIBERATELY ABSENT — almost every
-# cocktail is written with a few percent of it, and it does not keep a tert-butyl or trityl cation
-# off an indole (TFA/H2O 95:5 is precisely the mixture that alkylates Trp), so reading it as an
-# answer would silence the flag on nearly every real route.
-_SCAVENGER = re.compile(
-    r"\btriisopropylsilane\b|\bTIS\b|\btriethylsilane\b|\bTES\b|\bsilane\b"
-    r"|\bEDT\b|ethanedithiol|\bDODT\b|dioxa[- ]?octanedithiol|\bdithiol\b|thioanisole"
+# What covers a FREE indole through an acid cleavage: a thiol, or an electron-rich arene, that
+# takes the cation instead of the tryptophan.
+#
+# Two absences are deliberate, and both are sourced from Chan & White, *Fmoc Solid Phase Peptide
+# Synthesis: A Practical Approach*, Ch. 3 §10.2 (p. 65 and Tables 4-5).
+#
+# WATER IS ABSENT. Almost every cocktail is written with a few percent of it, and it does not keep
+# a tert-butyl or trityl cation off an indole (TFA/H2O 95:5 is precisely the mixture that alkylates
+# Trp), so reading it as an answer would silence the flag on nearly every real route. The book is
+# softer — "moderately effective", "some protection ... against sulphonation" — but "some
+# protection" is not something a route can be scored against.
+#
+# A TRIALKYLSILANE IS ALSO ABSENT, and used to be here, which made this check clear on a cocktail
+# the book prescribes only for peptides WITHOUT a free tryptophan. Table 4 lists TFA/TIS/water and
+# TFA/TIS/water/EDT for peptides "except ... unprotected Trp", and only Reagent K for "All
+# peptides"; the prose recommends silanes "particularly for peptides containing Arg(Pmc)/Arg(Pbf)
+# and Trp(Boc)" — the PROTECTED residue — while it is EDT that "offers some protection to
+# unprotected tryptophan against sulphonation". Table 5 then files a silane as a CAUSE of Trp
+# damage, "reduction of the indole ring of Trp", whose remedy is to "omit silane scavengers from
+# the cleavage cocktail and substitute for EDT". A silane is still the right answer for the
+# stabilised cations (trityl, Tmob, the Rink linker) — it is just not the answer for this group,
+# so it clears the flag only in company, through the thiol or arene that accompanies it.
+_INDOLE_SCAVENGER = re.compile(
+    r"\bEDT\b|ethanedithiol|\bDODT\b|dioxa[- ]?octanedithiol|\bdithiol\b|thioanisole"
     r"|dimethyl ?sulfide|\bDMS\b|\bthiocresol\b|\banisole\b|\bphenol\b|\bcresol\b"
     r"|reagent ?[bkh]\b", re.I)
 
 
 def has_cation_scavenger(text):
-    """Whether a step's conditions name something that takes a cation before an indole does."""
-    return bool(_SCAVENGER.search(text or ""))
+    """Whether a step's conditions name something that takes a cation before a FREE indole does.
+
+    A trialkylsilane alone does not qualify; see the note on `_INDOLE_SCAVENGER`.
+    """
+    return bool(_INDOLE_SCAVENGER.search(text or ""))
 _ZINC = re.compile(r"(?<![A-Za-z])Zn(Cl2|Br2|I2)(?![A-Za-z0-9])|\bEt2Zn\b", re.I)
 _COPPER = re.compile(r"(?<![A-Za-z])Cu(I|Br|Cl|CN|SPh|\(I\)|OTf)?(?![a-z])|copper", re.I)
 

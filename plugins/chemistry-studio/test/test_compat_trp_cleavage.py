@@ -12,13 +12,30 @@ Three things have to be true together for this to be a real flag, and all three 
      ring, so the protected residue must stay silent — otherwise the flag could never be answered.
   2. a CATION SOURCE in the substrate. Strong acid on a peptide with nothing acid-labile on it
      releases no cation and threatens no indole; flagging that would be wallpaper.
-  3. NO SCAVENGER named in the conditions. A cocktail with triisopropylsilane, a thiol (EDT, DODT),
-     thioanisole or phenol in it is the standard answer and the flag must clear.
+  3. NO SCAVENGER named in the conditions. A cocktail with a thiol (EDT, DODT), thioanisole or
+     phenol in it is the standard answer and the flag must clear.
 
-Deliberate chemical judgment, recorded because it is a judgment and not a lookup: WATER DOES NOT
-COUNT as a scavenger here. Nearly every cleavage cocktail is written with a few percent of water,
-and water does not stop a tert-butyl or trityl cation reaching an indole — TFA/H2O 95:5 is exactly
-the cocktail that alkylates Trp. Counting it would silence the flag on almost every real route.
+Two judgments about what does NOT count, both now sourced rather than inferred. The source is
+Chan & White, *Fmoc Solid Phase Peptide Synthesis: A Practical Approach*, Ch. 3 §10.2 (p. 65,
+Table 4 "Cleavage cocktails" and the prose above it; Table 5 "Side reactions encountered during
+cleavage reactions", pp. 66-67).
+
+WATER DOES NOT COUNT. Nearly every cleavage cocktail is written with a few percent of water, and
+water does not stop a tert-butyl or trityl cation reaching an indole — TFA/H2O 95:5 is exactly the
+cocktail that alkylates Trp. Counting it would silence the flag on almost every real route. (The
+book is softer than this: it calls water "moderately effective" against t-butyl cations and says
+it offers "some protection to unprotected tryptophan against sulphonation". We keep the strict
+reading, because "some protection" is not an answer a route can be scored against.)
+
+A TRIALKYLSILANE ALONE DOES NOT COUNT EITHER, and this was shipped wrong. Both silane cocktails
+in Table 4 are prescribed for peptides "except ... unprotected Trp"; only Reagent K, which carries
+EDT and thioanisole, is listed for "All peptides". The prose recommends silanes "particularly for
+peptides containing Arg(Pmc)/Arg(Pbf) and Trp(Boc)" — the PROTECTED residue — while it is EDT that
+"offers some protection to unprotected tryptophan against sulphonation". And Table 5 files a
+silane as a CAUSE of Trp damage, not a remedy: "reduction of the indole ring of Trp", answered by
+"omit silane scavengers from the cleavage cocktail and substitute for EDT". So TFA/TIS/water over
+a free indole must FLAG. It previously cleared, and a verification run on a real route read that
+silence as a pass.
 
 The substrates are DERIVED, not invented: Fmoc-Asp(OtBu)-OH acylating L-tryptophan through the
 shipped n-peptide-coupling, which gives one species carrying both a free indole and a tBu ester
@@ -54,7 +71,11 @@ CLEAVED = "OC(=O)C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)N[C@@H](Cc1c[nH]c2cccc
 
 GROUP = "free-indole"
 BARE_TFA = "TFA/H2O 95:5, 2 h"
-SCAVENGED = "TFA/triisopropylsilane/H2O 95:2.5:2.5, 2 h"
+# Table 4's first row, verbatim: the cocktail the book prescribes for peptides WITHOUT an
+# unprotected tryptophan. Over a free indole it is not an answer, so it is named for what it is.
+SILANE_ONLY = "TFA/triisopropylsilane/H2O 95:2.5:2.5, 2 h"
+# Table 4's second row: the same silane WITH EDT. This one clears.
+SCAVENGED = "TFA/TIS/H2O/EDT 94:1:2.5:2.5, 2 h"
 
 
 def hazards_for(reactant, product, reagents):
@@ -127,7 +148,9 @@ class TheFlagFires(unittest.TestCase):
 class TheFlagClears(unittest.TestCase):
     """Each of the three gate conditions, switched off one at a time."""
 
-    def test_a_silane_scavenger_clears_it(self):
+    def test_a_silane_WITH_a_thiol_clears_it(self):
+        # Table 4 row 2. The silane quenches the stabilised cations (trityl, Tmob, Rink); the EDT
+        # is what covers the free indole. Together they are an answer.
         found = hazards_for(TRP_PEPTIDE, CLEAVED, SCAVENGED)
         self.assertNotIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
 
@@ -138,6 +161,20 @@ class TheFlagClears(unittest.TestCase):
             with self.subTest(cocktail):
                 found = hazards_for(TRP_PEPTIDE, CLEAVED, cocktail)
                 self.assertNotIn(GROUP, groups_in(found), f"{cocktail}: {groups_in(found)}")
+
+    def test_a_silane_ALONE_does_NOT_clear_it(self):
+        # The correction described in the module docstring, and the one this suite got wrong.
+        # Table 4 prescribes TFA/TIS/water for peptides "except ... unprotected Trp"; Table 5
+        # files a silane as the CAUSE of indole reduction, remedied by substituting EDT. A route
+        # that reaches a free indole with a silane and nothing else has not handled the hazard.
+        for cocktail in (SILANE_ONLY,
+                         "TFA/triethylsilane/H2O 95:2.5:2.5",
+                         "TFA/TES/water, 3 h"):
+            with self.subTest(cocktail):
+                found = hazards_for(TRP_PEPTIDE, CLEAVED, cocktail)
+                self.assertIn(GROUP, groups_in(found),
+                              f"{cocktail}: a trialkylsilane is the answer for Trp(Boc), not for a "
+                              f"free indole; hazards were {groups_in(found)}")
 
     def test_water_alone_does_NOT_clear_it(self):
         # The judgment recorded in the module docstring. TFA/H2O 95:5 is the cocktail that
