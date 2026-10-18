@@ -505,6 +505,17 @@ ACTIVATION_RISKS = {
                                        "couple without this side reaction); failing that, activate IN SITU with a "
                                        "carbodiimide and an additive (DIC/Oxyma, added to the resin rather than "
                                        "pre-mixed), which is credited with reducing it, and use an excess"),
+        # Read against the REACTANTS, which is right for this one: it is the growing chain's own
+        # N-terminal glutamine, present as a reactant and cyclising instead of being acylated. The
+        # cleavage path lives in UNMASKED_RISKS["strong-acid"] and reads the products; the two
+        # share a `seen` set so a step that is both acid and HOBt reports it once.
+        ("n-terminal-gln", "medium", "may cyclise to PYROGLUTAMATE instead of being acylated, because this step "
+                                     "names one of the weak acids or benzotriazoles that catalyse it — the "
+                                     "alpha-amine closes onto its own side-chain amide and ammonia leaves, so the "
+                                     "chain is capped and every later coupling fails on it. Carry the glutamine as "
+                                     "Fmoc-Gln(Trt)-OH, which ships and leaves nothing to close onto; failing that, "
+                                     "swap HOBt for Oxyma and couple onto a glutamine N-terminus promptly rather "
+                                     "than letting it stand in the catalyst"),
         ("cys-epimerisation", "medium", "may EPIMERISE while it is activated: the sulfur acidifies its "
                                         "alpha-proton and a tertiary amine base removes it, so a D residue goes "
                                         "into the chain. Nothing downstream can see that — the D peptide has the "
@@ -559,6 +570,26 @@ def has_lactam_care(text):
     """
     text = text or ""
     return bool(_LACTAM_CARE.search(text)) and bool(_CARBODIIMIDE.search(text))
+
+
+# What catalyses an N-terminal glutamine's cyclisation to pyroglutamate DURING CHAIN ASSEMBLY, as
+# opposed to during the final cleavage. Benoiton Section 6.16: "The cyclization is catalyzed by weak
+# carboxylic acids such as acetic acid, trifluoroacetic acid, and Boc-amino acids, as well as by
+# 1-hydroxybenzotriazole. Hence, amino-terminal glutaminyl residues should be kept away from these
+# acids as much as possible."
+#
+# This list is Benoiton's, not a guess at a mechanism. HOBt is the one that matters in practice
+# because it is in most coupling cocktails, which is exactly why the gate was walking past the step
+# where the literature says the risk is. OXYMA IS DELIBERATELY ABSENT: it is not on the list, and
+# leaving it off is what makes the flag answerable by a change a route can actually make.
+_PYROGLUTAMATE_CATALYST = re.compile(
+    r"\bHOBt\b|hydroxybenzotriazole|\bHOAt\b|hydroxyazabenzotriazole"
+    r"|\bAcOH\b|acetic acid|\bAc2O\b|acetic anhydride", re.I)
+
+
+def has_pyroglutamate_catalyst(text):
+    """Whether a step names one of the weak acids or benzotriazoles Benoiton lists as catalysing it."""
+    return bool(_PYROGLUTAMATE_CATALYST.search(text or ""))
 
 # ------------------------------------------------------------------------------ how to keep a group
 # group -> (suggestion, [(protected-form label, SMARTS of the protected form, SMARTS of the group it is made from)])

@@ -2029,6 +2029,12 @@ def _compatibility(steps, textbook_dir=None):
                 # so it fired on routes that had taken the precaution its own remedy recommends.
                 if group == "arg-delta-lactam" and T.has_lactam_care(text):
                     continue
+                # The assembly-time pyroglutamate path is only a risk where the step actually names
+                # one of the catalysts Benoiton lists. Without this it would fire on every coupling
+                # onto a glutamine N-terminus, which is wallpaper, and the gate would say nothing a
+                # route could act on.
+                if group == "n-terminal-gln" and not T.has_pyroglutamate_catalyst(text):
+                    continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
