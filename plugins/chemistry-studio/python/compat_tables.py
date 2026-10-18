@@ -211,8 +211,21 @@ GROUPS = {
     # The bonds around the guanidine are left unspecified: the shipped Fmoc-Arg(Pbf)-OH writes it
     # as the C=N tautomer with the sulfonamide on one nitrogen, and a single-bond pattern matches
     # neither that nor free arginine.
+    #
+    # The DELTA nitrogen — the one bonded to the chain — carries `D2`, and that single token is
+    # Benoiton Section 6.11 expressed structurally. "Cyclization occurs even for residues that are
+    # protected on the side chain IF THE PROTECTOR IS NOT AT THE DELTA-ATOM", and of the
+    # terminal-substituent approach, "the protection provided is not always complete". So:
+    #   * free arginine        -> delta-N has two heavy neighbours (chain CH2, guanidine C) -> MATCHES
+    #   * Fmoc-Arg(Pbf)-OH     -> the Pbf is an N-OMEGA sulfonyl, delta-N still D2          -> MATCHES
+    #   * N-delta-acylated Arg -> three heavy neighbours                                    -> SILENT
+    # which is what makes the structural remedy expressible: Figure 6.11 names
+    # N-delta,N-omega-bis(Adoc) Boc- and Cbz-arginine as "derivatives that can be coupled without
+    # this side-reaction occurring". H-COUNT CANNOT BE USED for this — in the Pbf tautomer the
+    # delta nitrogen is written `=N` with no hydrogen at all, so `[#7;H1,H2]` would silence the
+    # shipped block, which is exactly backwards.
     "arg-delta-lactam": ("arginine with its alpha-carboxyl free",
-                         "[OX2H1][CX3](=O)[CX4;H1][CH2][CH2][CH2][#7]~[CX3](~[#7])~[#7]"),
+                         "[OX2H1][CX3](=O)[CX4;H1][CH2][CH2][CH2][#7;D2]~[CX3](~[#7])~[#7]"),
     # CYSTEINE and HISTIDINE waiting to be activated. Both acidify their own alpha-proton — the
     # cysteine through its sulfur, the histidine through an imidazole that can take the proton
     # itself — so the activated residue racemises before it couples and a D residue goes into the
@@ -481,12 +494,17 @@ UNMASKED_RISKS = {
 # `seen` set so a pair cannot be reported twice.
 ACTIVATION_RISKS = {
     "acylating": [
-        ("arg-delta-lactam", "medium", "may close to the five-membered DELTA-LACTAM instead of coupling: once the "
+        ("arg-delta-lactam", "medium", "may close to the DELTA-LACTAM instead of coupling: once the "
                                        "carboxyl is activated, the side-chain guanidine is three carbons away and "
                                        "reaches it. The residue is consumed without being added, so the result is a "
                                        "DELETION — the chain is one residue short and every mass after it is wrong. "
-                                       "Keep the pre-activation short (add the activator to the resin rather than "
-                                       "pre-mixing), use an excess, and double couple the arginine"),
+                                       "Note that Fmoc-Arg(Pbf)-OH does NOT close this: the Pbf is an N-omega "
+                                       "sulfonyl, and cyclisation occurs anyway unless the protector sits on the "
+                                       "DELTA nitrogen, the one bonded to the chain. The complete answer is a "
+                                       "delta-protected derivative (the N-delta,N-omega-bis-acylated arginines "
+                                       "couple without this side reaction); failing that, activate IN SITU with a "
+                                       "carbodiimide and an additive (DIC/Oxyma, added to the resin rather than "
+                                       "pre-mixed), which is credited with reducing it, and use an excess"),
         ("cys-epimerisation", "medium", "may EPIMERISE while it is activated: the sulfur acidifies its "
                                         "alpha-proton and a tertiary amine base removes it, so a D residue goes "
                                         "into the chain. Nothing downstream can see that — the D peptide has the "
@@ -512,6 +530,35 @@ _EPIMERISATION_CARE = re.compile(r"\bcollidine\b|trimethylpyridine|\boxyma\b|\bH
 def has_epimerisation_care(text):
     """Whether a coupling's conditions name something that suppresses racemisation."""
     return bool(_EPIMERISATION_CARE.search(text or ""))
+
+
+# What the literature credits with suppressing the arginine lactam, as opposed to what seemed
+# plausible. *Peptide Synthesis: Methods and Protocols* (MiMB 2103) Ch. 6 p. 95: high-efficiency
+# SPPS "decreased levels of side reactions such as gamma-lactam formation in arginine and
+# aspartimide formation presumably due to optimized coupling and deprotection conditions", where
+# the coupling is "in situ carbodiimide-based activation using DIC/Oxyma for 2 min". Benoiton
+# Section 4.21 item 8 is the other half, naming a pre-activation that exposes the activated
+# intermediate to tertiary amine as an origin of impurity in its own right.
+#
+# So the claim being encoded is narrow on purpose: it is about an IN-SITU carbodiimide coupling,
+# not about any carbodiimide and not about Oxyma wherever it appears. A bare DIC with a
+# pre-activation does not clear the flag, because that is not what the source measured. TIME IS
+# NOT READ, for the same reason temperature is not read above — "2 min" and "20 min" differ by one
+# character, and misparsing one would silence a flag on a route that deserves it.
+_LACTAM_CARE = re.compile(r"\bin[- ]situ\b|\bno[- ]premix\b|without pre[- ]?activation"
+                          r"|\bno pre[- ]?activation\b", re.I)
+_CARBODIIMIDE = re.compile(r"\bDIC\b|\bDCC\b|\bEDC\b|diisopropylcarbodiimide"
+                           r"|dicyclohexylcarbodiimide", re.I)
+
+
+def has_lactam_care(text):
+    """Whether a coupling is run the way the literature credits with suppressing the Arg lactam.
+
+    Both halves are required: the activation has to be in situ (or explicitly not pre-activated)
+    AND carbodiimide-based. Either alone overclaims the source.
+    """
+    text = text or ""
+    return bool(_LACTAM_CARE.search(text)) and bool(_CARBODIIMIDE.search(text))
 
 # ------------------------------------------------------------------------------ how to keep a group
 # group -> (suggestion, [(protected-form label, SMARTS of the protected form, SMARTS of the group it is made from)])

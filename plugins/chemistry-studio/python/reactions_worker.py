@@ -2023,6 +2023,12 @@ def _compatibility(steps, textbook_dir=None):
                 # taken the precaution and is not nagged about it.
                 if group.endswith("-epimerisation") and T.has_epimerisation_care(text):
                     continue
+                # The arginine lactam has its own answer, and it is not the epimerisation one: a
+                # weaker base does nothing here, while an in-situ carbodiimide activation is what
+                # the literature credits with reducing it. Before this, NOTHING cleared the flag,
+                # so it fired on routes that had taken the precaution its own remedy recommends.
+                if group == "arg-delta-lactam" and T.has_lactam_care(text):
+                    continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,

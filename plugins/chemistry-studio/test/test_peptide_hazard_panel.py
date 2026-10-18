@@ -475,25 +475,25 @@ class ArginineDeltaLactam(unittest.TestCase):
                     return
         self.fail("arg-delta-lactam never fired")
 
-    def test_NOTHING_currently_clears_this_flag_which_is_a_gap(self):
-        """Pins a known gap, so that closing it is a visible change rather than a silent one.
+    def test_an_in_situ_carbodiimide_coupling_CLEARS_it(self):
+        """The gap this test was first written to PIN is now closed, so it asserts the fix.
 
-        The remedy text tells a reader to "keep the pre-activation short ... and double couple the
-        arginine", and M&P p. 95 credits exactly that shape of coupling — HE-SPPS "decreased levels
-        of side reactions such as gamma-lactam formation in arginine", the coupling being in-situ
-        DIC/Oxyma for 2 min. But there is no suppression for this group at all: only
-        `has_epimerisation_care` and `has_cation_scavenger` exist, and neither is consulted here.
-        So the flag fires on a route that has in fact taken the cited precaution, and cannot be
-        answered — the thing PEPTIDE-TODO calls a warning nothing can act on.
-
-        Asserted as it IS, not as it should be. When the suppression lands, this test fails and
-        gets inverted; see PEPTIDE-HAZARD-RUBRIC.md item 2 for what the fix should say, which is
-        that the block-level answer is delta-nitrogen protection and that Arg(Pbf) does not
-        close it.
+        It began life as `test_NOTHING_currently_clears_this_flag_which_is_a_gap`: nothing cleared
+        the group at all, so the flag fired on a route that had taken the precaution its own remedy
+        text recommends. `has_lactam_care` now reads the conditions, and M&P p. 95 is the source —
+        HE-SPPS "decreased levels of side reactions such as gamma-lactam formation in arginine",
+        the coupling being "in situ carbodiimide-based activation using DIC/Oxyma for 2 min".
         """
         _, steps = build("ARG", coupling=DIC_OXYMA)
-        fired = [s for s in steps if "arg-delta-lactam" in s.groups()]
-        self.assertTrue(fired, "if this now passes, suppression was added — invert this test")
+        for step in steps:
+            self.assertNotIn("arg-delta-lactam", step.groups(), repr(step))
+
+    def test_but_a_PRE_ACTIVATED_onium_coupling_still_flags(self):
+        # The suppression must be narrow. If HBTU with a 45-minute pre-activation also cleared it,
+        # the gate would be silent on the case the source actually warns about.
+        _, steps = build("ARG", coupling=COUPLING)
+        self.assertTrue(any("arg-delta-lactam" in s.groups() for s in steps),
+                        "the default HBTU/DIPEA coupling must still raise it")
 
 
 # --------------------------------------------------------------------------- 4. the resin hazards
