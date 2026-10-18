@@ -306,6 +306,22 @@ GROUPS = {
                             "[#0]OC(=O)[CX4][NX3][CX3](=O)"
                             "[$([CH2][NX3;H2;!$(N[CX3]=[OX1]);!$(N=*);!$([N+])]),"
                             "$([CX4;R][NX3;H1;R;!$(N[CX3]=[OX1])])]"),
+    # An ARGININE whose guanidine is masked as a URETHANE (a carbamate — Boc, Alloc) rather than as
+    # an arylsulfonyl. Vol 3 Section 9.2.10: those residues "suffer partial conversion into the
+    # corresponding Orn residues ... caused by guanidino acylation during the coupling step followed
+    # by decomposition under the strong basic conditions required for Fmoc removal", at -42 mass
+    # units. Benoiton Section 6.11 describes the same bond breaking: "piperidine ruptures the
+    # delta-N-epsilon-C bond of the adduct, generating an ornithine residue."
+    #
+    # The carbamate has to be ON a guanidine nitrogen, and that is the whole difficulty. Every
+    # residue in Fmoc chemistry carries an alpha carbamate, and Fmoc-Lys(Boc)-OH carries one on a
+    # side-chain amine, so a pattern that only looked for a carbamate would fire on the entire
+    # synthesis. Guanidine bonds are left unspecified (`~`) for the same reason as
+    # `arg-delta-lactam`: the tautomer a block is written in is not fixed.
+    #
+    # The shipped Fmoc-Arg(Pbf)-OH must NOT match — Pbf is an arylsulfonyl, and it is the remedy.
+    "arg-urethane-guanidine": ("guanidine masked as a urethane (Boc, Alloc)",
+                               "[#7]([CX3](=[OX1])[OX2][#6])~[CX3](~[#7])~[#7]"),
     "cys-epimerisation": ("cysteine with its alpha-carboxyl free",
                           "[OX2H1][CX3](=O)[CX4;H1][CH2][SX2]"),
     # A C-terminal CYSTEINE held to the support as an ESTER, which is a different hazard from the
@@ -416,6 +432,17 @@ ATTACKS = {
         ("fmoc", "high", "is cleaved by base"), ("alkyl-halide", "medium", "may be substituted or eliminated"),
         ("aldehyde", "medium", "may condense (aldol, Cannizzaro)")],
     "amine-base": [("fmoc", "high", "is cleaved by amine base"), ("acid-chloride", "high", "is aminolysed"),
+        # Read as a SURVIVOR rather than as something the step creates: in the route as written the
+        # protected guanidine comes through the base intact, and what the literature says is that
+        # it partly does not. See the note on `arg-urethane-guanidine`.
+        ("arg-urethane-guanidine", "medium",
+         "is RUPTURED by the base, turning the arginine into an ORNITHINE residue: the guanidino "
+         "carbamate is acylated during the coupling and the adduct then decomposes under the base "
+         "used for Fmoc removal, which breaks the bond to the side chain and takes the whole "
+         "amidine away. The product is 42 mass units LIGHTER, and nothing downstream can see it — "
+         "an ornithine peptide is a self-consistent molecule, so the balance and the target "
+         "comparison both pass on the route as written. Mask the guanidine as an ARYLSULFONYL "
+         "instead: Fmoc-Arg(Pbf)-OH ships and is not subject to this"),
         ("aspartimide-gly", "high", "closes to the aspartimide — Asp-Gly is the classic worst case, the glycine having "
                                     "no side chain to hinder it — which reopens to a mixture of alpha- and beta-linked "
                                     "peptide and epimerises the aspartate. The usual answer for this pair is backbone "
