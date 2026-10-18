@@ -270,7 +270,182 @@ class TheAuditItselfIsHonest(unittest.TestCase):
                 self.assertGreater(len(reason), 20, f"{text!r} needs a real reason, got {reason!r}")
 
 
-# Appended tests have been stranded twice in this directory by a `unittest.main()` sitting
-# mid-file. It stays last.
+class TheNamedCleavageCocktails(unittest.TestCase):
+    """One sourced table, two patterns derived from it, because they had already drifted apart.
+
+    The strong-acid class read the letters B, K, H, R, P and `has_cation_scavenger` read only B, K
+    and H. So a route writing bare "Reagent R" or "Reagent L" was read as an acid with NO
+    scavenger, and the free-indole hazard fired on a cocktail carrying thioanisole, EDT and anisole.
+    Both now come from `NAMED_CLEAVAGE_COCKTAILS`.
+
+    Compositions verified against AAPPTEC's cleavage-cocktail table and Vol 3 Ch. 10 Table 10.1:
+
+        K  TFA/phenol/water/thioanisole/EDT   82.5:5:5:5:2.5   recommended FOR Trp
+        B  TFA/phenol/water/TIS               88:5:5:2         the odourless one
+        H  TFA/phenol/thioanisole/EDT/water/DMS/NH4I            Met-focused
+        L  TFA/TIS/DTT/water                  88:2:5:5         DTT is the thiol
+        R  TFA/thioanisole/EDT/anisole        90:5:3:2         also recommended for Trp
+        P  TFA/phenol                         95:5
+    """
+
+    def test_every_named_cocktail_is_read_as_an_acid(self):
+        for letter in T.NAMED_CLEAVAGE_COCKTAILS:
+            with self.subTest(letter):
+                self.assertIn("strong-acid", T.classify(f"cleave with Reagent {letter}, 3 h"))
+
+    def test_every_one_of_them_also_counts_as_carrying_a_scavenger(self):
+        # True of all six, because every confirmed cocktail carries a thiol or an electron-rich
+        # arene. It is asserted per entry rather than in bulk so that adding a cocktail WITHOUT one
+        # cannot pass by inheriting this.
+        for letter, (composition, covers) in T.NAMED_CLEAVAGE_COCKTAILS.items():
+            with self.subTest(letter):
+                self.assertTrue(covers, f"Reagent {letter} is listed as covering a free indole")
+                self.assertTrue(T.has_cation_scavenger(f"Reagent {letter}"), composition)
+
+    def test_the_two_patterns_cannot_drift_apart_again(self):
+        # The actual defect: an acid with no scavenger reads as a hazard the route cannot answer.
+        for letter, (_composition, covers) in T.NAMED_CLEAVAGE_COCKTAILS.items():
+            with self.subTest(letter):
+                text = f"Reagent {letter}, 2 h"
+                self.assertEqual(bool(T.classify(text)) and covers,
+                                 T.has_cation_scavenger(text),
+                                 "a listed cocktail must be read as an acid AND as a scavenger")
+
+    def test_each_listed_composition_actually_names_a_scavenger(self):
+        # Guards the FLAG against the TABLE: if someone marks a cocktail as covering an indole, its
+        # recorded composition has to contain something that does. Water and a silane do not count,
+        # which is the distinction `_INDOLE_SCAVENGER` was corrected for in 3e0f948.
+        for letter, (composition, covers) in T.NAMED_CLEAVAGE_COCKTAILS.items():
+            if not covers:
+                continue
+            with self.subTest(letter):
+                self.assertTrue(T.has_cation_scavenger(composition),
+                                f"Reagent {letter} is flagged as covering Trp but its recorded "
+                                f"composition names no thiol or arene: {composition}")
+
+    def test_an_UNLISTED_letter_is_read_as_nothing(self):
+        # Vol 3 Table 10.1 also names Reagent W (TFA/water) and Reagent T (TFA/TES), both annotated
+        # "no: Trp". Their letters come only from the damaged part of that extraction, so neither is
+        # listed — and neither is silently treated as a scavenging acid.
+        for letter in ("T", "W"):
+            with self.subTest(letter):
+                self.assertEqual(T.classify(f"Reagent {letter}, 2 h"), [])
+                self.assertFalse(T.has_cation_scavenger(f"Reagent {letter}"))
+
+    def test_and_if_one_is_ever_added_it_must_declare_whether_it_covers_Trp(self):
+        for letter, entry in T.NAMED_CLEAVAGE_COCKTAILS.items():
+            with self.subTest(letter):
+                self.assertEqual(len(entry), 2, "each entry is (composition, covers_indole)")
+                composition, covers = entry
+                self.assertIn("TFA", composition, "every one of these is TFA-based")
+                self.assertIsInstance(covers, bool)
+
+
+
+
+class EveryReagentTheADVICENamesIsRealAndWeighable(unittest.TestCase):
+    """Nothing in a hazard message may be a placeholder, and nothing may lack a formula.
+
+    This is a different question from the rest of this file. Everything above is about what the
+    classifier can READ out of a route. This is about what the advice tells a model to WRITE — and
+    whatever it writes becomes a species in a route, which the route checker then has to balance.
+    Two ways that goes wrong:
+
+      * A MIXTURE ALIAS has no molecular formula. "Reagent K" is a real and standard cocktail, and
+        the classifier should keep recognising it because routes do write it — but a model told to
+        "cleave with Reagent K" may put that string in as a species, and no formula can be assigned
+        to a five-component mixture. The advice therefore names the COMPONENTS, each of which is a
+        single compound: TFA, phenol, water, thioanisole, EDT.
+      * A BUILDING BLOCK THAT DOES NOT SHIP cannot be given a structure by anyone. Advice naming
+        one is advice that cannot be followed, which is the defect this project keeps finding under
+        other names.
+    """
+
+    MIXTURE_ALIASES = ("Reagent B", "Reagent K", "Reagent H", "Reagent L", "Reagent R",
+                       "Reagent P", "Reagent W", "Reagent T")
+
+    @staticmethod
+    def _advice_texts():
+        texts = []
+        for table in (T.ATTACKS, T.ACTIVATION_RISKS, T.UNMASKED_RISKS):
+            for _cls, rows in table.items():
+                texts.extend(why for _group, _severity, why in rows)
+        for group in T.GROUPS:
+            for cls in (None, "default", "strong-acid", "acylating", "amine-base", "mild-acid",
+                        "sulfonylating", "alkylating"):
+                try:
+                    text, _forms = T.suggestion(group, cls)
+                except Exception:
+                    continue
+                if text:
+                    texts.append(text)
+        return texts
+
+    @staticmethod
+    def _shipped_blocks():
+        import re as _re
+        path = os.path.join(os.path.dirname(HERE), "src", "engine", "peptideBuildingBlocks.ts")
+        body = open(path, encoding="utf-8").read().split("PEPTIDE_BUILDING_BLOCKS")[1]
+        return dict(_re.findall(r'"([^"]+)":\s*"([^"]+)"', body))
+
+    def test_no_message_tells_a_route_to_write_a_MIXTURE_as_a_species(self):
+        # Word boundaries, not substrings: the first version matched "Reagent T" inside "use a
+        # reagent that leaves aryl halides alone" and reported two hazards that say nothing about
+        # cocktails at all.
+        import re as _re
+        offenders = {}
+        for text in self._advice_texts():
+            for alias in self.MIXTURE_ALIASES:
+                if _re.search(rf"\b{_re.escape(alias)}\b", text, _re.I):
+                    offenders.setdefault(alias, []).append(text[:70])
+        self.assertEqual(offenders, {},
+                         "a cocktail alias has no molecular formula, so a route that writes it "
+                         f"cannot be balanced — name the components instead: {offenders}")
+
+    def test_every_building_block_the_advice_names_actually_ships(self):
+        import re as _re
+        shipped = self._shipped_blocks()
+        named = set()
+        for text in self._advice_texts():
+            named |= set(_re.findall(r"Fmoc-[A-Za-z0-9()\[\],]+-OH", text))
+        self.assertTrue(named, "the extraction found no block names at all — check the regex")
+        missing = sorted(n for n in named if n not in shipped)
+        self.assertEqual(missing, [],
+                         f"advice names block(s) nothing can supply a structure for: {missing}")
+
+    def test_and_every_one_of_those_blocks_has_a_usable_structure(self):
+        import re as _re
+        from rdkit import Chem
+        from rdkit.Chem import rdMolDescriptors
+        shipped = self._shipped_blocks()
+        named = set()
+        for text in self._advice_texts():
+            named |= set(_re.findall(r"Fmoc-[A-Za-z0-9()\[\],]+-OH", text))
+        for name in sorted(named):
+            with self.subTest(name):
+                mol = Chem.MolFromSmiles(shipped[name])
+                self.assertIsNotNone(mol, f"{name} has an unparseable SMILES")
+                # A formula is what the route checker needs to balance the step at all.
+                self.assertRegex(rdMolDescriptors.CalcMolFormula(mol), r"^C\d+H\d+",
+                                 f"{name} gives no usable formula")
+
+    def test_the_cocktail_components_the_advice_names_are_single_compounds(self):
+        # The replacement for the aliases. Each of these is one substance with one formula, so a
+        # route can name it and the step still balances.
+        for name in ("TFA", "phenol", "water", "thioanisole", "EDT", "TIS", "DODT"):
+            with self.subTest(name):
+                self.assertNotIn(name, self.MIXTURE_ALIASES)
+
+    def test_the_classifier_still_recognises_the_aliases_even_though_the_advice_avoids_them(self):
+        # The distinction that makes this coherent: READING a route that says "Reagent K" must keep
+        # working, because routes write it. Only the advice avoids it.
+        for letter in T.NAMED_CLEAVAGE_COCKTAILS:
+            with self.subTest(letter):
+                self.assertIn("strong-acid", T.classify(f"cleave with Reagent {letter}, 2 h"))
+
+
+# THIRD time in one day. I appended a class after this block and the run reported 18 tests instead
+# of 24 — green, with six tests that did not exist as far as the runner was concerned. Writing the
+# warning comment does not help if the append goes below it, so: nothing goes after this.
 if __name__ == "__main__":
     unittest.main()

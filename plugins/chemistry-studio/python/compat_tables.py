@@ -23,6 +23,38 @@ import re
 _F = r"(?<![A-Za-z0-9])"   # start of a formula token
 _E = r"(?![A-Za-z0-9])"    # end of a formula token
 
+# The NAMED TFA cleavage cocktails, as one source of truth with their compositions written down.
+#
+# Two separate patterns used to carry these letters independently — the strong-acid class and
+# `has_cation_scavenger` — and they had already drifted: the acid pattern read B, K, H, R and P
+# while the scavenger pattern read only B, K and H. So a route writing bare "Reagent R" or
+# "Reagent L" was read as an acid with NO scavenger, and the free-indole hazard fired on a cocktail
+# that carries thioanisole, EDT and anisole. Both patterns are now built from this dict.
+#
+# Compositions verified against AAPPTEC's cleavage-cocktail table and *Amino Acids, Peptides and
+# Proteins in Organic Chemistry* Vol 3 Ch. 10 Table 10.1. `covers_indole` is whether the cocktail
+# carries a thiol or an electron-rich arene, which is what stands between a tert-butyl or trityl
+# cation and a free tryptophan.
+#
+# THE FLAG IS NOT DECORATION. Vol 3's Table 10.1 also names Reagent W (TFA/water) and Reagent T
+# (TFA/TES) — water only and silane only, both annotated "no: Trp". Neither is listed here, because
+# their letters come only from the part of that table the PDF extraction damaged. If either is ever
+# added it must go in with `covers_indole=False`, or the indole gate will clear on a cocktail the
+# source says does not protect tryptophan.
+NAMED_CLEAVAGE_COCKTAILS = {
+    "K": ("TFA/phenol/water/thioanisole/EDT 82.5:5:5:5:2.5", True),   # recommended FOR Trp
+    "B": ("TFA/phenol/water/TIS 88:5:5:2", True),                     # the odourless one; phenol
+    "H": ("TFA/phenol/thioanisole/EDT/water/DMS/NH4I 81:5:5:2.5:3:2:1.5", True),
+    "L": ("TFA/TIS/DTT/water 88:2:5:5", True),                        # DTT is the thiol here
+    "R": ("TFA/thioanisole/EDT/anisole 90:5:3:2", True),              # also recommended for Trp
+    "P": ("TFA/phenol 95:5", True),
+}
+_COCKTAIL_LETTERS = "".join(sorted(NAMED_CLEAVAGE_COCKTAILS)).lower()
+_COCKTAIL_ANY = rf"\breagent ?[{_COCKTAIL_LETTERS}]\b"
+_COCKTAIL_SCAVENGING = r"\breagent ?[{}]\b".format("".join(
+    sorted(letter for letter, (_composition, covers) in NAMED_CLEAVAGE_COCKTAILS.items()
+           if covers)).lower())
+
 REAGENT_CLASSES = [
     ("strong-hydride", "strong hydride (LiAlH4 type)", [
         _F + r"LiAlH4" + _E, _F + r"LAH" + _E, r"lithium alumin(i)?um hydride", r"red-?al\b",
@@ -72,7 +104,7 @@ REAGENT_CLASSES = [
         # so a route that took the advice reached no gate at all. `has_cation_scavenger` already
         # matched "reagent k", which is what made the gap easy to miss: the scavenger was read and
         # the acid was not, so the hazard could only ever be cleared, never raised.
-        _F + r"TMSBr" + _E, r"trimethylsilyl bromide", r"\breagent ?[bkhrp]\b"]),
+        _F + r"TMSBr" + _E, r"trimethylsilyl bromide", _COCKTAIL_ANY]),
     # The MILD acid regime of Fmoc/tBu work: cleaving a peptide off a super-acid-labile support
     # (2-chlorotrityl, SASRIN) or taking off a super-acid-labile side-chain group, with dilute TFA,
     # acetic acid, trifluoroethanol or hexafluoroisopropanol. Chemically this is a different regime
@@ -725,9 +757,15 @@ ACTIVATION_RISKS = {
                                         "the standard answer and the reason this is only medium: the trityl sits "
                                         "on the TAU-nitrogen and withdraws enough electron density to leave the "
                                         "pi-nitrogen a poor base, so coupling is minimally epimerising. It "
-                                        "REDUCES rather than prevents, though — only substitution on the "
-                                        "pi-nitrogen itself prevents it, and those derivatives (Bum, 1-Adom) are "
-                                        "made indirectly and do not ship — so the conditions still matter: "
+                                        "REDUCES rather than prevents, though, and by a wide margin: at 80 C a "
+                                        "tau-trityl histidine has been measured at 16.6% racemisation against "
+                                        "0.8% for a pi-protected one. Only substitution on the PI-nitrogen "
+                                        "itself prevents it, and NO pi-protected histidine ships here, so that is "
+                                        "not an option this route can take — the Fmoc-compatible group is "
+                                        "tert-butoxymethyl (Bum, TFA-labile; the older benzyloxymethyl Bom "
+                                        "belongs to Boc chemistry), and both release formaldehyde on "
+                                        "deprotection, which needs a scavenger of its own. What is left is the "
+                                        "conditions, and they matter: "
                                         "DIC/Oxyma or HOAt, 2,4,6-collidine in place of DIPEA, and a short "
                                         "pre-activation"),
     ],
@@ -943,8 +981,10 @@ PROTECT = {
                     [_TRT_AMIDE]),
     },
     "free-indole": {
-        "default": ("add a cation scavenger to the cocktail — triisopropylsilane with a thiol (EDT or DODT), or "
-                    "thioanisole and phenol, as in Reagent B or Reagent K — and/or carry the tryptophan as "
+        "default": ("add a cation scavenger to the cocktail — a thiol (EDT or DODT), or thioanisole with "
+                    "phenol, optionally alongside triisopropylsilane; those are the components of the "
+                    "standard cocktails, and naming them rather than a cocktail alias keeps every species "
+                    "weighable. And/or carry the tryptophan as "
                     "Fmoc-Trp(Boc)-OH, which ships: the Boc on the indole nitrogen deactivates the ring and the "
                     "same acid takes it off. Water alone is not enough", []),
     },
@@ -1032,7 +1072,7 @@ _INDOLE_SCAVENGER = re.compile(
     r"\btriisopropylsilane\b|\bTIS\b"
     r"|\bEDT\b|ethanedithiol|\bDODT\b|dioxa[- ]?octanedithiol|\bdithiol\b|thioanisole"
     r"|dimethyl ?sulfide|\bDMS\b|\bthiocresol\b|\banisole\b|\bphenol\b|\bcresol\b"
-    r"|reagent ?[bkh]\b", re.I)
+    r"|" + _COCKTAIL_SCAVENGING, re.I)
 
 
 def has_cation_scavenger(text):
