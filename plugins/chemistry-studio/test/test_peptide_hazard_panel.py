@@ -77,7 +77,8 @@ PIPERIDINE = "20% piperidine in DMF, 2 x 5 min, rt"
 COUPLING = "Fmoc-amino acid (3 eq), HBTU (3 eq), DIPEA (6 eq), DMF, 45 min, rt"
 DIC_OXYMA = "Fmoc-amino acid (5 eq), DIC (5 eq), Oxyma (5 eq), DMF, 2 min, in situ, no base"
 BARE_TFA = "TFA/H2O 95:5, 2 h"
-SILANE_ONLY = "TFA/triisopropylsilane/H2O 95:2.5:2.5, 2 h"
+TES_ONLY = "TFA/triethylsilane/H2O 95:2.5:2.5, 2 h"
+TIS_ONLY = "TFA/triisopropylsilane/H2O 95:2.5:2.5, 2 h"
 REAGENT_K = "Reagent K: TFA/thioanisole/water/phenol/EDT 82.5:5:5:5:2.5, 3 h"
 
 
@@ -370,13 +371,16 @@ class FreeIndoleOnCleavage(unittest.TestCase):
             with self.subTest(conditions):
                 self.assertNotIn("free-indole", cleavage(chain, conditions).groups())
 
-    def test_a_SILANE_ALONE_does_not_clear_it(self):
-        # Chan & White p. 65: both silane cocktails in Table 4 are for peptides "except ...
-        # unprotected Trp", and Table 5 files a silane as the CAUSE of indole reduction. This is
-        # the correction made in commit bc96a5b; the panel keeps it honest on a built peptide.
+    def test_TRIETHYLsilane_alone_does_not_clear_it_but_TRIISOPROPYL_does(self):
+        # The two silanes differ in exactly the property that matters, and the sources disagree
+        # about how far that goes; see the long note on `_INDOLE_SCAVENGER`. Vol 3 Ch. 10 Table
+        # 10.1 marks TFA/TES 95:5 "no: Trp" and TFA/TIS 95:5 "acceptable: Trp", because TES
+        # "has the ability to reduce the indole function of this residue".
         chain, _ = build("WD")
-        self.assertIn("free-indole", cleavage(chain, SILANE_ONLY).groups(),
-                      "a trialkylsilane is the answer for Trp(Boc), not for a free indole")
+        self.assertIn("free-indole", cleavage(chain, TES_ONLY).groups(),
+                      "TES reduces a free indole")
+        self.assertNotIn("free-indole", cleavage(chain, TIS_ONLY).groups(),
+                         "TIS is the silane recommended FOR Trp-containing sequences")
 
     def test_carrying_the_Trp_as_Fmoc_Trp_Boc_OH_is_what_the_remedy_names(self):
         for hazard in cleavage(build("WD")[0], BARE_TFA).hazards():

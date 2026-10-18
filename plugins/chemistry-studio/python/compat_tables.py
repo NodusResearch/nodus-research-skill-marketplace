@@ -766,18 +766,34 @@ _AMIDE_BASE = re.compile(r"\bHMDS\b|hexamethyldisilazane|diisopropylamine|\biPr2
 # softer — "moderately effective", "some protection ... against sulphonation" — but "some
 # protection" is not something a route can be scored against.
 #
-# A TRIALKYLSILANE IS ALSO ABSENT, and used to be here, which made this check clear on a cocktail
-# the book prescribes only for peptides WITHOUT a free tryptophan. Table 4 lists TFA/TIS/water and
-# TFA/TIS/water/EDT for peptides "except ... unprotected Trp", and only Reagent K for "All
-# peptides"; the prose recommends silanes "particularly for peptides containing Arg(Pmc)/Arg(Pbf)
-# and Trp(Boc)" — the PROTECTED residue — while it is EDT that "offers some protection to
-# unprotected tryptophan against sulphonation". Table 5 then files a silane as a CAUSE of Trp
-# damage, "reduction of the indole ring of Trp", whose remedy is to "omit silane scavengers from
-# the cleavage cocktail and substitute for EDT". A silane is still the right answer for the
-# stabilised cations (trityl, Tmob, the Rink linker) — it is just not the answer for this group,
-# so it clears the flag only in company, through the thiol or arene that accompanies it.
+# WHICH TRIALKYLSILANE IT IS decides the answer, and this is the one place in the hazard set where
+# two sources disagree and the citation had to be weighed rather than read.
+#
+#   * Chan & White argue against silanes as a class. Both silane cocktails in Table 4 are
+#     prescribed for peptides "except ... unprotected Trp", only Reagent K is listed for "All
+#     peptides", the prose recommends silanes "particularly for peptides containing
+#     Arg(Pmc)/Arg(Pbf) and Trp(Boc)" — the PROTECTED residue — and Table 5 files "reduction of the
+#     indole ring of Trp" with the remedy "omit silane scavengers from the cleavage cocktail and
+#     substitute for EDT". It never separates TIS from TES.
+#   * *Amino Acids, Peptides and Proteins in Organic Chemistry* Vol 3 Ch. 10 (printed pp. 357-358)
+#     does separate them: "TES has better scavenging properties then TIS. However, the latter (TIS)
+#     IS RECOMMENDED FOR Trp-CONTAINING SEQUENCES since the former (TES) has the ability to reduce
+#     the indole function of this residue." Table 10.1 marks TFA/TES 95:5 "no: Trp" and TFA/TIS
+#     95:5 "acceptable: Trp". Both rest on Pearson, Blanchette, Baker & Guindon, Tetrahedron Lett
+#     30, 2739-2742 (1989).
+#
+# Resolved in favour of Vol 3: it is later, it is specifically about cleavage cocktails, and it
+# names the reagents individually where Chan & White generalises. So TIS is accepted here and TES
+# is not. An unnamed "silane" is not accepted either, because the two differ in exactly the
+# property that matters and the ambiguity cannot be resolved.
+#
+# This reversed an earlier over-correction. The first version of this rule rejected EVERY silane on
+# Chan & White alone, which flagged the very cocktail the specialist source recommends FOR
+# tryptophan. A silane remains the right answer for the stabilised cations (trityl, Tmob, the Rink
+# linker) regardless.
 _INDOLE_SCAVENGER = re.compile(
-    r"\bEDT\b|ethanedithiol|\bDODT\b|dioxa[- ]?octanedithiol|\bdithiol\b|thioanisole"
+    r"\btriisopropylsilane\b|\bTIS\b"
+    r"|\bEDT\b|ethanedithiol|\bDODT\b|dioxa[- ]?octanedithiol|\bdithiol\b|thioanisole"
     r"|dimethyl ?sulfide|\bDMS\b|\bthiocresol\b|\banisole\b|\bphenol\b|\bcresol\b"
     r"|reagent ?[bkh]\b", re.I)
 
