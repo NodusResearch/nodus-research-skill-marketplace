@@ -85,9 +85,9 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="chart-studio/">Chart Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Create 14 types of deterministic SVG charts from synthetic or non-personal data, with source notes and reproducible calculations.</td><td>✅ <code>self:charts</code></td></tr>
-<tr><td><a href="descriptive-statistics/">Descriptive Statistics</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Calculate count, mean, median, range and population standard deviation from a supplied numeric sample.</td><td>❌</td></tr>
-<tr><td><a href="unit-converter/">Unit Converter</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Convert lengths, masses and temperatures exactly and in batches, without the model doing the arithmetic.</td><td>✅ <code>self:units</code></td></tr>
+<tr><td><a href="chart-studio/">Chart Studio</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Create 14 types of deterministic SVG charts from synthetic or non-personal data, with source notes and reproducible calculations.</td><td>✅ <code>self:charts</code></td></tr>
+<tr><td><a href="descriptive-statistics/">Descriptive Statistics</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Calculate count, mean, median, range and population standard deviation from a supplied numeric sample.</td><td>❌</td></tr>
+<tr><td><a href="unit-converter/">Unit Converter</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Convert lengths, masses and temperatures exactly and in batches, without the model doing the arithmetic.</td><td>✅ <code>self:units</code></td></tr>
 </tbody>
 </table>
 
@@ -96,8 +96,8 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="image-atelier/">Image Atelier</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Original illustrations, concept art and visual scenes using your image model.</td><td>✅ <code>image</code></td></tr>
-<tr><td><a href="svg-studio/">SVG Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Precise diagrams, explanatory drawings, maps, timelines and visual systems.</td><td>✅ <code>svg</code></td></tr>
+<tr><td><a href="image-atelier/">Image Atelier</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Original illustrations, concept art and visual scenes using your image model.</td><td>✅ <code>image</code></td></tr>
+<tr><td><a href="svg-studio/">SVG Studio</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Precise diagrams, explanatory drawings, maps, timelines and visual systems.</td><td>✅ <code>svg</code></td></tr>
 </tbody>
 </table>
 
@@ -106,7 +106,7 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="anatomy-visualization/">Anatomy Visualization</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Deterministic SVG and verified 3D anatomy with curated English/Spanish terminology and semantic queries. Requires a Nodus build containing PR #765; unmodified released 5.3.2 is incompatible.</td><td>✅ <code>self:anatomy</code>, <code>nodus:3d</code></td></tr>
+<tr><td><a href="anatomy-visualization/">Anatomy Visualization</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Deterministic SVG and verified 3D anatomy with curated English/Spanish terminology and semantic queries. Requires a Nodus build containing PR #765; unmodified released 5.3.2 is incompatible.</td><td>✅ <code>self:anatomy</code>, <code>nodus:3d</code></td></tr>
 </tbody>
 </table>
 
@@ -115,7 +115,7 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="legalize/">Legalize</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Find legislation in legalize-dev country repositories, preserving official sources, snapshot versions, licences and attribution. Requires a Nodus build providing the nodus:legal capability.</td><td>✅ <code>legal</code></td></tr>
+<tr><td><a href="legalize/">Legalize</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Find legislation in legalize-dev country repositories, preserving official sources, snapshot versions, licences and attribution. Requires a Nodus build providing the nodus:legal capability.</td><td>✅ <code>legal</code></td></tr>
 </tbody>
 </table>
 
@@ -124,7 +124,7 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="socratic-tutor/">Socratic Tutor</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Guided learning through focused questions, progressive hints and personalized feedback.</td><td>❌</td></tr>
+<tr><td><a href="socratic-tutor/">Socratic Tutor</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Guided learning through focused questions, progressive hints and personalized feedback.</td><td>❌</td></tr>
 </tbody>
 </table>
 
@@ -133,7 +133,7 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="alphagenome/">AlphaGenome</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>AlphaGenome regulatory variant predictions for non-commercial research, with local plots and attributed exports. Requires a personal API key and a Nodus build providing the nodus:genomics capability.</td><td>✅ <code>genomics</code></td></tr>
+<tr><td><a href="alphagenome/">AlphaGenome</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>AlphaGenome regulatory variant predictions for non-commercial research, with local plots and attributed exports. Requires a personal API key and a Nodus build providing the nodus:genomics capability.</td><td>✅ <code>genomics</code></td></tr>
 </tbody>
 </table>
 
@@ -142,7 +142,7 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="chemistry-studio/">Chemistry Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Reference-backed molecular structures, projections, declared curved-arrow mechanisms and resonance, across the whole periodic table.</td><td>✅ <code>chemistry</code></td></tr>
+<tr><td><a href="chemistry-studio/">Chemistry Studio</a></td><td><a href="https://github.com/bloosqr">@bloosqr</a></td><td>Reference-backed molecular structures, projections, declared curved-arrow mechanisms and resonance, across the whole periodic table.</td><td>✅ <code>chemistry</code></td></tr>
 </tbody>
 </table>
 
@@ -151,7 +151,7 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="action-planner/">Action Planner</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Turn a goal into priorities, concrete steps and an achievable first action.</td><td>❌</td></tr>
+<tr><td><a href="action-planner/">Action Planner</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Turn a goal into priorities, concrete steps and an achievable first action.</td><td>❌</td></tr>
 </tbody>
 </table>
 
@@ -160,11 +160,11 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="brainstorm-studio/">Brainstorm Studio</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Generate distinct ideas, then select and develop the most promising ones.</td><td>❌</td></tr>
-<tr><td><a href="compare-choose/">Compare &amp; Choose</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Compare alternatives against explicit criteria and recommend a choice suited to your needs.</td><td>❌</td></tr>
-<tr><td><a href="constructive-critic/">Constructive Critic</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Review a text, design or proposal and prioritize specific, practical improvements.</td><td>❌</td></tr>
-<tr><td><a href="perspective-switcher/">Perspective Switcher</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Explore different viewpoints and see which assumptions change the conclusions.</td><td>❌</td></tr>
-<tr><td><a href="thought-partner/">Thought Partner</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Develop an unfinished idea, surface assumptions and find a useful way forward.</td><td>❌</td></tr>
+<tr><td><a href="brainstorm-studio/">Brainstorm Studio</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Generate distinct ideas, then select and develop the most promising ones.</td><td>❌</td></tr>
+<tr><td><a href="compare-choose/">Compare &amp; Choose</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Compare alternatives against explicit criteria and recommend a choice suited to your needs.</td><td>❌</td></tr>
+<tr><td><a href="constructive-critic/">Constructive Critic</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Review a text, design or proposal and prioritize specific, practical improvements.</td><td>❌</td></tr>
+<tr><td><a href="perspective-switcher/">Perspective Switcher</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Explore different viewpoints and see which assumptions change the conclusions.</td><td>❌</td></tr>
+<tr><td><a href="thought-partner/">Thought Partner</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Develop an unfinished idea, surface assumptions and find a useful way forward.</td><td>❌</td></tr>
 </tbody>
 </table>
 
@@ -173,9 +173,9 @@ Skills are grouped by subject, including those bundled in plugins. Capabilities:
 <table>
 <thead><tr><th width="190">App / skill</th><th width="125">Contributor</th><th width="505">Description</th><th width="180">Capabilities</th></tr></thead>
 <tbody>
-<tr><td><a href="make-it-simple/">Make It Simple</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Explain complex material clearly with concrete examples and useful analogies.</td><td>❌</td></tr>
-<tr><td><a href="natural-writing/">Natural Writing</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Draft, polish and paraphrase natural prose in the user’s language while preserving voice, meaning, qualifications and citations.</td><td>❌</td></tr>
-<tr><td><a href="writing-partner/">Writing Partner</a></td><td><a href="https://github.com/Drakonis96">@Drakonis96</a></td><td>Draft and refine clear, purposeful writing while preserving your voice and intent.</td><td>❌</td></tr>
+<tr><td><a href="make-it-simple/">Make It Simple</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Explain complex material clearly with concrete examples and useful analogies.</td><td>❌</td></tr>
+<tr><td><a href="natural-writing/">Natural Writing</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Draft, polish and paraphrase natural prose in the user’s language while preserving voice, meaning, qualifications and citations.</td><td>❌</td></tr>
+<tr><td><a href="writing-partner/">Writing Partner</a></td><td><a href="https://github.com/jorgepb96">@jorgepb96</a></td><td>Draft and refine clear, purposeful writing while preserving your voice and intent.</td><td>❌</td></tr>
 </tbody>
 </table>
 

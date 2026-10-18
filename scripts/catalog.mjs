@@ -139,7 +139,13 @@ const table = rows => `<table>\n${head}\n<tbody>\n${rows.join('\n')}\n</tbody>\n
 const capabilities = entry => entry.capabilities.length
   ? `✅ ${entry.capabilities.map(id => `<code>${escape(id)}</code>`).join(', ')}`
   : '❌';
-const row = entry => `<tr><td><a href="${entry.id}/">${escape(entry.name)}</a></td><td><a href="https://github.com/${entry.author}">@${escape(entry.author)}</a></td><td>${escape(entry.description)}</td><td>${capabilities(entry)}</td></tr>`;
+// README credits are editorial: keep renamed accounts current and credit Chemistry Studio's contributor.
+const contributor = entry => entry.id === 'chemistry-studio' ? 'bloosqr'
+  : entry.author.toLowerCase() === 'drakonis96' ? 'jorgepb96' : entry.author;
+const row = entry => {
+  const username = contributor(entry);
+  return `<tr><td><a href="${entry.id}/">${escape(entry.name)}</a></td><td><a href="https://github.com/${username}">@${escape(username)}</a></td><td>${escape(entry.description)}</td><td>${capabilities(entry)}</td></tr>`;
+};
 const categories = [...new Set(entries.map(e => e.category))].sort();
 const sections = categories.map(category => `### ${escape(category)}\n\n` + table(entries.filter(e => e.category === category).sort((a, b) => a.name.localeCompare(b.name)).map(row)));
 const catalog = 'Skills are grouped by subject, including those bundled in plugins. Capabilities: ✅ lists the declared capabilities; ❌ means none are declared. <code>self:</code> identifies a capability included in the same plugin.\n\n' + sections.join('\n\n');
