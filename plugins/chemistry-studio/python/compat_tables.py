@@ -260,6 +260,16 @@ GROUPS = {
                             "$([CX4;R][NX3;H1;R;!$(N[CX3]=[OX1])])]"),
     "cys-epimerisation": ("cysteine with its alpha-carboxyl free",
                           "[OX2H1][CX3](=O)[CX4;H1][CH2][SX2]"),
+    # A C-terminal CYSTEINE held to the support as an ESTER, which is a different hazard from the
+    # one above and a different step. Benoiton Section 5.14: piperidine "causes epimerization at
+    # S-protected cysteine residues that are esterified to a linker-resin". So the base that takes
+    # the Fmoc off also takes the alpha-proton, and the sulfur is what makes it acidic enough.
+    #
+    # Disjoint from `cys-epimerisation` by construction: that one requires a FREE alpha-carboxyl
+    # (the residue being activated), and here the carboxyl IS the resin ester. One sulfur cannot
+    # raise both.
+    "cys-resin-ester-epimerisation": ("resin-esterified cysteine",
+                                      "[#0]OC(=O)[CX4;H1]([CH2][SX2])[NX3]"),
     "his-epimerisation": ("histidine with its alpha-carboxyl free",
                           "[OX2H1][CX3](=O)[CX4;H1][CH2]c1cncn1"),
     # Not attacked by anything in ATTACKS: it exists so a cleavage step can be told that it IS
@@ -476,8 +486,20 @@ UNMASKED_RISKS = {
                                         "proline in that position closes it fast. This ENDS the synthesis rather "
                                         "than eroding it — bare linker is left behind — and the atom checks cannot "
                                         "see it, because a cyclic peptide and a resin alcohol both balance "
-                                        "perfectly. The answer is to never have the resin-bound dipeptide: load the "
-                                        "pair as one block, Fmoc-Gly-Pro-OH, in place of the anchored monomer"),
+                                        "perfectly. Two answers, and the cited one is the cheaper: put the chain on "
+                                        "a 2-CHLOROTRITYL linker, which eliminates this (the bulky trityl ester "
+                                        "does not accept the intramolecular attack the way an alkyl ester does); "
+                                        "or never have the resin-bound dipeptide at all, loading the pair as one "
+                                        "block, Fmoc-Gly-Pro-OH, in place of the anchored monomer"),
+        # Same base, same support, same source — and a hazard the tables did not carry. See the
+        # note on `cys-resin-ester-epimerisation` and on `_TRITYL_LINKER`.
+        ("cys-resin-ester-epimerisation", "medium",
+         "EPIMERISES under the base that removes the Fmoc: the alpha-proton sits between the "
+         "sulfur that acidifies it and the ester that holds the residue to the support, and "
+         "piperidine takes it, so the C-terminal residue of the finished peptide is a D one. "
+         "Nothing downstream can see that — same formula, same mass. Put the chain on a "
+         "2-CHLOROTRITYL linker, whose cysteine ester is not subject to this, rather than on an "
+         "alkoxybenzyl or other alkyl ester"),
     ],
 }
 
@@ -520,13 +542,24 @@ ACTIVATION_RISKS = {
                                         "alpha-proton and a tertiary amine base removes it, so a D residue goes "
                                         "into the chain. Nothing downstream can see that — the D peptide has the "
                                         "same formula and the same mass, so balance and target-matching both pass. "
-                                        "Couple it with a weaker base (2,4,6-collidine in place of DIPEA) or with "
-                                        "DIC/Oxyma, keep the pre-activation short, and stay cold"),
-        ("his-epimerisation", "medium", "may EPIMERISE while it is activated: its own imidazole can take the "
-                                        "alpha-proton, so the base is not the only route to it and a D residue "
-                                        "goes into the chain. Nothing downstream can see that — same formula, same "
-                                        "mass. Couple it with 2,4,6-collidine rather than DIPEA, or with "
-                                        "DIC/Oxyma or HOAt, and keep the pre-activation short"),
+                                        "The answer is NO BASE rather than a weaker one: activate in situ with "
+                                        "DIC/Oxyma, where the absence of base is what keeps the epimerisation down "
+                                        "even hot. Keep the pre-activation short, because an activated cysteine "
+                                        "standing in a tertiary amine is where this happens. A weaker base "
+                                        "(2,4,6-collidine for DIPEA) is accepted as a precaution but is the "
+                                        "second-best answer"),
+        ("his-epimerisation", "medium", "may EPIMERISE while it is activated: the alpha-proton is taken by the "
+                                        "imidazole's own PI-nitrogen, so the base in the pot is not the only route "
+                                        "to it and a D residue goes into the chain. Nothing downstream can see "
+                                        "that — same formula, same mass. The shipped Fmoc-His(Trt)-OH is already "
+                                        "the standard answer and the reason this is only medium: the trityl sits "
+                                        "on the TAU-nitrogen and withdraws enough electron density to leave the "
+                                        "pi-nitrogen a poor base, so coupling is minimally epimerising. It "
+                                        "REDUCES rather than prevents, though — only substitution on the "
+                                        "pi-nitrogen itself prevents it, and those derivatives (Bum, 1-Adom) are "
+                                        "made indirectly and do not ship — so the conditions still matter: "
+                                        "DIC/Oxyma or HOAt, 2,4,6-collidine in place of DIPEA, and a short "
+                                        "pre-activation"),
     ],
 }
 
@@ -590,6 +623,28 @@ _PYROGLUTAMATE_CATALYST = re.compile(
 def has_pyroglutamate_catalyst(text):
     """Whether a step names one of the weak acids or benzotriazoles Benoiton lists as catalysing it."""
     return bool(_PYROGLUTAMATE_CATALYST.search(text or ""))
+
+
+# The linker that answers two hazards at once. Benoiton Section 5.23: "The obstacles of
+# piperazine-2,5-dione formation and epimerization at esterified cysteine are ELIMINATED IF THE
+# LINKER IS 2-CHLOROTRITYL CHLORIDE", and Section 5.24 again for cysteine — the 2-chlorotrityl
+# ester is "not subject to the epimerization that is caused by piperidine at cysteine residues
+# attached to supports through other alkyl esters". A bulky, acid-labile trityl ester, not an
+# alkyl one.
+#
+# READ FROM THE CONDITIONS, and that is a weakness worth stating rather than hiding. The route
+# representation writes the support as a single `*`, so a Wang ester and a 2-chlorotrityl ester
+# are the same molecular graph and the linker cannot be read structurally. A deprotection step
+# will often not name the resin at all, so this clears less often than it should. It is why both
+# hazards that rely on it keep a second, structural answer in their message — the dipeptide block
+# for the diketopiperazine — and why the cysteine one is medium.
+_TRITYL_LINKER = re.compile(r"2[- ]?chlorotrityl|\b2[- ]?CTC\b|\bCl[- ]?Trt\b|chlorotrityl"
+                            r"|\bBarlos\b", re.I)
+
+
+def has_trityl_linker(text):
+    """Whether the step says the chain is on a 2-chlorotrityl (or equivalent trityl) support."""
+    return bool(_TRITYL_LINKER.search(text or ""))
 
 # ------------------------------------------------------------------------------ how to keep a group
 # group -> (suggestion, [(protected-form label, SMARTS of the protected form, SMARTS of the group it is made from)])

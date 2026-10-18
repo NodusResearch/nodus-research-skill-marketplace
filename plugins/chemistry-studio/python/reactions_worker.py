@@ -2004,6 +2004,12 @@ def _compatibility(steps, textbook_dir=None):
                 if group == "free-indole" and (T.has_cation_scavenger(text)
                                                or not (before.keys() & {"boc", "tbu-ester", "tbu-ether", "trityl"})):
                     continue
+                # Both of the support-ester hazards are eliminated by a 2-chlorotrityl linker
+                # (Benoiton 5.23), and the linker is not visible in the structure — the route
+                # writes the support as a bare `*` — so it has to be read from the conditions.
+                if group in ("resin-dipeptide-dkp", "cys-resin-ester-epimerisation") \
+                        and T.has_trityl_linker(text):
+                    continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,

@@ -144,5 +144,109 @@ class TheFlagsClearOnCare(unittest.TestCase):
         self.assertIn("arg-delta-lactam", groups_in(found), f"hazards were {groups_in(found)}")
 
 
+class WhatTheSourcesSayAboutTheseTwo(unittest.TestCase):
+    """Rubric items 4 and 5: the remedies, re-grounded after reading.
+
+    HISTIDINE — Benoiton Section 6.10, printed pp. 169-170. The mechanism is not the base in the
+    pot: "Isomerization results from abstraction of the alpha-proton by the basic PI-NITROGEN of
+    the ring", so the residue carries its own route to its own alpha-proton. Two consequences that
+    change what the remedy should say:
+
+      * "Substitution at the PI-nitrogen PREVENTS isomerization." The efficient protectors are
+        N-pi-benzyloxymethyl (Bom) for Boc chemistry and N-pi-1-adamantyloxymethyl (1-Adom) for
+        Fmoc chemistry. Neither ships.
+      * The shipped block is already the literature's standard answer, and it works the other way:
+        "the most popular derivative for synthesis using Fmoc chemistry is
+        N-alpha-Fmoc-N-tau-trityl-L-histidine ... the electron-withdrawing effect of the substituent
+        reduces the basicity of the pi-nitrogen so that activation and coupling occur with MINIMAL
+        enantiomerization." Reduced, not eliminated — "substitution at the tau-nitrogen ... MAY
+        DIMINISH its ability to abstract the alpha-proton."
+
+    So the corpus audit's recommendation — switch the remedy to the building block
+    Fmoc-His(Boc)-OH — would have been wrong twice over: the popular derivative is the Trt, which
+    the package already ships, and Boc on the tau-nitrogen is merely "analogous" to it, not a cure.
+    Conditions remain a real lever precisely BECAUSE tau-protection only reduces.
+
+    CYSTEINE — the citable framing is NO base rather than a weaker one. Peptide Synthesis: Methods
+    and Protocols Ch. 6 p. 95: "The LACK OF BASE present during the coupling allowed
+    Fmoc-Cys(Trt)-OH to be coupled at 90 C without an increase in epimerization compared to room
+    temperature methods." Benoiton Section 4.21 item 9 agrees from the other side: "Onium
+    salt-mediated couplings of N-alkoxycarbonylcysteines and serines. Activated forms of these
+    compounds are particularly sensitive to the TERTIARY AMINES required to effect the couplings."
+    Item 8 of the same list names a pre-activation that exposes the activated intermediate to
+    tertiary amine as an origin of impurity in its own right, which is the citation for "keep the
+    pre-activation short".
+
+    Collidine stays accepted, because the gate must not punish a route that took a real precaution,
+    but it is no longer what the message leads with: it could not be sourced in Benoiton, in Chan &
+    White, or in M&P, and the thing those DO name is the carbodiimide route with no base at all.
+    """
+
+    def test_the_shipped_histidine_block_is_the_one_Benoiton_calls_standard(self):
+        # The remedy text names it, so it has to actually ship. Read from the package's own table
+        # rather than asserted against a literal, which would be a second source of truth.
+        blocks = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "engine",
+                              "peptideBuildingBlocks.ts")
+        self.assertIn("Fmoc-His(Trt)-OH", open(blocks, encoding="utf-8").read())
+
+    def test_the_histidine_message_names_the_block_AND_the_conditions(self):
+        hazard = next(h for h in hazards_for([GLYCINE, FMOC_HIS_TRT], [GLY_PRODUCT], DIPEA)
+                      if h["group"] == "his-epimerisation")
+        words = f"{hazard['why']} {hazard.get('suggestion') or ''}".lower()
+        self.assertIn("his(trt)", words, f"name the shipped block: {words}")
+        self.assertTrue(any(k in words for k in ("reduce", "minimal", "not eliminat", "only")),
+                        f"say that the block reduces rather than cures: {words}")
+        self.assertIn("pi", words, f"name the nitrogen that would actually prevent it: {words}")
+
+    def test_the_histidine_message_does_NOT_recommend_His_Boc(self):
+        # The audit's recommendation, declined on the source. Asserting its ABSENCE because a later
+        # reader looking at Benoiton's list of tau-substituted derivatives could easily re-add it.
+        hazard = next(h for h in hazards_for([GLYCINE, FMOC_HIS_TRT], [GLY_PRODUCT], DIPEA)
+                      if h["group"] == "his-epimerisation")
+        words = f"{hazard['why']} {hazard.get('suggestion') or ''}".lower()
+        self.assertNotIn("his(boc)", words,
+                         "Boc on the tau-nitrogen is analogous to the Trt, not better than it")
+
+    def test_the_cysteine_message_leads_with_NO_base_not_a_weaker_one(self):
+        hazard = next(h for h in hazards_for([GLYCINE, FMOC_CYS_TRT], [GLY_PRODUCT], DIPEA)
+                      if h["group"] == "cys-epimerisation")
+        words = f"{hazard['why']} {hazard.get('suggestion') or ''}".lower()
+        self.assertIn("oxyma", words, f"name the sourced route: {words}")
+        self.assertTrue(any(k in words for k in ("no base", "without base", "base-free",
+                                                 "absence of base")),
+                        f"say that the absence of base is the point: {words}")
+
+    def test_collidine_is_still_accepted_even_though_it_is_unsourced(self):
+        # A route that used a weaker base took a real precaution; the gate should not nag it just
+        # because the citation is missing. Pinned so that tightening this becomes a deliberate act.
+        for substrate, group in ((FMOC_CYS_TRT, "cys-epimerisation"),
+                                 (FMOC_HIS_TRT, "his-epimerisation")):
+            with self.subTest(group):
+                found = hazards_for([GLYCINE, substrate], [GLY_PRODUCT], COLLIDINE)
+                self.assertNotIn(group, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_WHY_the_pi_versus_tau_distinction_is_not_in_the_pattern(self):
+        """Records a rejected approach, with the measurement that rejected it.
+
+        The obvious move is to require the pi-nitrogen to still bear a hydrogen, so that a
+        genuinely pi-protected histidine would clear the flag while the tau-protected Trt block
+        kept raising it. It does not work, and the reason is tautomers: imidazole's N-H sits on
+        either nitrogen depending on how the SMILES was written, so `c1cnc[nH]1` answers True for
+        free histidine written one way and False written the other. Worse, the SHIPPED
+        Fmoc-His(Trt)-OH and a hand-built N-pi-trityl histidine both answer False, so the rule
+        cannot tell the standard block from the thing it is supposed to distinguish it from.
+
+        Measured before this test was written; kept as a test so that the pattern staying
+        tautomer-insensitive is a property someone has to break on purpose.
+        """
+        both_ways = ["N[C@@H](Cc1c[nH]cn1)C(=O)O", "N[C@@H](Cc1cnc[nH]1)C(=O)O"]
+        pattern = Chem.MolFromSmarts(T.GROUPS["his-epimerisation"][1])
+        for smiles in both_ways:
+            with self.subTest(smiles):
+                self.assertTrue(Chem.MolFromSmiles(smiles).HasSubstructMatch(pattern),
+                                "the gate must not depend on which tautomer was written")
+
+
+# Appended tests have twice been stranded by a `unittest.main()` sitting mid-file. It stays last.
 if __name__ == "__main__":
     unittest.main()
