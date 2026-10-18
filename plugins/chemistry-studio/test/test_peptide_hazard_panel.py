@@ -32,6 +32,7 @@ Three consequences of building rather than drawing, all deliberate:
 
 import json
 import os
+import re
 import sys
 import unittest
 
@@ -43,7 +44,6 @@ from rdkit import Chem, RDLogger
 from rdkit.Chem import rdChemReactions, rdMolDescriptors
 
 import compat_tables as T
-import peptide_route as R
 import peptide_sequence as S
 import reactions_worker as W
 
@@ -69,8 +69,46 @@ _UNBOC_AROMATIC = rdChemReactions.ReactionFromSmarts(
     "[nX3:1][CX3:2](=[OX1:3])[OX2:4][CX4:5]([CH3:6])([CH3:7])[CH3:8]"
     ">>[nH:1].[OX1:3]=[CX3:2]=[OX2:4].[CH2:6]=[CX3:5]([CH3:7])[CH3:8]")
 
-BLOCKS = R.monomers()
-ONE_TO_THREE = {v: k for k, v in R.THREE_TO_ONE.items()}
+# The monomer table is read straight from the package's own peptideBuildingBlocks.ts, the way
+# test_peptide_dipeptides.py does, rather than through the route generator. The generator
+# (peptide_route.py) is deliberately not part of the package yet — nothing upstream invokes it —
+# and a test suite that imported it would be untestable on the shipped tree. Everything this
+# suite needed from it was shallow: a regex over that file, a one-letter map, and a preference
+# order over protected forms.
+BLOCKS_TS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "engine",
+                         "peptideBuildingBlocks.ts")
+
+
+def _blocks():
+    text = open(BLOCKS_TS, encoding="utf-8").read().split("PEPTIDE_BUILDING_BLOCKS")[1]
+    return dict(re.findall(r'"([^"]+)":\s*"([^"]+)"', text))
+
+
+BLOCKS = _blocks()
+THREE_TO_ONE = {
+    "Ala": "A", "Arg": "R", "Asn": "N", "Asp": "D", "Cys": "C", "Gln": "Q", "Glu": "E",
+    "Gly": "G", "His": "H", "Ile": "I", "Leu": "L", "Lys": "K", "Met": "M", "Phe": "F",
+    "Pro": "P", "Ser": "S", "Thr": "T", "Trp": "W", "Tyr": "Y", "Val": "V",
+}
+ONE_TO_THREE = {v: k for k, v in THREE_TO_ONE.items()}
+
+
+class NoBlockShips(Exception):
+    """No Fmoc building block in the package's table for this residue."""
+
+
+def block_for(residue):
+    """The side-chain-protected Fmoc monomer the package ships for this residue.
+
+    Protection is not decoration: `n-peptide-coupling` acylates a free amine, and a free
+    side-chain amine is a second one, so the protected form is what a route actually couples.
+    Same preference order the generator uses.
+    """
+    for key in (f"Fmoc-{residue}(Boc)-OH", f"Fmoc-{residue}(Pbf)-OH", f"Fmoc-{residue}(Trt)-OH",
+                f"Fmoc-{residue}(OtBu)-OH", f"Fmoc-{residue}(tBu)-OH", f"Fmoc-{residue}-OH"):
+        if key in BLOCKS:
+            return key, BLOCKS[key]
+    raise NoBlockShips(f"no Fmoc building block for {residue} in the package table")
 
 # The conditions text each kind of step carries, written the way a route writes it.
 PIPERIDINE = "20% piperidine in DMF, 2 x 5 min, rt"
@@ -138,7 +176,7 @@ def block(letter, override=None):
     if override:
         assert override in BLOCKS, f"{override} does not ship"
         return override, BLOCKS[override]
-    return R.block_for(ONE_TO_THREE[letter], BLOCKS)
+    return block_for(ONE_TO_THREE[letter])
 
 
 class Step:
@@ -195,7 +233,9 @@ def build(sequence, overrides=None, coupling=COUPLING, deprotection=PIPERIDINE):
 
 
 def _is_dipeptide(name):
-    return any(name == entry["name"] for entry in R.DIPEPTIDES.values())
+    # A dipeptide block names two residues, so it consumes two sequence positions. Counted off
+    # the block's own name rather than looked up in the generator's table.
+    return sum(1 for residue in THREE_TO_ONE if residue in name) >= 2
 
 
 def cleavage(chain, conditions=BARE_TFA):
@@ -276,8 +316,8 @@ class TheBuilderBuildsWhatItClaims(unittest.TestCase):
                 self.assertNotEqual(step.reactants[0], step.products[0], repr(step))
 
     def test_a_residue_with_no_shipped_block_is_refused_not_guessed(self):
-        with self.assertRaises(R.RouteProblem):
-            R.block_for("Aib", BLOCKS)
+        with self.assertRaises(NoBlockShips):
+            block_for("Aib")
 
 
 # --------------------------------------------------------------------------- 1. the DG challenge
