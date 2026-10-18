@@ -88,7 +88,12 @@ REAGENT_CLASSES = [
                                           _F + r"NaIO4" + _E, r"periodate"]),
     ("acylating", "acylating agent", [
         _F + r"Ac2O" + _E, r"acetic anhydride", _F + r"AcCl" + _E, r"acetyl chloride", r"acid chloride",
-        r"acyl chloride", r"anhydride", r"benzoyl chloride", _F + r"BzCl" + _E, _F + r"(DCC|EDC|EDCI|DIC|HATU|HBTU|PyBOP|T3P)" + _E,
+        # TBTU, HCTU and PyAOP were missing, and the gap was silent rather than wrong: a step whose
+        # only activator was one of them classified as NO reagent class at all, so it reached none
+        # of the coupling gates. Found by writing the guanidino-capping suite, where
+        # `classify("Fmoc-Ala-OH (3 eq), HCTU (3 eq), NMM, DMF")` returned [].
+        r"acyl chloride", r"anhydride", r"benzoyl chloride", _F + r"BzCl" + _E,
+        _F + r"(DCC|EDC|EDCI|DIC|HATU|HBTU|TBTU|HCTU|COMU|PyBOP|PyAOP|T3P)" + _E,
         r"carbodiimide"]),
     ("alkylating", "alkylating agent", [
         _F + r"(MeI|CH3I|EtI|EtBr|BnBr|BnCl|MeOTf|Me2SO4)" + _E, r"methyl iodide", r"iodomethane", r"benzyl bromide",
@@ -301,6 +306,16 @@ GROUPS = {
     "phenol": ("phenol", "[OX2H]c"),
     "diol": ("1,2- or 1,3-diol", "[OX2H][CX4][CX4,$([CX4][CX4])][OX2H]"),
     "amine": ("amine (N–H)", "[NX3;H2,H1;!$(N[C,S,P]=[O,S,N]);!$(N-a);!$(N[#7,#8])]"),
+    # The FREE ALPHA-AMINO group of a resin-bound chain — the one a coupling is aiming at, and the
+    # one a uronium coupling reagent will cap if it meets the amine before the carboxylic acid.
+    #
+    # The whole pattern turns on telling a CHAIN's N-terminus from a loose monomer's amine: the
+    # chain's alpha-carbonyl is an AMIDE (it is already bonded to the next residue), a free amino
+    # acid's is an acid. Without that the gate would match the incoming residue of every coupling.
+    # A side-chain amine does not match either, being four carbons from its carbonyl rather than
+    # on the alpha carbon.
+    "n-terminal-amine-capping": ("free alpha-amino group of the chain",
+                                 "[NX3;H2][CX4;H1,H2][CX3](=[OX1])[NX3;H1]"),
     "aniline": ("aniline (N–H)", "[NX3;H2,H1;!$(N[C,S]=[O,S,N])]-a"),
     "tertiary-amine": ("tertiary amine", "[NX3;H0;!$(N[C,S,P]=[O,S,N]);!$(N-a);!$(N[#7,#8]);!$([N+])]([#6])([#6])[#6]"),
     "thiol": ("thiol", "[SX2H]"),
@@ -555,6 +570,19 @@ ACTIVATION_RISKS = {
                                      "Fmoc-Gln(Trt)-OH, which ships and leaves nothing to close onto; failing that, "
                                      "swap HOBt for Oxyma and couple onto a glutamine N-terminus promptly rather "
                                      "than letting it stand in the catalyst"),
+        # Not a species reacting with itself, but with the REAGENT instead of its partner — the
+        # same shape as far as the reading goes, since the amine is consumed either way and so
+        # ATTACKS can never see it. Guarded by `has_capping_risk`, which needs the protocol detail
+        # and not just the reagent.
+        ("n-terminal-amine-capping", "medium",
+         "may be CAPPED by the coupling reagent itself instead of acylated by the amino acid: a "
+         "uronium/guanidinium salt that meets the amine before it meets the carboxylic acid "
+         "transfers its own tetramethylguanidino group, +98 mass units. The adduct is stable to "
+         "everything that follows and survives the final cleavage, so the chain is TRUNCATED at "
+         "this residue and no later coupling can touch it. Add the activator to the amino acid "
+         "rather than to the resin — activate in situ, do not pre-mix — keep the activator at or "
+         "below the amino acid in equivalents, or use a phosphonium salt (PyBOP, PyAOP) or a "
+         "carbodiimide, none of which can do this"),
         ("cys-epimerisation", "medium", "may EPIMERISE while it is activated: the sulfur acidifies its "
                                         "alpha-proton and a tertiary amine base removes it, so a D residue goes "
                                         "into the chain. Nothing downstream can see that — the D peptide has the "
@@ -662,6 +690,37 @@ _TRITYL_LINKER = re.compile(r"2[- ]?chlorotrityl|\b2[- ]?CTC\b|\bCl[- ]?Trt\b|ch
 def has_trityl_linker(text):
     """Whether the step says the chain is on a 2-chlorotrityl (or equivalent trityl) support."""
     return bool(_TRITYL_LINKER.search(text or ""))
+
+
+# Guanidino capping needs BOTH halves, and that is what keeps it from being wallpaper. Every
+# coupling in every synthesis presents a free amine to a coupling reagent — that is what a coupling
+# IS — so the reagent alone cannot be the gate. Vol 3 Section 9.2.9 names the protocol detail: "The
+# reaction occurs if the coupling agent is added in solution to the resin BEFORE the incoming amino
+# acid or if the coupling agent is used IN EXCESS with respect to the amino acid."
+#
+# URONIUM/GUANIDINIUM ONLY. Those salts carry the electrophilic carbon that ends up on the amine.
+# The phosphonium salts (PyBOP, PyAOP) do not, Vol 3 contrasts them explicitly, and switching to one
+# is part of the remedy — so they must stay silent or the advice could not be taken. A carbodiimide
+# is silent for the same reason.
+#
+# EQUIVALENTS ARE NOT READ. The excess trigger is real but "3 eq" and "2 eq" differ by one
+# character, and this package already refuses to read temperature and time for exactly that reason:
+# misparsing one would silence a flag on a route that deserves it. Recorded as a known gap.
+_URONIUM = re.compile(r"\bHBTU\b|\bTBTU\b|\bHATU\b|\bHCTU\b|\bHDMU\b|\bCOMU\b"
+                      r"|tetramethyluronium|tetramethylguanidinium", re.I)
+_PREACTIVATION = re.compile(r"pre[- ]?activat|pre[- ]?mix|premix"
+                            r"|activat\w*\s+(?:for\s+)?\d+\s*(?:s|sec|min|h)\w*\s*(?:,\s*)?then"
+                            r"|then add (?:to )?(?:the )?resin", re.I)
+
+
+def has_capping_risk(text):
+    """Whether a coupling could cap the chain's N-terminus with its own activator.
+
+    Both halves required: a uronium/guanidinium salt AND an explicit pre-activation or pre-mix. A
+    route that activates in situ, or that says nothing either way, does not raise it.
+    """
+    text = text or ""
+    return bool(_URONIUM.search(text)) and bool(_PREACTIVATION.search(text))
 
 # ------------------------------------------------------------------------------ how to keep a group
 # group -> (suggestion, [(protected-form label, SMARTS of the protected form, SMARTS of the group it is made from)])

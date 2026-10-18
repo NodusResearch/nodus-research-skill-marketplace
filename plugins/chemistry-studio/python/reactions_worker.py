@@ -2041,6 +2041,11 @@ def _compatibility(steps, textbook_dir=None):
                 # route could act on.
                 if group == "n-terminal-gln" and not T.has_pyroglutamate_catalyst(text):
                     continue
+                # Guanidino capping is a protocol hazard, not a reagent one: every coupling shows a
+                # free amine to a coupling reagent, so without this guard it would fire on all of
+                # them. It needs a uronium salt AND a pre-activation; see `has_capping_risk`.
+                if group == "n-terminal-amine-capping" and not T.has_capping_risk(text):
+                    continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
@@ -2054,6 +2059,12 @@ def _compatibility(steps, textbook_dir=None):
         specific = {h["reagentClass"] for h in hazards if h["group"] == "free-alpha-carboxyl"}
         if specific:
             hazards = [h for h in hazards if not (h["group"] == "acid" and h["reagentClass"] in specific)]
+        # Same rule for the nitrogen: where the capping reading fires, the generic `amine` entry
+        # for that reagent is dropped. Both match the same N-terminus, and the generic wording says
+        # nothing about which partner the amine found.
+        capped = {h["reagentClass"] for h in hazards if h["group"] == "n-terminal-amine-capping"}
+        if capped:
+            hazards = [h for h in hazards if not (h["group"] == "amine" and h["reagentClass"] in capped)]
         for group, removers in _REMOVED_BY.items():
             if group in reacted and before[group] > after.get(group, 0) and classes and not (removers & set(classes)):
                 text_hint, forms = T.suggestion(group, None)
