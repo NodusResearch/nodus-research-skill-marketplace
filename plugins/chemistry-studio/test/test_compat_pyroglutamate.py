@@ -144,5 +144,87 @@ class TheFlagStaysQuietElsewhere(unittest.TestCase):
         self.assertNotIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
 
 
+class TheCatalystsBenoitonNames(unittest.TestCase):
+    """The false negative this gate shipped with, found by reading rather than by a failing route.
+
+    The gate fired only from `UNMASKED_RISKS["strong-acid"]` — the final TFA cleavage. But Benoiton
+    Section 6.16 (printed pp. 179-181) does not describe this as a cleavage problem first; it
+    describes it as a CHAIN ASSEMBLY problem:
+
+      "The same cyclization reaction occurs in a peptide containing a glutamine residue at the
+       amino terminus of a chain, which is left at pH 2-3, and during chain assembly ... The
+       cyclization is catalyzed by weak carboxylic acids such as acetic acid, trifluoroacetic acid,
+       and Boc-amino acids, AS WELL AS BY 1-HYDROXYBENZOTRIAZOLE. Hence, amino-terminal glutaminyl
+       residues should be kept away from these acids as much as possible."
+
+    HOBt is in almost every coupling cocktail, so a chain whose N-terminus is a free glutamine was
+    walking past the gate at exactly the step where the literature says it is at risk. The primary
+    source for the remedy is the title of Benoiton's ref 81 — DiMarchi, Tam, Kent & Merrifield,
+    "Weak-acid catalyzed pyrrolidone carboxylic acid from glutamine during solid phase peptide
+    synthesis. MINIMIZATION BY RAPID COUPLING", J Pept Prot Res 19, 88, 1982.
+
+    The gate stays narrow on purpose: it needs a NAMED catalyst. A coupling with HBTU and DIPEA and
+    nothing else does not raise it, which is why the pre-existing silence test above still holds.
+    """
+
+    HOBT_COUPLING = "Fmoc-Ala-OH, HBTU, HOBt, DIPEA, DMF, 45 min"
+
+    def test_a_coupling_that_names_HOBt_raises_it(self):
+        found = hazards_for(GLN_ALA, AC_GLN_ALA, self.HOBT_COUPLING)
+        self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_a_carbodiimide_with_HOBt_raises_it_too(self):
+        found = hazards_for(GLN_ALA, AC_GLN_ALA, "Fmoc-Ala-OH, DIC, HOBt, DMF, 1 h")
+        self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_acetic_acid_in_the_step_raises_it(self):
+        for conditions in ("Ac2O/AcOH capping, DMF, 20 min",
+                           "Fmoc-Ala-OH, HBTU, DIPEA, 1% acetic acid, DMF"):
+            with self.subTest(conditions):
+                found = hazards_for(GLN_ALA, AC_GLN_ALA, conditions)
+                self.assertIn(GROUP, groups_in(found), f"{conditions}: {groups_in(found)}")
+
+    def test_Oxyma_INSTEAD_of_HOBt_is_silent(self):
+        # The answerable part, and the reason to read the additive rather than the reagent class:
+        # swapping HOBt for Oxyma is a real change a route can make, and Benoiton's catalyst list
+        # does not include it.
+        found = hazards_for(GLN_ALA, AC_GLN_ALA, "Fmoc-Ala-OH, DIC, Oxyma, DMF, 2 min, in situ")
+        self.assertNotIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_a_plain_uronium_coupling_is_still_silent(self):
+        # Guards the pre-existing test above against the new rule widening by accident.
+        found = hazards_for(GLN_ALA, AC_GLN_ALA, "HBTU, DIPEA, DMF")
+        self.assertNotIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_the_tritylated_glutamine_is_silent_even_with_HOBt(self):
+        # Benoiton: "Pyroglutamyl is not formed when the carboxamide groups are protected." The
+        # structural remedy must clear the new path too, not just the cleavage path.
+        found = hazards_for(GLN_TRT_ALA, GLN_TRT_ALA, self.HOBT_COUPLING)
+        self.assertNotIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_a_mid_chain_glutamine_is_silent_with_HOBt(self):
+        found = hazards_for(AC_GLN_ALA, AC_GLN_ALA, self.HOBT_COUPLING)
+        self.assertNotIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_the_coupling_path_says_rapid_coupling_and_the_block(self):
+        hazard = next(h for h in hazards_for(GLN_ALA, AC_GLN_ALA, self.HOBT_COUPLING)
+                      if h["group"] == GROUP)
+        words = f"{hazard['why']} {hazard.get('suggestion') or ''}".lower()
+        self.assertIn("gln(trt)", words, f"name the block: {words}")
+        self.assertTrue(any(k in words for k in ("rapid", "quickly", "promptly", "oxyma")),
+                        f"name what to do about the catalyst: {words}")
+
+    def test_the_cleavage_path_still_works(self):
+        # The original behaviour is a regression fence now, not a new assertion.
+        found = hazards_for(GLN_ALA, GLN_ALA, CLEAVAGE)
+        self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_the_hazard_is_not_reported_twice_when_both_paths_could_see_it(self):
+        found = [h for h in hazards_for(GLN_ALA, AC_GLN_ALA, "TFA, HOBt, DMF") if h["group"] == GROUP]
+        pairs = [(h["group"], h["reagentClass"]) for h in found]
+        self.assertEqual(len(pairs), len(set(pairs)), f"duplicate hazard: {pairs}")
+
+
+# Appended tests have twice been stranded by a `unittest.main()` sitting mid-file. It stays last.
 if __name__ == "__main__":
     unittest.main()

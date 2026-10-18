@@ -2004,6 +2004,12 @@ def _compatibility(steps, textbook_dir=None):
                 if group == "free-indole" and (T.has_cation_scavenger(text)
                                                or not (before.keys() & {"boc", "tbu-ester", "tbu-ether", "trityl"})):
                     continue
+                # Both of the support-ester hazards are eliminated by a 2-chlorotrityl linker
+                # (Benoiton 5.23), and the linker is not visible in the structure — the route
+                # writes the support as a bare `*` — so it has to be read from the conditions.
+                if group in ("resin-dipeptide-dkp", "cys-resin-ester-epimerisation") \
+                        and T.has_trityl_linker(text):
+                    continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
@@ -2022,6 +2028,18 @@ def _compatibility(steps, textbook_dir=None):
                 # so a coupling that already names a weaker base or a suppressing additive has
                 # taken the precaution and is not nagged about it.
                 if group.endswith("-epimerisation") and T.has_epimerisation_care(text):
+                    continue
+                # The arginine lactam has its own answer, and it is not the epimerisation one: a
+                # weaker base does nothing here, while an in-situ carbodiimide activation is what
+                # the literature credits with reducing it. Before this, NOTHING cleared the flag,
+                # so it fired on routes that had taken the precaution its own remedy recommends.
+                if group == "arg-delta-lactam" and T.has_lactam_care(text):
+                    continue
+                # The assembly-time pyroglutamate path is only a risk where the step actually names
+                # one of the catalysts Benoiton lists. Without this it would fire on every coupling
+                # onto a glutamine N-terminus, which is wallpaper, and the gate would say nothing a
+                # route could act on.
+                if group == "n-terminal-gln" and not T.has_pyroglutamate_catalyst(text):
                     continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)

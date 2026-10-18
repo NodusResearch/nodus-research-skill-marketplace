@@ -1,3 +1,7 @@
+# Chemistry Studio 2.8.1
+
+Refines peptide compatibility remedies against cited literature, including arginine lactam suppression, assembly-time pyroglutamate, Asp-Arg/Asp-Gln motifs, resin-bound cysteine epimerisation and the distinction between TIS and TES scavengers. Adds a panel built from the package's peptide transforms to exercise real reactant/product pairs. Linker identity still depends on the named conditions because the support graph uses an anonymous atom. No permissions, tool contracts or data migrations change.
+
 # Chemistry Studio 2.8.0
 
 Adds sequence-dependent peptide compatibility gates, including risks created by deprotection and activation, plus a pseudoproline dipeptide building block. The application-side `aggregation-advisory` tool reads an ordered peptide sequence and returns heuristic hydropathy spans and available remedy positions; automatic presentation in route reports requires separate application integration. Asp/Glu side-chain acids cannot change the sequence reading when the same molecule is written in a different atom order. Existing aqueous-acid compatibility checks remain intact.

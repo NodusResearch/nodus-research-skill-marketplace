@@ -61,6 +61,11 @@ def groups_in(hazards):
     return {h["group"] for h in hazards}
 
 
+def formula(smiles):
+    from rdkit.Chem import rdMolDescriptors
+    return rdMolDescriptors.CalcMolFormula(Chem.MolFromSmiles(smiles))
+
+
 class ThePatternPicksArginine(unittest.TestCase):
     def setUp(self):
         self.query = Chem.MolFromSmarts(T.GROUPS[GROUP][1])
@@ -143,5 +148,89 @@ class TheNewTableDoesNotDisturbTheOldOne(unittest.TestCase):
         self.assertEqual(len(pairs), len(set(pairs)), f"duplicate hazard: {pairs}")
 
 
+class WhatBenoitonSaysActuallyClosesIt(unittest.TestCase):
+    """The sourced rules, added 2026-10-17 after reading rather than inferring.
+
+    Benoiton, *Chemistry of Peptide Synthesis* Section 6.11 (printed pp. 170-172) and the caption
+    of its Figure 6.11. Three sentences decide this suite:
+
+      * "When an arginyl residue is activated, there is a tendency for cyclization to the
+        delta-lactam; the tendency is so great that protonation is insufficient to prevent the
+        intramolecular reaction. So unprotected arginyl is rarely employed for coupling."
+      * "Cyclization occurs even for residues that are protected on the side chain IF THE PROTECTOR
+        IS NOT AT THE DELTA-ATOM." Pbf, Pmc, Mtr and tosyl are all N-omega arylsulfonyls, so
+        Fmoc-Arg(Pbf)-OH does NOT close this, and a route using it must not be scored as safe. Of
+        the terminal-substituent approach: "The protection provided is not always complete."
+      * Figure 6.11: "N-delta,N-omega-bis-(Adoc = 1-adamantyloxycarbonyl)-substituted Boc- and
+        Cbz-arginine are derivatives that can be coupled WITHOUT THIS SIDE-REACTION OCCURRING."
+
+    And for the conditions half, *Peptide Synthesis: Methods and Protocols* (MiMB 2103) Ch. 6
+    p. 95: HE-SPPS "decreased levels of side reactions such as gamma-lactam formation in arginine
+    and aspartimide formation presumably due to optimized coupling and deprotection conditions",
+    the coupling being "in situ carbodiimide-based activation using DIC/Oxyma for 2 min". Benoiton
+    calls the ring the delta-lactam and M&P the gamma-lactam; same ring.
+    """
+
+    # Benoiton's Figure 6.11 derivative, with Boc standing in for Adoc: the same carbamate on the
+    # same nitrogen, and the one the package could actually make with its own `boc-protection`.
+    # C11H22N4O4 - pinned, so a silent edit here shows up as a formula.
+    N_DELTA_BOC_ARG = "O=C(OC(C)(C)C)N(CCC[C@@H](N)C(=O)O)C(N)=N"
+
+    def test_the_delta_protected_derivative_is_what_it_claims(self):
+        self.assertEqual(formula(self.N_DELTA_BOC_ARG), "C11H22N4O4")
+
+    def test_a_delta_protected_arginine_CLEARS_the_flag(self):
+        # The structural remedy has to be expressible, or the flag is a warning nothing can answer.
+        found = hazards_for([GLYCINE, self.N_DELTA_BOC_ARG], [ARG_GLY], COUPLING)
+        self.assertNotIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_Arg_Pbf_STILL_FLAGS_because_the_sulfonyl_is_not_at_the_delta_nitrogen(self):
+        # The row of the rubric that matters most. If this ever goes silent, every route using the
+        # standard arginine block is being scored as having handled a hazard it has not.
+        found = hazards_for([GLYCINE, FMOC_ARG_PBF], [ARG_GLY], COUPLING)
+        self.assertIn(GROUP, groups_in(found),
+                      "Pbf is an N-omega sulfonyl; Benoiton 6.11 says cyclization occurs anyway")
+
+    def test_the_free_residue_still_flags(self):
+        found = hazards_for([GLYCINE, L_ARGININE], [ARG_GLY], COUPLING)
+        self.assertIn(GROUP, groups_in(found))
+
+    def test_a_rapid_in_situ_carbodiimide_coupling_CLEARS_it(self):
+        # Closes the gap the hazard panel pinned: before this, NO conditions cleared the flag, so
+        # it fired on a route that had taken the very precaution its own remedy text recommends.
+        for conditions in ("DIC (5 eq), Oxyma (5 eq), DMF, 2 min, in situ, no pre-activation",
+                           "Fmoc-Arg(Pbf)-OH, DIC/Oxyma in situ, DMF, 90 C, 2 min",
+                           "in-situ activation, DIC, Oxyma Pure, no premix"):
+            with self.subTest(conditions):
+                found = hazards_for([GLYCINE, FMOC_ARG_PBF], [ARG_GLY], conditions)
+                self.assertNotIn(GROUP, groups_in(found), f"{conditions}: {groups_in(found)}")
+
+    def test_a_LONG_PRE_ACTIVATION_with_an_onium_salt_still_flags(self):
+        # The case the source warns about, and the one the default fixture uses: an onium salt with
+        # a pre-activation step is where the lactam wins. Benoiton Section 4.21 item 8 names
+        # pre-activation with exposure to tertiary amine as an origin of impurity in its own right.
+        for conditions in (COUPLING, "HATU, DIPEA, 20 min pre-activation then add resin",
+                           "PyBOP, NMM, DMF, pre-activate 15 min"):
+            with self.subTest(conditions):
+                found = hazards_for([GLYCINE, FMOC_ARG_PBF], [ARG_GLY], conditions)
+                self.assertIn(GROUP, groups_in(found), f"{conditions}: {groups_in(found)}")
+
+    def test_a_carbodiimide_WITHOUT_the_in_situ_or_additive_does_not_clear_it(self):
+        # DIC alone is not what M&P credits. The claim is about the in-situ DIC/Oxyma pair, and
+        # letting any carbodiimide silence the flag would overclaim the source.
+        found = hazards_for([GLYCINE, FMOC_ARG_PBF], [ARG_GLY], "DIC, DMF, 60 min, pre-activated")
+        self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_the_remedy_now_LEADS_with_the_building_block_not_the_conditions(self):
+        hazard = next(h for h in hazards_for([GLYCINE, FMOC_ARG_PBF], [ARG_GLY], COUPLING)
+                      if h["group"] == GROUP)
+        words = f"{hazard['why']} {hazard.get('suggestion') or ''}".lower()
+        self.assertIn("delta", words, f"name the nitrogen that has to be protected: {words}")
+        self.assertIn("pbf", words, "say plainly that Pbf does not close it")
+        self.assertTrue(any(k in words for k in ("in situ", "in-situ", "pre-activation")),
+                        f"name the conditions mitigation too: {words}")
+
+
+# Appended tests have twice been stranded by a `unittest.main()` sitting mid-file. It stays last.
 if __name__ == "__main__":
     unittest.main()

@@ -142,8 +142,22 @@ GROUPS = {
     #     Fmoc-Asp(OtBu)-(Dmb)Gly-OH dipeptide is sold for;
     #   - a serine, threonine or cysteine next door (recognised by the beta heteroatom, free or
     #     protected) is the case a pseudoproline dipeptide can cover, which glycine cannot be;
-    #   - the remaining literature-prone neighbours (alanine, asparagine, aspartate) have no
-    #     special building block, so they get the general advice;
+    #   - the remaining literature-prone neighbours have no special building block, so they get the
+    #     general advice. That list was settled against several sources, because they disagree.
+    #     *Amino Acids, Peptides and Proteins in Organic Chemistry* Vol 3 Section 9.2.5 names
+    #     Asp-Gly and Asp-Asn as most susceptible, then Asp-Ala and Asp-Gln, and then claims "with
+    #     the other amino acids the cyclization does not occur because of steric hindrance". That
+    #     last claim is WRONG and is the outlier: Mergler et al., "The aspartimide problem in
+    #     Fmoc-based SPPS, Part II" (J Pept Sci 2003, 9, 518-526) measured the whole series in
+    #     H-Val-Lys-Asp-Xaa-Tyr-Ile-OH and found considerable by-product for Xaa = Asp(OtBu),
+    #     ARG(Pbf), Asn(Mtt), CYS(Acm) and unprotected THR - including the two residues Vol 3 would
+    #     exclude. Iris Biotech's flyer IF18 summarises the field the same way: "preferably occurs
+    #     at Asp-Aaa motifs (Aaa = glycine, aspartic acid, asparagine, glutamine or arginine)".
+    #     So the arms below are glycine (its own group), the beta-heteroatom set (its own group,
+    #     vindicated by Mergler's Cys and Thr), and here: alanine, the one- and two-carbon
+    #     side-chain amides and acids (asparagine/aspartate, glutamine/glutamate) and ARGININE.
+    #     Arginine is the one that matters most in practice, since Fmoc-Arg(Pbf)-OH is in almost
+    #     every synthesis, and it was missing entirely.
     #   - a hindered trialkylmethyl ester (OMpe and relatives) downgrades the glycine case
     #     instead of silencing it, so taking the recommended precaution clears or lowers the
     #     flag rather than leaving a warning that can never be answered.
@@ -164,10 +178,13 @@ GROUPS = {
     "aspartimide-beta-heteroatom": ("aspartate side-chain ester followed by serine, threonine or cysteine",
                                     "[OX2;$(O[CX4]);!$(O[CX4]([CX4])([CX4])[CX4;!H3])][CX3](=O)[CH2]"
                                     "[CX4;H1]([NX3])[CX3](=O)[NX3;H1][CX4;H1]([CX4][OX2,SX2])[CX3]=O"),
-    "aspartimide-prone-xaa": ("aspartate side-chain ester followed by alanine, asparagine or aspartate",
+    "aspartimide-prone-xaa": ("aspartate side-chain ester followed by a literature-prone residue",
                               "[OX2;$(O[CX4]);!$(O[CX4]([CX4])([CX4])[CX4;!H3])][CX3](=O)[CH2]"
                               "[CX4;H1]([NX3])[CX3](=O)[NX3;H1]"
-                              "[CX4;H1]([$([CH3]),$([CH2][CX3](=O)[#7,#8])])[CX3]=O"),
+                              "[CX4;H1]([$([CH3]),"
+                              "$([CH2][CX3](=O)[#7,#8]),"
+                              "$([CH2][CH2][CX3](=O)[#7,#8]),"
+                              "$([CH2][CH2][CH2][#7]~[CX3](~[#7])~[#7])])[CX3]=O"),
     # The alpha-carboxyl of an amino acid or of a peptide's C-terminal residue, still FREE. It is
     # the most acidic proton in the molecule, so an O-alkylation or O-acylation aimed at a
     # side-chain hydroxyl hits it first — giving the ester, not the ether, with the side chain left
@@ -211,8 +228,21 @@ GROUPS = {
     # The bonds around the guanidine are left unspecified: the shipped Fmoc-Arg(Pbf)-OH writes it
     # as the C=N tautomer with the sulfonamide on one nitrogen, and a single-bond pattern matches
     # neither that nor free arginine.
+    #
+    # The DELTA nitrogen — the one bonded to the chain — carries `D2`, and that single token is
+    # Benoiton Section 6.11 expressed structurally. "Cyclization occurs even for residues that are
+    # protected on the side chain IF THE PROTECTOR IS NOT AT THE DELTA-ATOM", and of the
+    # terminal-substituent approach, "the protection provided is not always complete". So:
+    #   * free arginine        -> delta-N has two heavy neighbours (chain CH2, guanidine C) -> MATCHES
+    #   * Fmoc-Arg(Pbf)-OH     -> the Pbf is an N-OMEGA sulfonyl, delta-N still D2          -> MATCHES
+    #   * N-delta-acylated Arg -> three heavy neighbours                                    -> SILENT
+    # which is what makes the structural remedy expressible: Figure 6.11 names
+    # N-delta,N-omega-bis(Adoc) Boc- and Cbz-arginine as "derivatives that can be coupled without
+    # this side-reaction occurring". H-COUNT CANNOT BE USED for this — in the Pbf tautomer the
+    # delta nitrogen is written `=N` with no hydrogen at all, so `[#7;H1,H2]` would silence the
+    # shipped block, which is exactly backwards.
     "arg-delta-lactam": ("arginine with its alpha-carboxyl free",
-                         "[OX2H1][CX3](=O)[CX4;H1][CH2][CH2][CH2][#7]~[CX3](~[#7])~[#7]"),
+                         "[OX2H1][CX3](=O)[CX4;H1][CH2][CH2][CH2][#7;D2]~[CX3](~[#7])~[#7]"),
     # CYSTEINE and HISTIDINE waiting to be activated. Both acidify their own alpha-proton — the
     # cysteine through its sulfur, the histidine through an imidazole that can take the proton
     # itself — so the activated residue racemises before it couples and a D residue goes into the
@@ -247,6 +277,16 @@ GROUPS = {
                             "$([CX4;R][NX3;H1;R;!$(N[CX3]=[OX1])])]"),
     "cys-epimerisation": ("cysteine with its alpha-carboxyl free",
                           "[OX2H1][CX3](=O)[CX4;H1][CH2][SX2]"),
+    # A C-terminal CYSTEINE held to the support as an ESTER, which is a different hazard from the
+    # one above and a different step. Benoiton Section 5.14: piperidine "causes epimerization at
+    # S-protected cysteine residues that are esterified to a linker-resin". So the base that takes
+    # the Fmoc off also takes the alpha-proton, and the sulfur is what makes it acidic enough.
+    #
+    # Disjoint from `cys-epimerisation` by construction: that one requires a FREE alpha-carboxyl
+    # (the residue being activated), and here the carboxyl IS the resin ester. One sulfur cannot
+    # raise both.
+    "cys-resin-ester-epimerisation": ("resin-esterified cysteine",
+                                      "[#0]OC(=O)[CX4;H1]([CH2][SX2])[NX3]"),
     "his-epimerisation": ("histidine with its alpha-carboxyl free",
                           "[OX2H1][CX3](=O)[CX4;H1][CH2]c1cncn1"),
     # Not attacked by anything in ATTACKS: it exists so a cleavage step can be told that it IS
@@ -463,8 +503,20 @@ UNMASKED_RISKS = {
                                         "proline in that position closes it fast. This ENDS the synthesis rather "
                                         "than eroding it — bare linker is left behind — and the atom checks cannot "
                                         "see it, because a cyclic peptide and a resin alcohol both balance "
-                                        "perfectly. The answer is to never have the resin-bound dipeptide: load the "
-                                        "pair as one block, Fmoc-Gly-Pro-OH, in place of the anchored monomer"),
+                                        "perfectly. Two answers, and the cited one is the cheaper: put the chain on "
+                                        "a 2-CHLOROTRITYL linker, which eliminates this (the bulky trityl ester "
+                                        "does not accept the intramolecular attack the way an alkyl ester does); "
+                                        "or never have the resin-bound dipeptide at all, loading the pair as one "
+                                        "block, Fmoc-Gly-Pro-OH, in place of the anchored monomer"),
+        # Same base, same support, same source — and a hazard the tables did not carry. See the
+        # note on `cys-resin-ester-epimerisation` and on `_TRITYL_LINKER`.
+        ("cys-resin-ester-epimerisation", "medium",
+         "EPIMERISES under the base that removes the Fmoc: the alpha-proton sits between the "
+         "sulfur that acidifies it and the ester that holds the residue to the support, and "
+         "piperidine takes it, so the C-terminal residue of the finished peptide is a D one. "
+         "Nothing downstream can see that — same formula, same mass. Put the chain on a "
+         "2-CHLOROTRITYL linker, whose cysteine ester is not subject to this, rather than on an "
+         "alkoxybenzyl or other alkyl ester"),
     ],
 }
 
@@ -481,23 +533,50 @@ UNMASKED_RISKS = {
 # `seen` set so a pair cannot be reported twice.
 ACTIVATION_RISKS = {
     "acylating": [
-        ("arg-delta-lactam", "medium", "may close to the five-membered DELTA-LACTAM instead of coupling: once the "
+        ("arg-delta-lactam", "medium", "may close to the DELTA-LACTAM instead of coupling: once the "
                                        "carboxyl is activated, the side-chain guanidine is three carbons away and "
                                        "reaches it. The residue is consumed without being added, so the result is a "
                                        "DELETION — the chain is one residue short and every mass after it is wrong. "
-                                       "Keep the pre-activation short (add the activator to the resin rather than "
-                                       "pre-mixing), use an excess, and double couple the arginine"),
+                                       "Note that Fmoc-Arg(Pbf)-OH does NOT close this: the Pbf is an N-omega "
+                                       "sulfonyl, and cyclisation occurs anyway unless the protector sits on the "
+                                       "DELTA nitrogen, the one bonded to the chain. The complete answer is a "
+                                       "delta-protected derivative (the N-delta,N-omega-bis-acylated arginines "
+                                       "couple without this side reaction); failing that, activate IN SITU with a "
+                                       "carbodiimide and an additive (DIC/Oxyma, added to the resin rather than "
+                                       "pre-mixed), which is credited with reducing it, and use an excess"),
+        # Read against the REACTANTS, which is right for this one: it is the growing chain's own
+        # N-terminal glutamine, present as a reactant and cyclising instead of being acylated. The
+        # cleavage path lives in UNMASKED_RISKS["strong-acid"] and reads the products; the two
+        # share a `seen` set so a step that is both acid and HOBt reports it once.
+        ("n-terminal-gln", "medium", "may cyclise to PYROGLUTAMATE instead of being acylated, because this step "
+                                     "names one of the weak acids or benzotriazoles that catalyse it — the "
+                                     "alpha-amine closes onto its own side-chain amide and ammonia leaves, so the "
+                                     "chain is capped and every later coupling fails on it. Carry the glutamine as "
+                                     "Fmoc-Gln(Trt)-OH, which ships and leaves nothing to close onto; failing that, "
+                                     "swap HOBt for Oxyma and couple onto a glutamine N-terminus promptly rather "
+                                     "than letting it stand in the catalyst"),
         ("cys-epimerisation", "medium", "may EPIMERISE while it is activated: the sulfur acidifies its "
                                         "alpha-proton and a tertiary amine base removes it, so a D residue goes "
                                         "into the chain. Nothing downstream can see that — the D peptide has the "
                                         "same formula and the same mass, so balance and target-matching both pass. "
-                                        "Couple it with a weaker base (2,4,6-collidine in place of DIPEA) or with "
-                                        "DIC/Oxyma, keep the pre-activation short, and stay cold"),
-        ("his-epimerisation", "medium", "may EPIMERISE while it is activated: its own imidazole can take the "
-                                        "alpha-proton, so the base is not the only route to it and a D residue "
-                                        "goes into the chain. Nothing downstream can see that — same formula, same "
-                                        "mass. Couple it with 2,4,6-collidine rather than DIPEA, or with "
-                                        "DIC/Oxyma or HOAt, and keep the pre-activation short"),
+                                        "The answer is NO BASE rather than a weaker one: activate in situ with "
+                                        "DIC/Oxyma, where the absence of base is what keeps the epimerisation down "
+                                        "even hot. Keep the pre-activation short, because an activated cysteine "
+                                        "standing in a tertiary amine is where this happens. A weaker base "
+                                        "(2,4,6-collidine for DIPEA) is accepted as a precaution but is the "
+                                        "second-best answer"),
+        ("his-epimerisation", "medium", "may EPIMERISE while it is activated: the alpha-proton is taken by the "
+                                        "imidazole's own PI-nitrogen, so the base in the pot is not the only route "
+                                        "to it and a D residue goes into the chain. Nothing downstream can see "
+                                        "that — same formula, same mass. The shipped Fmoc-His(Trt)-OH is already "
+                                        "the standard answer and the reason this is only medium: the trityl sits "
+                                        "on the TAU-nitrogen and withdraws enough electron density to leave the "
+                                        "pi-nitrogen a poor base, so coupling is minimally epimerising. It "
+                                        "REDUCES rather than prevents, though — only substitution on the "
+                                        "pi-nitrogen itself prevents it, and those derivatives (Bum, 1-Adom) are "
+                                        "made indirectly and do not ship — so the conditions still matter: "
+                                        "DIC/Oxyma or HOAt, 2,4,6-collidine in place of DIPEA, and a short "
+                                        "pre-activation"),
     ],
 }
 
@@ -512,6 +591,77 @@ _EPIMERISATION_CARE = re.compile(r"\bcollidine\b|trimethylpyridine|\boxyma\b|\bH
 def has_epimerisation_care(text):
     """Whether a coupling's conditions name something that suppresses racemisation."""
     return bool(_EPIMERISATION_CARE.search(text or ""))
+
+
+# What the literature credits with suppressing the arginine lactam, as opposed to what seemed
+# plausible. *Peptide Synthesis: Methods and Protocols* (MiMB 2103) Ch. 6 p. 95: high-efficiency
+# SPPS "decreased levels of side reactions such as gamma-lactam formation in arginine and
+# aspartimide formation presumably due to optimized coupling and deprotection conditions", where
+# the coupling is "in situ carbodiimide-based activation using DIC/Oxyma for 2 min". Benoiton
+# Section 4.21 item 8 is the other half, naming a pre-activation that exposes the activated
+# intermediate to tertiary amine as an origin of impurity in its own right.
+#
+# So the claim being encoded is narrow on purpose: it is about an IN-SITU carbodiimide coupling,
+# not about any carbodiimide and not about Oxyma wherever it appears. A bare DIC with a
+# pre-activation does not clear the flag, because that is not what the source measured. TIME IS
+# NOT READ, for the same reason temperature is not read above — "2 min" and "20 min" differ by one
+# character, and misparsing one would silence a flag on a route that deserves it.
+_LACTAM_CARE = re.compile(r"\bin[- ]situ\b|\bno[- ]premix\b|without pre[- ]?activation"
+                          r"|\bno pre[- ]?activation\b", re.I)
+_CARBODIIMIDE = re.compile(r"\bDIC\b|\bDCC\b|\bEDC\b|diisopropylcarbodiimide"
+                           r"|dicyclohexylcarbodiimide", re.I)
+
+
+def has_lactam_care(text):
+    """Whether a coupling is run the way the literature credits with suppressing the Arg lactam.
+
+    Both halves are required: the activation has to be in situ (or explicitly not pre-activated)
+    AND carbodiimide-based. Either alone overclaims the source.
+    """
+    text = text or ""
+    return bool(_LACTAM_CARE.search(text)) and bool(_CARBODIIMIDE.search(text))
+
+
+# What catalyses an N-terminal glutamine's cyclisation to pyroglutamate DURING CHAIN ASSEMBLY, as
+# opposed to during the final cleavage. Benoiton Section 6.16: "The cyclization is catalyzed by weak
+# carboxylic acids such as acetic acid, trifluoroacetic acid, and Boc-amino acids, as well as by
+# 1-hydroxybenzotriazole. Hence, amino-terminal glutaminyl residues should be kept away from these
+# acids as much as possible."
+#
+# This list is Benoiton's, not a guess at a mechanism. HOBt is the one that matters in practice
+# because it is in most coupling cocktails, which is exactly why the gate was walking past the step
+# where the literature says the risk is. OXYMA IS DELIBERATELY ABSENT: it is not on the list, and
+# leaving it off is what makes the flag answerable by a change a route can actually make.
+_PYROGLUTAMATE_CATALYST = re.compile(
+    r"\bHOBt\b|hydroxybenzotriazole|\bHOAt\b|hydroxyazabenzotriazole"
+    r"|\bAcOH\b|acetic acid|\bAc2O\b|acetic anhydride", re.I)
+
+
+def has_pyroglutamate_catalyst(text):
+    """Whether a step names one of the weak acids or benzotriazoles Benoiton lists as catalysing it."""
+    return bool(_PYROGLUTAMATE_CATALYST.search(text or ""))
+
+
+# The linker that answers two hazards at once. Benoiton Section 5.23: "The obstacles of
+# piperazine-2,5-dione formation and epimerization at esterified cysteine are ELIMINATED IF THE
+# LINKER IS 2-CHLOROTRITYL CHLORIDE", and Section 5.24 again for cysteine — the 2-chlorotrityl
+# ester is "not subject to the epimerization that is caused by piperidine at cysteine residues
+# attached to supports through other alkyl esters". A bulky, acid-labile trityl ester, not an
+# alkyl one.
+#
+# READ FROM THE CONDITIONS, and that is a weakness worth stating rather than hiding. The route
+# representation writes the support as a single `*`, so a Wang ester and a 2-chlorotrityl ester
+# are the same molecular graph and the linker cannot be read structurally. A deprotection step
+# will often not name the resin at all, so this clears less often than it should. It is why both
+# hazards that rely on it keep a second, structural answer in their message — the dipeptide block
+# for the diketopiperazine — and why the cysteine one is medium.
+_TRITYL_LINKER = re.compile(r"2[- ]?chlorotrityl|\b2[- ]?CTC\b|\bCl[- ]?Trt\b|chlorotrityl"
+                            r"|\bBarlos\b", re.I)
+
+
+def has_trityl_linker(text):
+    """Whether the step says the chain is on a 2-chlorotrityl (or equivalent trityl) support."""
+    return bool(_TRITYL_LINKER.search(text or ""))
 
 # ------------------------------------------------------------------------------ how to keep a group
 # group -> (suggestion, [(protected-form label, SMARTS of the protected form, SMARTS of the group it is made from)])
@@ -621,21 +771,56 @@ PROTECT = {
 _DILUTE_ACID = re.compile(r"(dilute|dil\.|aq\.?|aqueous|\d+(\.\d+)?\s*[NM])\s*(HCl|H2SO4)"
                           r"(?!\s*(?:/|in\s+)(?:1,4-)?(?:dioxane|ether|Et2O|EtOAc|MeOH|CPME))", re.I)
 _AMIDE_BASE = re.compile(r"\bHMDS\b|hexamethyldisilazane|diisopropylamine|\biPr2NH\b|\bTMP\b|tetramethylpiperidine", re.I)
-# The cation scavengers a cleavage cocktail carries: a silane, a thiol, or an electron-rich arene
-# that takes the cation instead of the tryptophan. WATER IS DELIBERATELY ABSENT — almost every
-# cocktail is written with a few percent of it, and it does not keep a tert-butyl or trityl cation
-# off an indole (TFA/H2O 95:5 is precisely the mixture that alkylates Trp), so reading it as an
-# answer would silence the flag on nearly every real route.
-_SCAVENGER = re.compile(
-    r"\btriisopropylsilane\b|\bTIS\b|\btriethylsilane\b|\bTES\b|\bsilane\b"
+# What covers a FREE indole through an acid cleavage: a thiol, or an electron-rich arene, that
+# takes the cation instead of the tryptophan.
+#
+# Two absences are deliberate, and both are sourced from Chan & White, *Fmoc Solid Phase Peptide
+# Synthesis: A Practical Approach*, Ch. 3 §10.2 (p. 65 and Tables 4-5).
+#
+# WATER IS ABSENT. Almost every cocktail is written with a few percent of it, and it does not keep
+# a tert-butyl or trityl cation off an indole (TFA/H2O 95:5 is precisely the mixture that alkylates
+# Trp), so reading it as an answer would silence the flag on nearly every real route. The book is
+# softer — "moderately effective", "some protection ... against sulphonation" — but "some
+# protection" is not something a route can be scored against.
+#
+# WHICH TRIALKYLSILANE IT IS decides the answer, and this is the one place in the hazard set where
+# two sources disagree and the citation had to be weighed rather than read.
+#
+#   * Chan & White argue against silanes as a class. Both silane cocktails in Table 4 are
+#     prescribed for peptides "except ... unprotected Trp", only Reagent K is listed for "All
+#     peptides", the prose recommends silanes "particularly for peptides containing
+#     Arg(Pmc)/Arg(Pbf) and Trp(Boc)" — the PROTECTED residue — and Table 5 files "reduction of the
+#     indole ring of Trp" with the remedy "omit silane scavengers from the cleavage cocktail and
+#     substitute for EDT". It never separates TIS from TES.
+#   * *Amino Acids, Peptides and Proteins in Organic Chemistry* Vol 3 Ch. 10 (printed pp. 357-358)
+#     does separate them: "TES has better scavenging properties then TIS. However, the latter (TIS)
+#     IS RECOMMENDED FOR Trp-CONTAINING SEQUENCES since the former (TES) has the ability to reduce
+#     the indole function of this residue." Table 10.1 marks TFA/TES 95:5 "no: Trp" and TFA/TIS
+#     95:5 "acceptable: Trp". Both rest on Pearson, Blanchette, Baker & Guindon, Tetrahedron Lett
+#     30, 2739-2742 (1989).
+#
+# Resolved in favour of Vol 3: it is later, it is specifically about cleavage cocktails, and it
+# names the reagents individually where Chan & White generalises. So TIS is accepted here and TES
+# is not. An unnamed "silane" is not accepted either, because the two differ in exactly the
+# property that matters and the ambiguity cannot be resolved.
+#
+# This reversed an earlier over-correction. The first version of this rule rejected EVERY silane on
+# Chan & White alone, which flagged the very cocktail the specialist source recommends FOR
+# tryptophan. A silane remains the right answer for the stabilised cations (trityl, Tmob, the Rink
+# linker) regardless.
+_INDOLE_SCAVENGER = re.compile(
+    r"\btriisopropylsilane\b|\bTIS\b"
     r"|\bEDT\b|ethanedithiol|\bDODT\b|dioxa[- ]?octanedithiol|\bdithiol\b|thioanisole"
     r"|dimethyl ?sulfide|\bDMS\b|\bthiocresol\b|\banisole\b|\bphenol\b|\bcresol\b"
     r"|reagent ?[bkh]\b", re.I)
 
 
 def has_cation_scavenger(text):
-    """Whether a step's conditions name something that takes a cation before an indole does."""
-    return bool(_SCAVENGER.search(text or ""))
+    """Whether a step's conditions name something that takes a cation before a FREE indole does.
+
+    A trialkylsilane alone does not qualify; see the note on `_INDOLE_SCAVENGER`.
+    """
+    return bool(_INDOLE_SCAVENGER.search(text or ""))
 _ZINC = re.compile(r"(?<![A-Za-z])Zn(Cl2|Br2|I2)(?![A-Za-z0-9])|\bEt2Zn\b", re.I)
 _COPPER = re.compile(r"(?<![A-Za-z])Cu(I|Br|Cl|CN|SPh|\(I\)|OTf)?(?![a-z])|copper", re.I)
 

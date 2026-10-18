@@ -156,5 +156,101 @@ class TheFlagStaysQuiet(unittest.TestCase):
         self.assertNotIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
 
 
+
+
+class TheTwoChlorotritylLinkerIsTheCitedAnswer(unittest.TestCase):
+    """Rubric items 5 and 6: one source closes both hazards, and we were naming neither.
+
+    Benoiton, *Chemistry of Peptide Synthesis*. Section 5.14 on what piperidine does in Fmoc
+    chemistry: it "promotes piperazine-2,5-dione formation when the protector is removed from the
+    second residue of a chain that is esterified to a linker-resin, and causes EPIMERIZATION AT
+    S-PROTECTED CYSTEINE RESIDUES that are esterified to a linker-resin". Then Section 5.23, in one
+    sentence: "The obstacles of piperazine-2,5-dione formation and epimerization at esterified
+    cysteine are ELIMINATED IF THE LINKER IS 2-CHLOROTRITYL CHLORIDE." Section 5.24 repeats it for
+    cysteine specifically: the 2-chlorotrityl ester of cysteine is "not subject to the
+    epimerization that is caused by piperidine at cysteine residues attached to supports through
+    other alkyl esters".
+
+    Two consequences, both acted on here:
+
+      * The diketopiperazine remedy named only the dipeptide block. That is sound and it is ours,
+        but the CITED answer is the linker, and it is the cheaper change — a resin swap rather than
+        a custom building block. It now leads.
+      * A C-terminal cysteine on an alkyl-ester linker, under piperidine, is a hazard we did not
+        gate at all. It is a different step from `cys-epimerisation`, which reads an activated
+        cysteine with a FREE alpha-carboxyl; here the carboxyl is the resin ester, so the two
+        patterns cannot both match and the new group does not disturb the old one.
+
+    LIMITATION, recorded because it bounds what this gate can promise. The route representation
+    writes the support as a single `*`, so the linker's identity is NOT in the structure — a Wang
+    ester and a 2-chlorotrityl ester are the same graph. The flag therefore clears on the
+    CONDITIONS naming the linker, which a deprotection step will often not do. That is a weaker
+    answer than a structural one and it is why this is medium, not high.
+    """
+
+    CYS_RESIN = "*OC(=O)[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)NC(=O)OCC1c2ccccc2-c2ccccc21"
+    CYS_RESIN_FREE = "*OC(=O)[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)N"
+    ALA_RESIN = "*OC(=O)[C@H](C)NC(=O)OCC1c2ccccc2-c2ccccc21"
+    ALA_RESIN_FREE = "*OC(=O)[C@H](C)N"
+    CTC = "20% piperidine in DMF on 2-chlorotrityl chloride resin, 2 x 5 min"
+    CYS_GROUP = "cys-resin-ester-epimerisation"
+
+    def test_removing_Fmoc_from_a_resin_esterified_cysteine_flags(self):
+        found = hazards_for(self.CYS_RESIN, self.CYS_RESIN_FREE, DEPROTECTION)
+        self.assertIn(self.CYS_GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_a_named_2_chlorotrityl_linker_CLEARS_it(self):
+        found = hazards_for(self.CYS_RESIN, self.CYS_RESIN_FREE, self.CTC)
+        self.assertNotIn(self.CYS_GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_an_alanine_on_the_same_linker_is_silent(self):
+        # It is the sulfur that acidifies the alpha-proton. If this fires, the gate is reading the
+        # resin ester and would flag every single Fmoc removal in every synthesis.
+        found = hazards_for(self.ALA_RESIN, self.ALA_RESIN_FREE, DEPROTECTION)
+        self.assertNotIn(self.CYS_GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_a_cysteine_NOT_on_a_resin_is_silent(self):
+        free = "OC(=O)[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)N"
+        fmoc = "OC(=O)[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)NC(=O)OCC1c2ccccc2-c2ccccc21"
+        found = hazards_for(fmoc, free, DEPROTECTION)
+        self.assertNotIn(self.CYS_GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_it_does_not_double_fire_with_the_activation_side_cysteine_flag(self):
+        # The resin ester leaves no free alpha-carboxyl, so `cys-epimerisation` cannot match. Both
+        # firing would print two messages about one sulfur.
+        found = hazards_for(self.CYS_RESIN, self.CYS_RESIN_FREE, DEPROTECTION)
+        self.assertNotIn("cys-epimerisation", groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_it_is_medium_because_the_remedy_is_only_readable_from_the_conditions(self):
+        hazard = next(h for h in hazards_for(self.CYS_RESIN, self.CYS_RESIN_FREE, DEPROTECTION)
+                      if h["group"] == self.CYS_GROUP)
+        self.assertEqual(hazard["severity"], "medium", hazard)
+
+    def test_the_cysteine_message_names_the_linker(self):
+        hazard = next(h for h in hazards_for(self.CYS_RESIN, self.CYS_RESIN_FREE, DEPROTECTION)
+                      if h["group"] == self.CYS_GROUP)
+        words = f"{hazard['why']} {hazard.get('suggestion') or ''}".lower()
+        self.assertIn("chlorotrityl", words, f"name the cited remedy: {words}")
+        self.assertIn("epimeris", words, f"name what is lost: {words}")
+
+    def test_the_diketopiperazine_message_now_LEADS_with_the_linker(self):
+        hazard = next(h for h in hazards_for(FMOC_GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
+                      if h["group"] == GROUP)
+        words = f"{hazard['why']} {hazard.get('suggestion') or ''}".lower()
+        self.assertIn("chlorotrityl", words, f"the cited answer has to be in there: {words}")
+        self.assertIn("gly-pro", words, "and the dipeptide block stays as the alternative")
+
+    def test_a_named_2_chlorotrityl_linker_also_clears_the_diketopiperazine(self):
+        found = hazards_for(FMOC_GLY_PRO_RESIN, GLY_PRO_RESIN, self.CTC)
+        self.assertNotIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+    def test_but_an_ordinary_piperidine_step_still_raises_the_diketopiperazine(self):
+        found = hazards_for(FMOC_GLY_PRO_RESIN, GLY_PRO_RESIN, DEPROTECTION)
+        self.assertIn(GROUP, groups_in(found), f"hazards were {groups_in(found)}")
+
+
+# This block was sitting MID-FILE, and appending a class after it meant ten new tests
+# imported cleanly, never ran, and reported green - 15 tests where there should have been
+# 25. Third time this trap has caught something in this directory. It stays last.
 if __name__ == "__main__":
     unittest.main()
