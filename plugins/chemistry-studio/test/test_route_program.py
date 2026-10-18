@@ -74,6 +74,15 @@ CURATED = {
     "fmoc-removal": ("C[C@H](NC(=O)OCC1c2ccccc2-c2ccccc21)C(=O)O", [], "C[C@H](N)C(=O)O",
                      ["C=C1c2ccccc2-c2ccccc21", "O=C=O"]),
     "boc-removal": ("C[C@H](NC(=O)OC(C)(C)C)C(=O)O", [], "C[C@H](N)C(=O)O", ["C=C(C)C", "O=C=O"]),
+    # A second Boc rule, for the same reason trityl needs three: the freed atom differs. An
+    # aromatic ring nitrogen must be written [nH:1] on the product side or it cannot be kekulised,
+    # and `boc-removal`'s site is an aliphatic [NX3], which cannot match an aromatic `n` at all.
+    #
+    # It was MISSING, and the gap had teeth: the package ships Fmoc-Trp(Boc)-OH as the remedy for
+    # the free-indole cleavage hazard, and nothing could take that Boc off again — so a route that
+    # took the remedy could not express its own final deprotection. Example here is 1-Boc-indole.
+    "ring-nitrogen-boc-removal": ("CC(C)(C)OC(=O)n1ccc2ccccc21", [], "c1ccc2[nH]ccc2c1",
+                                  ["C=C(C)C", "O=C=O"]),
     "cbz-removal": ("C[C@H](NC(=O)OCc1ccccc1)C(=O)O", [], "C[C@H](N)C(=O)O", ["Cc1ccccc1", "O=C=O"]),
     "benzyl-ester-hydrogenolysis": ("C[C@H](N)C(=O)OCc1ccccc1", [], "C[C@H](N)C(=O)O", ["Cc1ccccc1"]),
     "tert-butyl-ester-removal": ("C[C@H](N)C(=O)OC(C)(C)C", [], "C[C@H](N)C(=O)O", ["C=C(C)C"]),

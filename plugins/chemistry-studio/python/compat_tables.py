@@ -23,6 +23,38 @@ import re
 _F = r"(?<![A-Za-z0-9])"   # start of a formula token
 _E = r"(?![A-Za-z0-9])"    # end of a formula token
 
+# The NAMED TFA cleavage cocktails, as one source of truth with their compositions written down.
+#
+# Two separate patterns used to carry these letters independently — the strong-acid class and
+# `has_cation_scavenger` — and they had already drifted: the acid pattern read B, K, H, R and P
+# while the scavenger pattern read only B, K and H. So a route writing bare "Reagent R" or
+# "Reagent L" was read as an acid with NO scavenger, and the free-indole hazard fired on a cocktail
+# that carries thioanisole, EDT and anisole. Both patterns are now built from this dict.
+#
+# Compositions verified against AAPPTEC's cleavage-cocktail table and *Amino Acids, Peptides and
+# Proteins in Organic Chemistry* Vol 3 Ch. 10 Table 10.1. `covers_indole` is whether the cocktail
+# carries a thiol or an electron-rich arene, which is what stands between a tert-butyl or trityl
+# cation and a free tryptophan.
+#
+# THE FLAG IS NOT DECORATION. Vol 3's Table 10.1 also names Reagent W (TFA/water) and Reagent T
+# (TFA/TES) — water only and silane only, both annotated "no: Trp". Neither is listed here, because
+# their letters come only from the part of that table the PDF extraction damaged. If either is ever
+# added it must go in with `covers_indole=False`, or the indole gate will clear on a cocktail the
+# source says does not protect tryptophan.
+NAMED_CLEAVAGE_COCKTAILS = {
+    "K": ("TFA/phenol/water/thioanisole/EDT 82.5:5:5:5:2.5", True),   # recommended FOR Trp
+    "B": ("TFA/phenol/water/TIS 88:5:5:2", True),                     # the odourless one; phenol
+    "H": ("TFA/phenol/thioanisole/EDT/water/DMS/NH4I 81:5:5:2.5:3:2:1.5", True),
+    "L": ("TFA/TIS/DTT/water 88:2:5:5", True),                        # DTT is the thiol here
+    "R": ("TFA/thioanisole/EDT/anisole 90:5:3:2", True),              # also recommended for Trp
+    "P": ("TFA/phenol 95:5", True),
+}
+_COCKTAIL_LETTERS = "".join(sorted(NAMED_CLEAVAGE_COCKTAILS)).lower()
+_COCKTAIL_ANY = rf"\breagent ?[{_COCKTAIL_LETTERS}]\b"
+_COCKTAIL_SCAVENGING = r"\breagent ?[{}]\b".format("".join(
+    sorted(letter for letter, (_composition, covers) in NAMED_CLEAVAGE_COCKTAILS.items()
+           if covers)).lower())
+
 REAGENT_CLASSES = [
     ("strong-hydride", "strong hydride (LiAlH4 type)", [
         _F + r"LiAlH4" + _E, _F + r"LAH" + _E, r"lithium alumin(i)?um hydride", r"red-?al\b",
@@ -45,7 +77,16 @@ REAGENT_CLASSES = [
         _F + r"(Na|K|Li|Cs|Ba)\(?OH\)?2?" + _E, r"(sodium|potassium|lithium|caesium|cesium) hydroxide", r"\bsaponif"]),
     ("alkoxide", "alkoxide base", [_F + r"(Na|K|Li)O(Me|Et|iPr|i-Pr)" + _E, r"sodium (methoxide|ethoxide)",
                                    r"potassium (methoxide|ethoxide)"]),
-    ("amine-base", "amine base (piperidine, DBU)", [r"\bpiperidine\b", _F + r"DBU" + _E, r"\bmorpholine\b"]),
+    # `\bpiperidine\b` does NOT match "4-methylpiperidine" or "piperazine", and those were the only
+    # Fmoc-removal bases listed besides DBU and morpholine. So a route doing its deprotections with
+    # piperazine, 4-methylpiperidine or dipropylamine — all of them recommended in the aspartimide
+    # literature precisely because they are milder — classified as NO reagent class at all and
+    # reached none of the amine-base gates: not aspartimide, not the diketopiperazine, not the
+    # C-terminal cysteine racemisation, not even "fmoc is cleaved by base". Found while writing the
+    # deprotection-additive suite, where a milder-base test passed for exactly that wrong reason.
+    ("amine-base", "amine base (piperidine, DBU)",
+     [r"\bpiperidine\b", r"\bmethylpiperidine\b", r"\bpiperazine\b", r"\bdipropylamine\b",
+      _F + r"DBU" + _E, r"\bmorpholine\b"]),
     ("hydrogenation", "catalytic hydrogenation", [
         _F + r"H2" + _E + r"[^;]{0,40}(pd|pt|ni|rh|ru|raney|adams)", r"(pd|pt)\s*/\s*c\b[^;]{0,40}" + _F + r"H2" + _E,
         r"hydrogenat", r"\bpd/c\b", r"\bpd\(oh\)2", r"pearlman", r"raney", r"\bpto2\b", r"adams'? catalyst",
@@ -56,14 +97,40 @@ REAGENT_CLASSES = [
         _F + r"TFA" + _E, r"trifluoroacetic acid", _F + r"HCl" + _E, _F + r"HBr" + _E, _F + r"HI" + _E,
         _F + r"H2SO4" + _E, r"sulfuric acid", r"sulphuric acid", _F + r"TfOH" + _E, r"triflic acid",
         r"\bp-?tsoh\b", _F + r"TsOH" + _E, r"\bcsa\b", r"camphorsulfonic",
-        _F + r"BF3" + _E, _F + r"TMSOTf" + _E, _F + r"BBr3" + _E, _F + r"BCl3" + _E]),
+        _F + r"BF3" + _E, _F + r"TMSOTf" + _E, _F + r"BBr3" + _E, _F + r"BCl3" + _E,
+        # The named SPPS cleavage cocktails and TMSBr. These are reagents OUR OWN remedy text
+        # recommends — the free-indole message says "as in Reagent B or Reagent K", and TMSBr is
+        # Chan & White's Protocol 16 — and bare "Reagent K" or bare "TMSBr" classified as nothing,
+        # so a route that took the advice reached no gate at all. `has_cation_scavenger` already
+        # matched "reagent k", which is what made the gap easy to miss: the scavenger was read and
+        # the acid was not, so the hazard could only ever be cleared, never raised.
+        _F + r"TMSBr" + _E, r"trimethylsilyl bromide", _COCKTAIL_ANY]),
+    # The MILD acid regime of Fmoc/tBu work: cleaving a peptide off a super-acid-labile support
+    # (2-chlorotrityl, SASRIN) or taking off a super-acid-labile side-chain group, with dilute TFA,
+    # acetic acid, trifluoroethanol or hexafluoroisopropanol. Chemically this is a different regime
+    # from the 95% TFA endgame, and it had no class at all: `AcOH/TFE/DCM 1:2:7` and `20% HFIP in
+    # DCM` classified as NOTHING, so a route cleaving from 2-CTC reached none of the gates.
+    #
+    # It carries ONE hazard deliberately (the pyroglutamate path — Vol 3 Section 9.2.4 names these
+    # exact resins as where the weak-acid regime bites). Populating it further is its own job with
+    # its own reading; an empty-ish class that classifies correctly is better than a silent hole.
+    #
+    # Dilute TFA is matched by percentage ONLY at the low end, where the figure is unambiguous and a
+    # misread cannot silence a flag — it can only add the mild class beside the strong one, and the
+    # shared `seen` set stops a double report.
+    ("mild-acid", "mild acid (dilute TFA, AcOH, TFE, HFIP — super-acid-labile cleavage)",
+     [r"\bHFIP\b", r"hexafluoro-?isopropanol", r"\bTFE\b", r"trifluoroethanol",
+      r"\bAcOH\b", r"acetic acid",
+      r"(?<![\d.])(?:0?\.\d+|[1-9]|1[0-9]|20)\s*%\s*TFA"]),
     ("aqueous-acid", "aqueous acid (work-up)", [_F + r"H3O\+", r"aqueous acid", r"\bH\+(?![A-Za-z0-9])",
                                                r"(dilute|dil\.|aq\.?|aqueous|\d+(\.\d+)?\s*[NM])\s*(HCl|H2SO4)"]),
     ("fluoride", "fluoride (TBAF, HF)", [_F + r"TBAF" + _E, r"tetrabutylammonium fluoride", _F + r"HF" + _E,
                                          r"hf.?pyridine", _F + r"CsF" + _E, _F + r"TASF" + _E]),
     ("chromium-oxidant", "chromium or permanganate oxidant", [
         _F + r"CrO3" + _E, r"\bjones\b", _F + r"PCC" + _E, _F + r"PDC" + _E, _F + r"(Na|K)2Cr2O7" + _E,
-        r"dichromate", r"chromic", _F + r"KMnO4" + _E, r"permanganate"]),
+        # `chlorochromate` spelled out: `PCC` was read and "pyridinium chlorochromate" was not,
+        # and the mined harness steps show routes writing it out 19 times.
+        r"dichromate", r"chlorochromate", r"chromic", _F + r"KMnO4" + _E, r"permanganate"]),
     ("alcohol-oxidant", "alcohol oxidant (Swern, DMP, TEMPO)", [
         r"\bswern\b", r"dess-?martin", _F + r"DMP" + _E, r"\btempo\b", _F + r"IBX" + _E, r"\btpap\b", r"\bley\b",
         _F + r"MnO2" + _E]),
@@ -88,8 +155,26 @@ REAGENT_CLASSES = [
                                           _F + r"NaIO4" + _E, r"periodate"]),
     ("acylating", "acylating agent", [
         _F + r"Ac2O" + _E, r"acetic anhydride", _F + r"AcCl" + _E, r"acetyl chloride", r"acid chloride",
-        r"acyl chloride", r"anhydride", r"benzoyl chloride", _F + r"BzCl" + _E, _F + r"(DCC|EDC|EDCI|DIC|HATU|HBTU|PyBOP|T3P)" + _E,
+        # TBTU, HCTU and PyAOP were missing, and the gap was silent rather than wrong: a step whose
+        # only activator was one of them classified as NO reagent class at all, so it reached none
+        # of the coupling gates. Found by writing the guanidino-capping suite, where
+        # `classify("Fmoc-Ala-OH (3 eq), HCTU (3 eq), NMM, DMF")` returned [].
+        r"acyl chloride", r"anhydride", r"benzoyl chloride", _F + r"BzCl" + _E,
+        _F + r"(DCC|EDC|EDCI|DIC|HATU|HBTU|TBTU|HCTU|COMU|PyBOP|PyAOP|T3P)" + _E,
         r"carbodiimide"]),
+    # Sulfonyl and triflyl chlorides, which make a leaving group out of a hydroxyl. A class of their
+    # own rather than part of `acylating`, and the distinction is chemical rather than tidiness:
+    # `acylating` carries the peptide ACTIVATION risks — the arginine lactam, the cysteine and
+    # histidine epimerisations, the pyroglutamate and capping paths — and every one of those is
+    # about a CARBOXYL being activated for a coupling. A mesylation of a serine hydroxyl activates
+    # no carboxyl, so filing MsCl under `acylating` would have raised all of them on a step that
+    # cannot cause any. What a sulfonyl chloride DOES do is acylate the heteroatoms, so those
+    # hazards are carried over; see ATTACKS["sulfonylating"].
+    ("sulfonylating", "sulfonylating agent (MsCl, TsCl, Tf2O)", [
+        _F + r"MsCl" + _E, _F + r"TsCl" + _E, _F + r"TfCl" + _E, _F + r"NsCl" + _E,
+        _F + r"Tf2O" + _E, r"triflic anhydride", r"trifluoromethanesulfonic anhydride",
+        r"methanesulfon(yl|ic) (chloride|anhydride)", r"mesyl chloride",
+        r"(p-)?toluenesulfonyl chloride", r"tosyl chloride", r"\bsulfonyl chloride\b"]),
     ("alkylating", "alkylating agent", [
         _F + r"(MeI|CH3I|EtI|EtBr|BnBr|BnCl|MeOTf|Me2SO4)" + _E, r"methyl iodide", r"iodomethane", r"benzyl bromide",
         r"dimethyl sulfate", r"alkyl halide", r"meerwein",
@@ -275,6 +360,22 @@ GROUPS = {
                             "[#0]OC(=O)[CX4][NX3][CX3](=O)"
                             "[$([CH2][NX3;H2;!$(N[CX3]=[OX1]);!$(N=*);!$([N+])]),"
                             "$([CX4;R][NX3;H1;R;!$(N[CX3]=[OX1])])]"),
+    # An ARGININE whose guanidine is masked as a URETHANE (a carbamate — Boc, Alloc) rather than as
+    # an arylsulfonyl. Vol 3 Section 9.2.10: those residues "suffer partial conversion into the
+    # corresponding Orn residues ... caused by guanidino acylation during the coupling step followed
+    # by decomposition under the strong basic conditions required for Fmoc removal", at -42 mass
+    # units. Benoiton Section 6.11 describes the same bond breaking: "piperidine ruptures the
+    # delta-N-epsilon-C bond of the adduct, generating an ornithine residue."
+    #
+    # The carbamate has to be ON a guanidine nitrogen, and that is the whole difficulty. Every
+    # residue in Fmoc chemistry carries an alpha carbamate, and Fmoc-Lys(Boc)-OH carries one on a
+    # side-chain amine, so a pattern that only looked for a carbamate would fire on the entire
+    # synthesis. Guanidine bonds are left unspecified (`~`) for the same reason as
+    # `arg-delta-lactam`: the tautomer a block is written in is not fixed.
+    #
+    # The shipped Fmoc-Arg(Pbf)-OH must NOT match — Pbf is an arylsulfonyl, and it is the remedy.
+    "arg-urethane-guanidine": ("guanidine masked as a urethane (Boc, Alloc)",
+                               "[#7]([CX3](=[OX1])[OX2][#6])~[CX3](~[#7])~[#7]"),
     "cys-epimerisation": ("cysteine with its alpha-carboxyl free",
                           "[OX2H1][CX3](=O)[CX4;H1][CH2][SX2]"),
     # A C-terminal CYSTEINE held to the support as an ESTER, which is a different hazard from the
@@ -288,7 +389,7 @@ GROUPS = {
     "cys-resin-ester-epimerisation": ("resin-esterified cysteine",
                                       "[#0]OC(=O)[CX4;H1]([CH2][SX2])[NX3]"),
     "his-epimerisation": ("histidine with its alpha-carboxyl free",
-                          "[OX2H1][CX3](=O)[CX4;H1][CH2]c1cncn1"),
+                          "[OX2H1][CX3](=O)[CX4;H1][CH2]c1cnc[n;D2]1"),
     # Not attacked by anything in ATTACKS: it exists so a cleavage step can be told that it IS
     # releasing a tert-butyl cation. Ser(tBu)/Thr(tBu)/Tyr(tBu) are ethers, which `tbu-ester` does
     # not see, and on a real peptide they are often the only acid-labile groups present.
@@ -301,6 +402,16 @@ GROUPS = {
     "phenol": ("phenol", "[OX2H]c"),
     "diol": ("1,2- or 1,3-diol", "[OX2H][CX4][CX4,$([CX4][CX4])][OX2H]"),
     "amine": ("amine (N–H)", "[NX3;H2,H1;!$(N[C,S,P]=[O,S,N]);!$(N-a);!$(N[#7,#8])]"),
+    # The FREE ALPHA-AMINO group of a resin-bound chain — the one a coupling is aiming at, and the
+    # one a uronium coupling reagent will cap if it meets the amine before the carboxylic acid.
+    #
+    # The whole pattern turns on telling a CHAIN's N-terminus from a loose monomer's amine: the
+    # chain's alpha-carbonyl is an AMIDE (it is already bonded to the next residue), a free amino
+    # acid's is an acid. Without that the gate would match the incoming residue of every coupling.
+    # A side-chain amine does not match either, being four carbons from its carbonyl rather than
+    # on the alpha carbon.
+    "n-terminal-amine-capping": ("free alpha-amino group of the chain",
+                                 "[NX3;H2][CX4;H1,H2][CX3](=[OX1])[NX3;H1]"),
     "aniline": ("aniline (N–H)", "[NX3;H2,H1;!$(N[C,S]=[O,S,N])]-a"),
     "tertiary-amine": ("tertiary amine", "[NX3;H0;!$(N[C,S,P]=[O,S,N]);!$(N-a);!$(N[#7,#8]);!$([N+])]([#6])([#6])[#6]"),
     "thiol": ("thiol", "[SX2H]"),
@@ -375,29 +486,44 @@ ATTACKS = {
         ("fmoc", "high", "is cleaved by base"), ("alkyl-halide", "medium", "may be substituted or eliminated"),
         ("aldehyde", "medium", "may condense (aldol, Cannizzaro)")],
     "amine-base": [("fmoc", "high", "is cleaved by amine base"), ("acid-chloride", "high", "is aminolysed"),
+        # Read as a SURVIVOR rather than as something the step creates: in the route as written the
+        # protected guanidine comes through the base intact, and what the literature says is that
+        # it partly does not. See the note on `arg-urethane-guanidine`.
+        ("arg-urethane-guanidine", "medium",
+         "is RUPTURED by the base, turning the arginine into an ORNITHINE residue: the guanidino "
+         "carbamate is acylated during the coupling and the adduct then decomposes under the base "
+         "used for Fmoc removal, which breaks the bond to the side chain and takes the whole "
+         "amidine away. The product is 42 mass units LIGHTER, and nothing downstream can see it — "
+         "an ornithine peptide is a self-consistent molecule, so the balance and the target "
+         "comparison both pass on the route as written. Mask the guanidine as an ARYLSULFONYL "
+         "instead: Fmoc-Arg(Pbf)-OH ships and is not subject to this"),
         ("aspartimide-gly", "high", "closes to the aspartimide — Asp-Gly is the classic worst case, the glycine having "
                                     "no side chain to hinder it — which reopens to a mixture of alpha- and beta-linked "
                                     "peptide and epimerises the aspartate. The usual answer for this pair is backbone "
                                     "protection on the glycine (Hmb or Dmb, bought as the Fmoc-Asp(OtBu)-(Dmb)Gly-OH "
-                                    "dipeptide); failing that, a hindered side-chain ester such as OMpe, a non-ester "
-                                    "side-chain mask, an acidic modifier or a shorter deprotection, or a less basic "
-                                    "amine than piperidine"),
+                                    "dipeptide). The cheapest answer, though, is in the deprotection itself: 0.1 M OXYMA in "
+                                    "the piperidine suppresses this, and unlike HOBt it does not catalyse the "
+                                    "glutamine-to-pyroglutamate cyclisation, so it is safe on a chain that also has "
+                                    "an N-terminal Gln. A milder base (piperazine, 4-methylpiperidine) does the same. "
+                                    "Failing those, a hindered side-chain ester such as OMpe, a non-ester side-chain "
+                                    "mask, or a shorter deprotection. Do NOT reach for DBU: it makes this worse"),
         ("aspartimide-gly-hindered", "medium", "may still close to the aspartimide: the hindered ester slows the "
                                                "attack but Asp-Gly is prone enough that it is not always sufficient. "
                                                "If the chain sees many base treatments, move to backbone protection on "
-                                               "the glycine (Fmoc-Asp(OtBu)-(Dmb)Gly-OH) or add an acidic modifier"),
+                                               "the glycine (Fmoc-Asp(OtBu)-(Dmb)Gly-OH), or add 0.1 M Oxyma to the piperidine"),
         ("aspartimide-beta-heteroatom", "medium", "may close to the aspartimide, reopening to alpha- and beta-linked "
                                                   "peptide and epimerising the aspartate. Because the next residue is "
                                                   "a serine, threonine or cysteine, a pseudoproline dipeptide at that "
                                                   "position removes the backbone N-H outright; a hindered side-chain "
-                                                  "ester such as OMpe, an acidic modifier or a shorter deprotection, "
-                                                  "or a less basic amine than piperidine also apply"),
+                                                  "ester such as OMpe, 0.1 M Oxyma in the piperidine, a milder base "
+                                                  "(piperazine, 4-methylpiperidine) or a shorter deprotection also "
+                                                  "apply"),
         ("aspartimide-prone-xaa", "medium", "may close to the aspartimide, reopening to alpha- and beta-linked peptide "
                                             "and epimerising the aspartate. Milder than the Asp-Gly case and dependent "
                                             "on how many base treatments the chain sees; no special dipeptide is sold "
                                             "for this neighbour, so the answers are a hindered side-chain ester such as "
-                                            "OMpe, a non-ester side-chain mask, an acidic modifier or a shorter "
-                                            "deprotection, or a less basic amine than piperidine"),
+                                            "OMpe, a non-ester side-chain mask, 0.1 M Oxyma in the piperidine, a "
+                                            "milder base (piperazine, 4-methylpiperidine) or a shorter deprotection"),
                    ("ester", "medium", "activated esters may be aminolysed")],
     "hydrogenation": [
         ("alkene", "high", "is hydrogenated"), ("alkyne", "high", "is hydrogenated"),
@@ -417,6 +543,20 @@ ATTACKS = {
     "aqueous-acid": [("acetal", "medium", "may be hydrolysed"), ("trityl", "medium", "may be cleaved"),
                      ("silyl-ether", "medium", "may be cleaved (TMS, TES)")],
     "fluoride": [("silyl-ether", "high", "is cleaved by fluoride")],
+    # A sulfonyl chloride acylates the same heteroatoms an acyl chloride does, which is why these
+    # mirror ATTACKS["acylating"] — minus every activation risk, because no carboxyl is activated.
+    # `free-alpha-carboxyl` is the important one: the alpha-carboxyl is the most acidic proton in a
+    # peptide, so a sulfonylation aimed at a side-chain hydroxyl hits it first and gives the mixed
+    # sulfonate rather than the intended ester, with the side chain left bare.
+    "sulfonylating": [
+        ("amine", "high", "is sulfonylated to the sulfonamide, which the step does not intend and acid does not undo"),
+        ("alcohol", "medium", "may be sulfonylated (which is often the point — say which hydroxyl is meant)"),
+        ("phenol", "medium", "may be sulfonylated, being more acidic than an aliphatic hydroxyl"),
+        ("thiol", "high", "is sulfonylated to the thiosulfonate"),
+        ("free-alpha-carboxyl", "high", "is the most acidic proton here, so it is sulfonylated FIRST — giving the "
+                                        "mixed sulfonate and leaving the side chain bare. Protect it as the "
+                                        "tert-butyl ester, or take the residue with its side chain already masked"),
+    ],
     "chromium-oxidant": [
         ("alcohol", "high", "is oxidized"), ("aldehyde", "high", "is oxidized to the acid"),
         ("alkene", "medium", "may be oxidized (KMnO4 cleaves or dihydroxylates)"), ("thiol", "high", "is oxidized"),
@@ -486,15 +626,34 @@ ATTACKS = {
 # supposed to prove it used the same already-deprotected molecule as both reactant and product,
 # so it passed for the wrong reason. Two more gates had the same flaw and were firing a step late.
 UNMASKED_RISKS = {
+    # Cleaving off a super-acid-labile support is the case Vol 3 Section 9.2.4 names outright:
+    # pyroglutamate "is catalyzed by weak acids, but not by strong acids such as the ones required
+    # for final cleavage ... However, weak acids are used in the Fmoc/tBu strategy in the case of
+    # super acid-labile group deprotection or for peptide cleavage from highly acid-sensitive
+    # resins, such as 2-Cl-Trt and SASRIN." Needs no catalyst named in the conditions, unlike the
+    # coupling and deprotection paths, because here the reagent is itself the weak-acid regime.
+    "mild-acid": [
+        ("n-terminal-gln", "high", "is free, and this is the weak-acid regime that catalyses its cyclisation to "
+                                   "PYROGLUTAMATE — the alpha-amine closes onto its own side-chain amide and ammonia "
+                                   "leaves, capping the chain for good. This is the case the literature singles out: "
+                                   "mild-acid cleavage from a super-acid-labile support (2-chlorotrityl, SASRIN), "
+                                   "where the acid is dilute enough to leave the amine nucleophilic for the whole "
+                                   "step. Carry the glutamine as Fmoc-Gln(Trt)-OH, which ships, or keep the step as "
+                                   "short as it can be"),
+    ],
     "strong-acid": [
         ("free-indole", "high", "is laid BARE by this step, in the acid that is still full of the cations the other "
                                 "protecting groups are shedding — tert-butyl, trityl, Pbf sulfonyl. The indole is "
                                 "the most electron-rich ring in the peptide, so it takes them, and the alkylated "
                                 "tryptophan cannot be recovered"),
-        ("n-terminal-gln", "high", "is left free by this step, and it then cyclises to PYROGLUTAMATE: the alpha-amine "
+        ("n-terminal-gln", "high", "is left free by this step and can cyclise to PYROGLUTAMATE: the alpha-amine "
                                    "closes onto its own side-chain amide and ammonia leaves, so the peptide ends up "
-                                   "with no N-terminus. Acid at the end of a synthesis is where this bites, because "
-                                   "nothing further acylates the amine"),
+                                   "with no N-terminus, and nothing further can acylate it. Note WHERE in the step "
+                                   "this happens: in concentrated acid the amine is protonated and cannot attack, so "
+                                   "the risk is the DILUTE and RESIDUAL regime the work-up passes through — "
+                                   "evaporating the acid and triturating. Remove the acid as quickly as possible, and "
+                                   "better, carry the glutamine as Fmoc-Gln(Trt)-OH, which ships: a protected "
+                                   "side-chain amide leaves nothing to close onto"),
     ],
     "amine-base": [
         ("resin-dipeptide-dkp", "high", "is what this step CREATES, and it closes to the diketopiperazine, taking the "
@@ -510,6 +669,19 @@ UNMASKED_RISKS = {
                                         "block, Fmoc-Gly-Pro-OH, in place of the anchored monomer"),
         # Same base, same support, same source — and a hazard the tables did not carry. See the
         # note on `cys-resin-ester-epimerisation` and on `_TRITYL_LINKER`.
+        # HOBt sitting in the piperidine is the collision made visible. The aspartimide advice
+        # offers an additive in the deprotection; Benoiton 6.16 lists HOBt among the catalysts of
+        # the glutamine cyclisation. Until this entry existed the pyroglutamate gate read only
+        # `acylating` steps, so a route could be advised to add HOBt and walk into the other hazard
+        # with no warning. Guarded by `has_pyroglutamate_catalyst`, which excludes Oxyma — which is
+        # why Oxyma is what the aspartimide advice now leads with.
+        ("n-terminal-gln", "medium", "is left free by this step, and this step names one of the weak acids or "
+                                     "benzotriazoles that catalyse its cyclisation to PYROGLUTAMATE — the "
+                                     "alpha-amine closes onto its own side-chain amide and ammonia leaves, so the "
+                                     "chain is capped and nothing can extend it. If the additive is here to suppress "
+                                     "aspartimide, use OXYMA instead of HOBt: it suppresses aspartimide at least as "
+                                     "well and is not a catalyst for this. Otherwise carry the glutamine as "
+                                     "Fmoc-Gln(Trt)-OH, which ships and leaves nothing to close onto"),
         ("cys-resin-ester-epimerisation", "medium",
          "EPIMERISES under the base that removes the Fmoc: the alpha-proton sits between the "
          "sulfur that acidifies it and the ester that holds the residue to the support, and "
@@ -555,6 +727,19 @@ ACTIVATION_RISKS = {
                                      "Fmoc-Gln(Trt)-OH, which ships and leaves nothing to close onto; failing that, "
                                      "swap HOBt for Oxyma and couple onto a glutamine N-terminus promptly rather "
                                      "than letting it stand in the catalyst"),
+        # Not a species reacting with itself, but with the REAGENT instead of its partner — the
+        # same shape as far as the reading goes, since the amine is consumed either way and so
+        # ATTACKS can never see it. Guarded by `has_capping_risk`, which needs the protocol detail
+        # and not just the reagent.
+        ("n-terminal-amine-capping", "medium",
+         "may be CAPPED by the coupling reagent itself instead of acylated by the amino acid: a "
+         "uronium/guanidinium salt that meets the amine before it meets the carboxylic acid "
+         "transfers its own tetramethylguanidino group, +98 mass units. The adduct is stable to "
+         "everything that follows and survives the final cleavage, so the chain is TRUNCATED at "
+         "this residue and no later coupling can touch it. Add the activator to the amino acid "
+         "rather than to the resin — activate in situ, do not pre-mix — keep the activator at or "
+         "below the amino acid in equivalents, or use a phosphonium salt (PyBOP, PyAOP) or a "
+         "carbodiimide, none of which can do this"),
         ("cys-epimerisation", "medium", "may EPIMERISE while it is activated: the sulfur acidifies its "
                                         "alpha-proton and a tertiary amine base removes it, so a D residue goes "
                                         "into the chain. Nothing downstream can see that — the D peptide has the "
@@ -572,9 +757,16 @@ ACTIVATION_RISKS = {
                                         "the standard answer and the reason this is only medium: the trityl sits "
                                         "on the TAU-nitrogen and withdraws enough electron density to leave the "
                                         "pi-nitrogen a poor base, so coupling is minimally epimerising. It "
-                                        "REDUCES rather than prevents, though — only substitution on the "
-                                        "pi-nitrogen itself prevents it, and those derivatives (Bum, 1-Adom) are "
-                                        "made indirectly and do not ship — so the conditions still matter: "
+                                        "REDUCES rather than prevents, though, and by a wide margin: at 80 C a "
+                                        "tau-trityl histidine has been measured at 16.6% racemisation against "
+                                        "0.8% for a pi-protected one. Only substitution on the PI-nitrogen "
+                                        "itself prevents it, and Fmoc-His(Bum)-OH now ships for exactly that: "
+                                        "tert-butoxymethyl on the pi-nitrogen, TFA-labile so it leaves with "
+                                        "everything else at the end. (Not Bom, the benzyloxymethyl analogue — "
+                                        "that one is HF-labile and belongs to Boc chemistry.) One cost to plan "
+                                        "for: deprotection releases FORMALDEHYDE, which needs a scavenger of "
+                                        "its own or it modifies the peptide. If the block is not wanted, the "
+                                        "conditions still help: "
                                         "DIC/Oxyma or HOAt, 2,4,6-collidine in place of DIPEA, and a short "
                                         "pre-activation"),
     ],
@@ -663,6 +855,216 @@ def has_trityl_linker(text):
     """Whether the step says the chain is on a 2-chlorotrityl (or equivalent trityl) support."""
     return bool(_TRITYL_LINKER.search(text or ""))
 
+
+# Guanidino capping needs BOTH halves, and that is what keeps it from being wallpaper. Every
+# coupling in every synthesis presents a free amine to a coupling reagent — that is what a coupling
+# IS — so the reagent alone cannot be the gate. Vol 3 Section 9.2.9 names the protocol detail: "The
+# reaction occurs if the coupling agent is added in solution to the resin BEFORE the incoming amino
+# acid or if the coupling agent is used IN EXCESS with respect to the amino acid."
+#
+# URONIUM/GUANIDINIUM ONLY. Those salts carry the electrophilic carbon that ends up on the amine.
+# The phosphonium salts (PyBOP, PyAOP) do not, Vol 3 contrasts them explicitly, and switching to one
+# is part of the remedy — so they must stay silent or the advice could not be taken. A carbodiimide
+# is silent for the same reason.
+#
+# EQUIVALENTS ARE NOT READ. The excess trigger is real but "3 eq" and "2 eq" differ by one
+# character, and this package already refuses to read temperature and time for exactly that reason:
+# misparsing one would silence a flag on a route that deserves it. Recorded as a known gap.
+_URONIUM = re.compile(r"\bHBTU\b|\bTBTU\b|\bHATU\b|\bHCTU\b|\bHDMU\b|\bCOMU\b"
+                      r"|tetramethyluronium|tetramethylguanidinium", re.I)
+_PREACTIVATION = re.compile(r"pre[- ]?activat|pre[- ]?mix|premix"
+                            r"|activat\w*\s+(?:for\s+)?\d+\s*(?:s|sec|min|h)\w*\s*(?:,\s*)?then"
+                            r"|then add (?:to )?(?:the )?resin", re.I)
+_NO_PREACTIVATION = re.compile(r"\b(?:no|without)\s+pre[- ]?(?:activat\w*|mix\w*)", re.I)
+
+
+# What answers an aspartimide flag in the DEPROTECTION, as opposed to in the building block.
+#
+#   * An ADDITIVE in the piperidine. Mergler et al. measured 0.1 M HOBt or 2,4-dinitrophenol as
+#     reducing it significantly; the 2025 ChemBioChem review "Aspartimide Formation and Its
+#     Prevention in Fmoc Chemistry SPPS" reports Oxyma Pure as more effective than HOBt or HOAt.
+#   * A MILDER BASE. Piperazine and 4-methylpiperidine remove Fmoc while suppressing aspartimide,
+#     and dipropylamine likewise at comparable deprotection efficiency.
+#
+# None of them ELIMINATES it, so this does not touch the severities — it clears the flag for a route
+# that has done what the literature asks, which is the difference between advice and nagging.
+#
+# DBU DEFEATS THE CLEARANCE, and that is deliberate rather than an omission. Vol 3 Section 9.2.5:
+# "Fmoc removal with DBU also promotes aspartimide formation." A route reaching for DBU should not
+# be able to buy its way out with an additive, so the check fails closed when DBU is named.
+#
+# OXYMA LEADS THE ADVICE because of the collision with pyroglutamate: HOBt suppresses aspartimide
+# and CATALYSES the glutamine cyclisation (Benoiton 6.16), while Oxyma is on neither list but the
+# aspartimide one. One additive answers both hazards; see `has_pyroglutamate_catalyst`.
+_ASPARTIMIDE_CARE = re.compile(r"\boxyma\b|cyanohydroxyimino|ethyl 2-cyano-2-\(hydroxyimino\)"
+                               r"|\bHOBt\b|hydroxybenzotriazole|\bHOAt\b"
+                               r"|dinitrophenol|\bDNP\b"
+                               r"|\bpiperazine\b|\bmethylpiperidine\b|\bdipropylamine\b", re.I)
+_DBU = re.compile(r"(?<![A-Za-z])DBU(?![A-Za-z])|diazabicyclo", re.I)
+
+
+def has_aspartimide_care(text):
+    """Whether a deprotection names an additive or a milder base that suppresses aspartimide.
+
+    Fails closed on DBU, which the literature names as making it worse.
+    """
+    text = text or ""
+    if _DBU.search(text):
+        return False
+    return bool(_ASPARTIMIDE_CARE.search(text))
+
+
+def has_capping_risk(text):
+    """Whether a coupling could cap the chain's N-terminus with its own activator.
+
+    Both halves required: a uronium/guanidinium salt AND an explicit pre-activation or pre-mix. A
+    route that activates in situ, or that says nothing either way, does not raise it.
+    """
+    text = text or ""
+    if _NO_PREACTIVATION.search(text):
+        return False
+    return bool(_URONIUM.search(text)) and bool(_PREACTIVATION.search(text))
+
+# ------------------------------------------------------- what the by-product WEIGHS, if anything
+# group -> {"delta": <nominal mass change>, "kind": ..., "note": ...}
+#
+# What this is for. Build-plan item 25 wants a route SCORED on whether it handled a hazard, and
+# nothing can do that today: a route that walks straight into one still verifies, because the
+# by-product is a self-consistent molecule with its own balanced equation. A mass shift is the one
+# thing that makes a hazard observable after the fact — it is what a chemist reads off the LC-MS of
+# a crude peptide — so it turns "this route is at risk" into "look for this peak".
+#
+# EVERY NUMBER HERE WAS DERIVED FROM STRUCTURES, not recalled or copied. The literature quotes
+# several of these and the derivations agree with all of them: -42 for ornithine and +98 for
+# capping (Vol 3 Sections 9.2.10 and 9.2.9), -18 for the aspartimide and +67 for the piperidides
+# (Section 9.2.5), +51 for 3-(piperidin-1-yl)alanine (Section 10.2.2.1), +16 and +56 and -71 from
+# Chan & White's Table 5. The last of those is worth noting: Table 5's row survived the PDF
+# extraction as "-7 1 CYS", and deriving Cys(Acm) -> Cys independently gives -71.08, which recovers
+# the number the OCR broke.
+#
+# THREE OF THE FOUR KINDS ARE NOT NUMBERS, and that is the point rather than a gap:
+#
+#   "shift"      a nominal mass change. Detectable: look for the peak.
+#   "same-mass"  the by-product is an ISOMER. Epimerisation is the case, and MS cannot see it at
+#                all — which is exactly why those gates exist, since balance, formula and target
+#                comparison all pass too. Writing 0 here says "do not go looking", which is more
+#                useful than leaving the entry out and implying nobody checked.
+#   "deletion"   a whole residue is missing, so the shift is the residue's own mass and depends on
+#                which one. Detectable as an n-1 species, not as a fixed number.
+#   "absent"     there is no product to weigh. The diketopiperazine takes the chain off the resin,
+#                so the evidence is yield and bare linker, not a peak.
+#
+# Nominal (integer) masses, because that is how the sources quote them and how a crude trace is
+# read. The monoisotopic figures differ in the second decimal and are not what anyone eyeballs.
+MASS_SHIFTS = {
+    "n-terminal-gln": {"delta": -17, "kind": "shift",
+                       "note": "ammonia leaves as the lactam closes; derived Gln-Ala -> pyroGlu-Ala, -17.03"},
+    "arg-urethane-guanidine": {"delta": -42, "kind": "shift",
+                               "note": "the whole amidine goes with the ruptured bond, leaving ornithine; "
+                                       "derived -42.04, and Vol 9.2.10 quotes -42"},
+    "n-terminal-amine-capping": {"delta": 98, "kind": "shift",
+                                 "note": "the tetramethylguanidino group from the uronium salt; derived +98.15 for "
+                                         "the neutral adduct, which is the figure Vol 3 Section 9.2.9 quotes"},
+    "aspartimide-gly": {"delta": -18, "kind": "shift",
+                        "note": "water leaves as the succinimide closes; derived -18.01. The ring then reopens, so a "
+                                "crude trace usually shows BOTH this and the +67 piperidides"},
+    "aspartimide-gly-hindered": {"delta": -18, "kind": "shift",
+                                 "note": "the same imide; the hindered ester slows the closure without changing what "
+                                         "the by-product weighs, so the trace looks identical"},
+    "aspartimide-beta-heteroatom": {"delta": -18, "kind": "shift",
+                                    "note": "the same imide as the glycine case, and the same -18, whichever residue "
+                                            "supplied the attacking backbone N-H"},
+    "aspartimide-prone-xaa": {"delta": -18, "kind": "shift",
+                              "note": "the same imide and the same -18; the neighbour changes how fast it forms, not "
+                                      "what it weighs"},
+    "cys-resin-ester-epimerisation": {"delta": 51, "kind": "shift",
+                                      "note": "the beta-elimination route: the sulfur leaves as dehydroalanine and "
+                                              "piperidine adds, giving 3-(piperidin-1-yl)alanine. Derived +51.07, and "
+                                              "Vol 3 Section 10.2.2.1 quotes +51 Da. NOTE the other route from the "
+                                              "same step, plain racemisation, is same-mass and invisible"},
+    "asn-gln-amide": {"delta": -18, "kind": "shift",
+                      "note": "dehydration of the side-chain amide to the nitrile"},
+    "free-indole": {"delta": None, "kind": "shift",
+                    "note": "the shift is whichever cation reached the indole, so it names the culprit rather than "
+                            "one number: +56 a tert-butyl, +212 an Arg(Mtr) sulfonyl, +252/+266 an Arg(Pbf)/(Pmc) "
+                            "sulfonyl, +172 an EDT-derived dithioketal (Chan & White Table 5)"},
+    "sulfide": {"delta": 16, "kind": "shift",
+                "note": "one oxygen, to the sulfoxide; and it is CHIRAL, so one methionine gives three species in the "
+                        "trace - unoxidised plus two diastereomers (Vol 3 Section 9.2.3)"},
+    # The ones no mass can find, which is why they are gated at all.
+    "cys-epimerisation": {"delta": 0, "kind": "same-mass",
+                          "note": "a D residue is an ISOMER: same formula, same mass. MS cannot see it, and neither "
+                                  "can the balance check or the target comparison. Chiral analysis or an enzymatic "
+                                  "digest is the only way to look"},
+    "his-epimerisation": {"delta": 0, "kind": "same-mass", "note": "as cys-epimerisation; an isomer, not a shift"},
+    "arg-delta-lactam": {"delta": None, "kind": "deletion",
+                         "note": "the residue is consumed without coupling, so the by-product is the n-1 chain and the "
+                                 "shift is that residue's own mass - for arginine, -156 as Arg(Pbf) never arrives. "
+                                 "Look for a deletion peak, not a fixed offset"},
+    "resin-dipeptide-dkp": {"delta": None, "kind": "absent",
+                            "note": "there is no product to weigh: the dipeptide cyclises off the support, so the "
+                                    "evidence is lost yield and bare linker rather than a peak"},
+    # A PROTECTING GROUP STILL THERE when the route says it is gone. Different question from the
+    # side reactions above and the commonest thing a crude peptide trace actually shows, so the
+    # numbers are the ones a reader checks first. Positive, because the product is HEAVIER by the
+    # group that failed to leave. All derived; the two Chan & White Table 5 quotes agree exactly
+    # (+56 "incomplete removal of t-Bu groups", +242 "incomplete removal of Trt").
+    "boc": {"delta": 100, "kind": "residual",
+            "note": "a Boc that did not come off leaves the product 100 heavier; derived +100.12"},
+    "cbz": {"delta": 134, "kind": "residual",
+            "note": "a Cbz still in place; derived +134.13, and it needs hydrogenolysis or strong acid"},
+    "fmoc": {"delta": 222, "kind": "residual",
+             "note": "an Fmoc still in place; derived +222.24, and it is the easiest of these to spot"},
+    "trityl": {"delta": 242, "kind": "residual",
+               "note": "a trityl still in place; derived +242.32, which is exactly the +242 Chan & White's "
+                       "Table 5 files as 'incomplete removal of Trt'"},
+    "tbu-ester": {"delta": 56, "kind": "residual",
+                  "note": "a tert-butyl ester still in place; derived +56.11, Table 5's +56"},
+    "tbu-ether": {"delta": 56, "kind": "residual",
+                  "note": "a tert-butyl ether still in place; derived +56.11. Note the same +56 also appears when a "
+                          "tert-butyl cation ALKYLATES a side chain, so the number alone does not say which"},
+    "silyl-ether": {"delta": 114, "kind": "residual",
+                    "note": "a TBS ether still in place; derived +114.26. Other silyls differ - TBDPS is +238"},
+    "benzyl-ether": {"delta": 90, "kind": "residual",
+                     "note": "a benzyl ether still in place; derived +90.12"},
+    "benzyl-ester": {"delta": 90, "kind": "residual",
+                     "note": "a benzyl ester still in place; derived +90.12"},
+    "acetal": {"delta": None, "kind": "shift",
+               "note": "depends on which acetal: a dimethyl acetal on an aldehyde is +46, a 1,3-dioxolane +44, so "
+                       "the number is not one value and the group alone does not fix it"},
+    "free-alpha-carboxyl": {"delta": None, "kind": "shift",
+                            "note": "the shift is whatever mask went on the wrong oxygen, so it depends on the "
+                                    "reagent; the wrong-selectivity product has the SAME formula as the intended one, "
+                                    "which is why this was measured twice before being believed"},
+}
+
+# WHY MOST OF THE REST WILL NEVER HAVE A NUMBER, which is a fact about the chemistry rather than
+# work left undone. A peptide side reaction has a characteristic shift because the chain is the
+# constant and the modification is a fixed fragment - an oxygen, an amidine, a guanidino group. A
+# small-molecule hazard is not like that: "the ester is saponified" or "the ketone is reduced"
+# changes the molecule by an amount that depends entirely on the substrate, so there is no
+# signature to tabulate. The protecting groups above are the exception, because a group that failed
+# to leave IS a fixed fragment. Asking for the rest would be asking for something that does not
+# exist.
+#
+# The hazards this table is required to cover: the peptide set the rubric is about. Listed rather
+# than derived from MASS_SHIFTS' keys, because the table also carries the residual protecting
+# groups now and a set defined as "whatever is in the table" cannot catch a missing entry - it was
+# written that way first, which made the coverage test tautological.
+PEPTIDE_HAZARDS = frozenset({
+    "n-terminal-gln", "arg-delta-lactam", "arg-urethane-guanidine", "n-terminal-amine-capping",
+    "aspartimide-gly", "aspartimide-gly-hindered", "aspartimide-beta-heteroatom",
+    "aspartimide-prone-xaa", "cys-epimerisation", "his-epimerisation",
+    "cys-resin-ester-epimerisation", "resin-dipeptide-dkp", "asn-gln-amide", "free-indole",
+    "free-alpha-carboxyl", "sulfide",
+})
+
+
+def mass_shift(group):
+    """What a hazard's by-product weighs relative to the intended peptide, or None if untabulated."""
+    return MASS_SHIFTS.get(group)
+
+
 # ------------------------------------------------------------------------------ how to keep a group
 # group -> (suggestion, [(protected-form label, SMARTS of the protected form, SMARTS of the group it is made from)])
 # They find a textbook example (Greene) of putting the protecting group on: a step whose reactant has
@@ -723,8 +1125,10 @@ PROTECT = {
                     [_TRT_AMIDE]),
     },
     "free-indole": {
-        "default": ("add a cation scavenger to the cocktail — triisopropylsilane with a thiol (EDT or DODT), or "
-                    "thioanisole and phenol, as in Reagent B or Reagent K — and/or carry the tryptophan as "
+        "default": ("add a cation scavenger to the cocktail — a thiol (EDT or DODT), or thioanisole with "
+                    "phenol, optionally alongside triisopropylsilane; those are the components of the "
+                    "standard cocktails, and naming them rather than a cocktail alias keeps every species "
+                    "weighable. And/or carry the tryptophan as "
                     "Fmoc-Trp(Boc)-OH, which ships: the Boc on the indole nitrogen deactivates the ring and the "
                     "same acid takes it off. Water alone is not enough", []),
     },
@@ -812,7 +1216,7 @@ _INDOLE_SCAVENGER = re.compile(
     r"\btriisopropylsilane\b|\bTIS\b"
     r"|\bEDT\b|ethanedithiol|\bDODT\b|dioxa[- ]?octanedithiol|\bdithiol\b|thioanisole"
     r"|dimethyl ?sulfide|\bDMS\b|\bthiocresol\b|\banisole\b|\bphenol\b|\bcresol\b"
-    r"|reagent ?[bkh]\b", re.I)
+    r"|" + _COCKTAIL_SCAVENGING, re.I)
 
 
 def has_cation_scavenger(text):
@@ -850,6 +1254,62 @@ def classify(text):
     if "lindlar" in found and "hydrogenation" in found:
         found.remove("hydrogenation")
     return found
+
+
+# ------------------------------------------------------- the bridge: a transform id -> conditions
+# `classify` reads a conditions STRING, which is what the free-text (LLM) route path supplies. A
+# PROGRAM-MODE route does not have that string: each step identifies its operation by transform
+# `id` and lists reagent SMILES, so `classify("fmoc-removal")` is [] and every hazard gate stays
+# silent on a generated route. Verified 2026-10-17 by executing the generator's own routes and
+# finding zero hazards fired — not because the molecules were clean, but because nothing told the
+# checker what reagent each step used.
+#
+# This is that missing piece: the representative conditions an operation runs under, so a
+# program-mode step can be handed to `classify` (and thence to `_compatibility`) exactly as a
+# free-text step is. One entry per transform the peptide generator can emit — assembly, the
+# dipeptide/pseudoproline endgame, global deprotection, and resin cleavage.
+#
+# The strings are real cocktails on purpose, so `classify` reads them through its ordinary
+# patterns rather than through a second code path; `conditions_for_transform` is the only new
+# surface. Checked against each transform's own `summary` in test_transform_conditions.py: where a
+# summary names its reagent, the class it classifies to must match the class these conditions give,
+# so this map cannot drift from the chemistry the executor describes.
+_FMOC_REMOVAL = "20% piperidine in DMF, 2 x 5 min"
+_COUPLING = "Fmoc-amino acid, HBTU, DIPEA, DMF, 45 min"
+_ACID_CLEAVAGE = "TFA/H2O 95:5, 2 h"
+TRANSFORM_CONDITIONS = {
+    # assembly
+    "fmoc-removal": _FMOC_REMOVAL,
+    "n-peptide-coupling": _COUPLING,
+    "n-acylation": _COUPLING,
+    "amide-formation": _COUPLING,
+    # global deprotection and resin cleavage, all under the final acid
+    "boc-removal": _ACID_CLEAVAGE,
+    "ring-nitrogen-boc-removal": _ACID_CLEAVAGE,
+    "tert-butyl-ester-removal": _ACID_CLEAVAGE,
+    "tert-butyl-ether-removal": _ACID_CLEAVAGE,
+    "mpe-ester-removal": _ACID_CLEAVAGE,
+    "trityl-removal": _ACID_CLEAVAGE,
+    "s-trityl-removal": _ACID_CLEAVAGE,
+    "n-trityl-removal": _ACID_CLEAVAGE,
+    "imidazole-trityl-removal": _ACID_CLEAVAGE,
+    "pbf-removal": _ACID_CLEAVAGE,
+    "dmb-removal": _ACID_CLEAVAGE,
+    "pseudoproline-opening": _ACID_CLEAVAGE,
+    "resin-cleavage": _ACID_CLEAVAGE,
+}
+
+
+def conditions_for_transform(transform_id):
+    """The conditions a program-mode step runs under, from its transform id, or None if unmapped.
+
+    The bridge between a generated route (which names operations by id) and the hazard checker
+    (which reads a conditions string). A caller checking a program-mode route passes this result as
+    the step's `reagents`, so the same `classify` -> `_compatibility` path serves both route forms.
+    Returns None for a transform outside the peptide set, so an unmapped id is a visible gap rather
+    than a wrong class.
+    """
+    return TRANSFORM_CONDITIONS.get(transform_id)
 
 
 def label_of(cls):

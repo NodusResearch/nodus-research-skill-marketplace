@@ -1,3 +1,7 @@
+# Chemistry Studio 2.9.0
+
+Adds peptide capping and arginine-to-ornithine compatibility gates, broader reagent vocabulary, mild-acid and additive checks, nominal mass signatures, aromatic nitrogen Boc removal, a pi-protected histidine building block and a transform-to-conditions helper. Aggregation advisory adds a separate residue-identity signal for sheet-prone windows. It skips windows with unknown residues and preserves the strongest tier when merging them. Explicitly omitted preactivation no longer raises the capping flag, and pi-protected histidine clears its epimerisation gate. No permissions or data migrations change. Transform conditions and mass signatures are package data for callers; this change adds no automatic application reporting path.
+
 # Chemistry Studio 2.8.1
 
 Refines peptide compatibility remedies against cited literature, including arginine lactam suppression, assembly-time pyroglutamate, Asp-Arg/Asp-Gln motifs, resin-bound cysteine epimerisation and the distinction between TIS and TES scavengers. Adds a panel built from the package's peptide transforms to exercise real reactant/product pairs. Linker identity still depends on the named conditions because the support graph uses an anonymous atom. No permissions, tool contracts or data migrations change.

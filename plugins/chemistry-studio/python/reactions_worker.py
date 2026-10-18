@@ -1964,6 +1964,14 @@ def _compatibility(steps, textbook_dir=None):
             for group, severity, why in T.ATTACKS.get(cls, []):
                 if group not in survives or (group, cls) in seen:
                     continue
+                # An aspartimide flag is answered in the deprotection as well as in the building
+                # block: an additive in the piperidine (Oxyma, HOBt, dinitrophenol) or a milder
+                # base (piperazine, 4-methylpiperidine, dipropylamine). None of them eliminates it,
+                # so the severities are unchanged — this only stops the gate nagging a route that
+                # has already done what the literature asks. `has_aspartimide_care` fails closed on
+                # DBU, which makes it worse.
+                if group.startswith("aspartimide") and T.has_aspartimide_care(text):
+                    continue
                 # An enolizable ketone next to a strong base is only a competing site when another
                 # carbonyl is the one meant to react.
                 if group == "enolizable-ketone" and not (reacted & (carbonyl_reacting - {"ketone"})):
@@ -1989,7 +1997,12 @@ def _compatibility(steps, textbook_dir=None):
                                 "reagentLabel": T.label_of(cls), "severity": severity,
                                 "why": (f"another {T.GROUPS[group][0]} reacts in this step while this one must survive; under {T.label_of(cls)} conditions it {why} — check the selectivity"
                                         if selective else f"the {T.GROUPS[group][0]} survives into the product, but under {T.label_of(cls)} conditions it {why}"),
-                                "suggestion": text_hint, "_forms": forms})
+                                "suggestion": text_hint, "_forms": forms,
+                                # What the by-product weighs, where that is known. Carried so a
+                                # scorer can ask whether the route's own analysis would have SEEN
+                                # the hazard, not only whether the route risked it. Absent for the
+                                # groups that have not had the reading done; see MASS_SHIFTS.
+                                **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
         # What the step UNMASKS. Read against the PRODUCTS: a deprotection creates the reactive
         # thing, so before the step it is masked and matches nothing, and the ATTACKS loop above —
         # which only ever sees reactant-side survivors — cannot reach it at all. The cation-source
@@ -2010,12 +2023,26 @@ def _compatibility(steps, textbook_dir=None):
                 if group in ("resin-dipeptide-dkp", "cys-resin-ester-epimerisation") \
                         and T.has_trityl_linker(text):
                     continue
+                # The pyroglutamate path on a DEPROTECTION needs a named catalyst, same as the
+                # coupling path: without it, every Fmoc removal on a glutamine-terminated chain
+                # would flag, which is every cycle of every such synthesis. Scoped to `amine-base`
+                # on purpose — the `strong-acid` entry in this same table is the final cleavage and
+                # has never needed a catalyst named, so guarding it here silenced it entirely and
+                # three tests in the pyroglutamate suite caught that.
+                if group == "n-terminal-gln" and cls == "amine-base" \
+                        and not T.has_pyroglutamate_catalyst(text):
+                    continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
                                 "reagentLabel": T.label_of(cls), "severity": severity,
                                 "why": f"the {T.GROUPS[group][0]} {why}",
-                                "suggestion": text_hint, "_forms": forms})
+                                "suggestion": text_hint, "_forms": forms,
+                                # What the by-product weighs, where that is known. Carried so a
+                                # scorer can ask whether the route's own analysis would have SEEN
+                                # the hazard, not only whether the route risked it. Absent for the
+                                # groups that have not had the reading done; see MASS_SHIFTS.
+                                **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
         # What the activated species may do to ITSELF. Read against the reactants, not the
         # survivors: an arginine being activated loses its carboxyl whether it couples or closes
         # the lactam, so the ATTACKS loop above can never reach it. Same `seen` set, so a pair
@@ -2041,12 +2068,22 @@ def _compatibility(steps, textbook_dir=None):
                 # route could act on.
                 if group == "n-terminal-gln" and not T.has_pyroglutamate_catalyst(text):
                     continue
+                # Guanidino capping is a protocol hazard, not a reagent one: every coupling shows a
+                # free amine to a coupling reagent, so without this guard it would fire on all of
+                # them. It needs a uronium salt AND a pre-activation; see `has_capping_risk`.
+                if group == "n-terminal-amine-capping" and not T.has_capping_risk(text):
+                    continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
                                 "reagentLabel": T.label_of(cls), "severity": severity,
                                 "why": f"the {T.GROUPS[group][0]} {why}",
-                                "suggestion": text_hint, "_forms": forms})
+                                "suggestion": text_hint, "_forms": forms,
+                                # What the by-product weighs, where that is known. Carried so a
+                                # scorer can ask whether the route's own analysis would have SEEN
+                                # the hazard, not only whether the route risked it. Absent for the
+                                # groups that have not had the reading done; see MASS_SHIFTS.
+                                **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
         # One flag per site: where the specific alpha-carboxyl reading fires, the generic `acid`
         # entry for the same reagent is dropped rather than printed beside it. Both match the same
         # carboxyl, and the generic wording ("may be alkylated (as the carboxylate)") is true of
@@ -2054,13 +2091,33 @@ def _compatibility(steps, textbook_dir=None):
         specific = {h["reagentClass"] for h in hazards if h["group"] == "free-alpha-carboxyl"}
         if specific:
             hazards = [h for h in hazards if not (h["group"] == "acid" and h["reagentClass"] in specific)]
+        # Same rule for the nitrogen: where the capping reading fires, the generic `amine` entry
+        # for that reagent is dropped. Both match the same N-terminus, and the generic wording says
+        # nothing about which partner the amine found.
+        capped = {h["reagentClass"] for h in hazards if h["group"] == "n-terminal-amine-capping"}
+        if capped:
+            hazards = [h for h in hazards if not (h["group"] == "amine" and h["reagentClass"] in capped)]
+        # Pyroglutamate has three reagent-class paths now, and a step can match two of them at
+        # once: `Ac2O/AcOH capping` is both an acylating agent and a weak acid, so it reported the
+        # hazard twice — one nitrogen, two messages. The `mild-acid` reading is the specific and
+        # more accurate one for an acid step, so where it fires the other paths are dropped.
+        if any(h["group"] == "n-terminal-gln" and h["reagentClass"] == "mild-acid" for h in hazards):
+            hazards = [h for h in hazards
+                       if not (h["group"] == "n-terminal-gln" and h["reagentClass"] != "mild-acid")]
         for group, removers in _REMOVED_BY.items():
             if group in reacted and before[group] > after.get(group, 0) and classes and not (removers & set(classes)):
                 text_hint, forms = T.suggestion(group, None)
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": None, "reagentLabel": None,
                                 "severity": "medium",
                                 "why": f"the {T.GROUPS[group][0]} is gone in the product, but none of the named reagents removes it",
-                                "suggestion": "check the product, or name the deprotection step", "_forms": []})
+                                "suggestion": "check the product, or name the deprotection step", "_forms": [],
+                                # The FOURTH hazard builder, and the one the first pass at this
+                                # wiring missed — it ends differently from the other three, so a
+                                # count-of-three replace walked straight past it. The signature is
+                                # directly useful here: this hazard says the group vanished with
+                                # nothing to explain it, and the number is what a reader would
+                                # check the product mass against to see whether it really did.
+                                **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
         if textbook_dir:
             for hazard in hazards:
                 examples = _protection_examples(textbook_dir, hazard["_forms"])

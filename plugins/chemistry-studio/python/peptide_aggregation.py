@@ -50,8 +50,38 @@ AGGREGATION_LAST_RESIDUE = 21
 # option. Backbone protection (Hmb/Dmb) is not modelled here: it goes almost anywhere, so it is
 # advice rather than a placement.
 PSEUDOPROLINE_RESIDUES = ("S", "T", "C")
+# The residues the literature names, as a SECOND and independent signal — because hydropathy is
+# the wrong axis for two of them.
+#
+# Chan & White Ch. 2 Section 3.7 (printed p. 30): "...of ALA, VAL, ILE, ASN, GLN residues showing
+# particular propensity for this effect. The insertion of a proline or N-alkyl amino acid residue
+# into a sequence is known to disrupt formation of beta-sheets and other secondary structures
+# thought to be responsible for the aggregation."
+#
+# On the Kyte-Doolittle scale above, Ala is +1.8, Val +4.2 and Ile +4.5, all over the 1.0 cut. But
+# ASN AND GLN ARE BOTH -3.5. A run of them scores strongly hydrophilic, so no threshold on the
+# hydropathy reading could ever flag two of the five residues the source names. The mechanism is
+# why: Ch. 1 (printed p. 31) puts difficult sequences down to "association of the peptide chains
+# within the resin matrix" and notes that proline helping "suggest[s] that INTERCHAIN HYDROGEN
+# BONDING may be an important factor" — and Asn and Gln carry side-chain amides that donate and
+# accept hydrogen bonds. Their hydrophobicity is beside the point.
+#
+# Reported as its own span, never averaged into the hydropathy one: averaging a +4.5 isoleucine
+# against a -3.5 asparagine cancels the signal being looked for.
+SHEPPARD_PRONE = frozenset("AVINQ")
+# How many of a window's residues must come from that set. Four of five is a run with one
+# interruption allowed; three of five fires on ordinary sequences, measured.
+SHEPPARD_PRONE_MIN = 4
 # One disrupting unit roughly every six residues, so a remedy more than this far from the suspect
 # window is not answering it.
+#
+# This one IS cited, twice, and it was a guess when it was written. Chan & White Ch. 1 (printed
+# p. 32), on the spectrometric study of Fmoc-cleavage rates: it "established that tertiary amide
+# bonds need be inserted in the peptide chain only at about EVERY SIXTH RESIDUE to eliminate
+# interchain association". And Ch. 2 Section 3.7 again: "The effects can be long range, with the
+# outset of aggregation often being postponed for as many as SIX RESIDUES, or eliminated
+# altogether." The underlying study is Bedford, Hyde, Johnson, Wen, Owen, Quibell & Sheppard,
+# Int J Pept Protein Res 40 (1992) 300.
 DISRUPTOR_REACH = 6
 # What the package can actually supply, keyed by the (N-side, C-side) pair the block replaces.
 # Only one pseudoproline dipeptide ships, so "eligible" and "placeable" are different lists and the
@@ -118,7 +148,37 @@ def aggregation_advisory(sequence, suspect=HYDROPATHY_SUSPECT, strong=HYDROPATHY
         if min(positions) < first_residue or max(positions) > last_residue:
             continue
         suspects.append({"start": start, "residues": text, "mean": round(mean, 2), "level": level,
+                         "basis": "hydropathy",
                          "from_resin": [min(positions), max(positions)]})
+
+    # The second reading, over the same length bounds and the same window. Separate from the loop
+    # above rather than folded into it, because the two answer different questions and one of them
+    # is invisible to the other: see the note on SHEPPARD_PRONE.
+    for start in range(1, max(0, len(sequence) - window + 1) + 1):
+        text = sequence[start - 1:start - 1 + window]
+        if any(residue not in KYTE_DOOLITTLE for residue in text):
+            continue
+        count = sum(1 for residue in text if residue in SHEPPARD_PRONE)
+        if count < SHEPPARD_PRONE_MIN:
+            continue
+        positions = [from_resin[index] for index in range(start, start + window)]
+        if min(positions) < first_residue or max(positions) > last_residue:
+            continue
+        # A window the hydropathy reading already flagged is not reported twice; the hydropathy
+        # span carries a peak value and is the more informative of the two.
+        if any(existing["start"] == start for existing in suspects):
+            continue
+        suspects.append({"start": start, "residues": text, "mean": round(
+            sum(KYTE_DOOLITTLE[r] for r in text if r in KYTE_DOOLITTLE) / max(1, len(text)), 2),
+            "level": "strong" if count == window else "suspect", "basis": "sheet-prone",
+            "from_resin": [min(positions), max(positions)]})
+    suspects.sort(key=lambda entry: entry["start"])
+    if any(entry["basis"] == "sheet-prone" for entry in suspects):
+        notes.append("One window was flagged on RESIDUE IDENTITY rather than on hydropathy: Chan & "
+                     "White name Ala, Val, Ile, Asn and Gln as particularly prone, and the "
+                     "mechanism is interchain hydrogen bonding and beta-sheet formation, not "
+                     "hydrophobicity. Asn and Gln score -3.5 on the Kyte-Doolittle scale, so the "
+                     "hydropathy reading cannot see them at any threshold.")
 
     # THREE different questions, kept apart because the risk notes keep them apart. "Ser7 and
     # Thr10 are pseudoproline-eligible" is a fact about the RESIDUES and holds wherever they sit;
@@ -159,21 +219,31 @@ def collapse(suspects, window=HYDROPATHY_WINDOW):
 
     A hydrophobic run of any length produces a window at every offset within it — six of them on a
     16-mer in testing — and six lines saying one thing is wallpaper. What a reader needs is the
-    stretch and how bad its worst point is."""
+    stretch and how bad its worst point is.
+
+    Windows are merged only within the SAME basis. A hydrophobic stretch and an Asn/Gln stretch can
+    sit next to each other and are two different findings with two different remedies to discuss;
+    merging them would also average a +4.5 against a -3.5 and report a peak that describes
+    neither."""
     spans = []
-    for entry in sorted(suspects, key=lambda w: w["start"]):
+    for entry in sorted(suspects, key=lambda w: (w.get("basis", "hydropathy"), w["start"])):
+        basis = entry.get("basis", "hydropathy")
         first, last = entry["start"], entry["start"] + window - 1
-        if spans and first <= spans[-1]["to"] + 1:
-            current = spans[-1]
-            current["to"] = max(current["to"], last)
-            if entry["mean"] > current["peak"]:
-                current["peak"], current["level"] = entry["mean"], entry["level"]
-            current["from_resin"] = [min(current["from_resin"][0], entry["from_resin"][0]),
-                                     max(current["from_resin"][1], entry["from_resin"][1])]
+        previous = next((s for s in reversed(spans) if s["basis"] == basis), None)
+        if previous is not None and first <= previous["to"] + 1:
+            previous["to"] = max(previous["to"], last)
+            if entry["mean"] > previous["peak"]:
+                previous["peak"] = entry["mean"]
+            # Sheet propensity is graded by residue count, independently of the
+            # hydropathy peak. A less negative mean cannot downgrade a strong run.
+            if entry["level"] == "strong":
+                previous["level"] = "strong"
+            previous["from_resin"] = [min(previous["from_resin"][0], entry["from_resin"][0]),
+                                      max(previous["from_resin"][1], entry["from_resin"][1])]
         else:
             spans.append({"from": first, "to": last, "peak": entry["mean"], "level": entry["level"],
-                          "from_resin": list(entry["from_resin"])})
-    return spans
+                          "basis": basis, "from_resin": list(entry["from_resin"])})
+    return sorted(spans, key=lambda s: s["from"])
 
 
 def advise_for_target(smiles, **options):
