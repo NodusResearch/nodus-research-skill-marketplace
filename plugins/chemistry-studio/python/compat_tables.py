@@ -922,6 +922,103 @@ def has_capping_risk(text):
     text = text or ""
     return bool(_URONIUM.search(text)) and bool(_PREACTIVATION.search(text))
 
+# ------------------------------------------------------- what the by-product WEIGHS, if anything
+# group -> {"delta": <nominal mass change>, "kind": ..., "note": ...}
+#
+# What this is for. Build-plan item 25 wants a route SCORED on whether it handled a hazard, and
+# nothing can do that today: a route that walks straight into one still verifies, because the
+# by-product is a self-consistent molecule with its own balanced equation. A mass shift is the one
+# thing that makes a hazard observable after the fact — it is what a chemist reads off the LC-MS of
+# a crude peptide — so it turns "this route is at risk" into "look for this peak".
+#
+# EVERY NUMBER HERE WAS DERIVED FROM STRUCTURES, not recalled or copied. The literature quotes
+# several of these and the derivations agree with all of them: -42 for ornithine and +98 for
+# capping (Vol 3 Sections 9.2.10 and 9.2.9), -18 for the aspartimide and +67 for the piperidides
+# (Section 9.2.5), +51 for 3-(piperidin-1-yl)alanine (Section 10.2.2.1), +16 and +56 and -71 from
+# Chan & White's Table 5. The last of those is worth noting: Table 5's row survived the PDF
+# extraction as "-7 1 CYS", and deriving Cys(Acm) -> Cys independently gives -71.08, which recovers
+# the number the OCR broke.
+#
+# THREE OF THE FOUR KINDS ARE NOT NUMBERS, and that is the point rather than a gap:
+#
+#   "shift"      a nominal mass change. Detectable: look for the peak.
+#   "same-mass"  the by-product is an ISOMER. Epimerisation is the case, and MS cannot see it at
+#                all — which is exactly why those gates exist, since balance, formula and target
+#                comparison all pass too. Writing 0 here says "do not go looking", which is more
+#                useful than leaving the entry out and implying nobody checked.
+#   "deletion"   a whole residue is missing, so the shift is the residue's own mass and depends on
+#                which one. Detectable as an n-1 species, not as a fixed number.
+#   "absent"     there is no product to weigh. The diketopiperazine takes the chain off the resin,
+#                so the evidence is yield and bare linker, not a peak.
+#
+# Nominal (integer) masses, because that is how the sources quote them and how a crude trace is
+# read. The monoisotopic figures differ in the second decimal and are not what anyone eyeballs.
+MASS_SHIFTS = {
+    "n-terminal-gln": {"delta": -17, "kind": "shift",
+                       "note": "ammonia leaves as the lactam closes; derived Gln-Ala -> pyroGlu-Ala, -17.03"},
+    "arg-urethane-guanidine": {"delta": -42, "kind": "shift",
+                               "note": "the whole amidine goes with the ruptured bond, leaving ornithine; "
+                                       "derived -42.04, and Vol 9.2.10 quotes -42"},
+    "n-terminal-amine-capping": {"delta": 98, "kind": "shift",
+                                 "note": "the tetramethylguanidino group from the uronium salt; derived +98.15 for "
+                                         "the neutral adduct, which is the figure Vol 3 Section 9.2.9 quotes"},
+    "aspartimide-gly": {"delta": -18, "kind": "shift",
+                        "note": "water leaves as the succinimide closes; derived -18.01. The ring then reopens, so a "
+                                "crude trace usually shows BOTH this and the +67 piperidides"},
+    "aspartimide-gly-hindered": {"delta": -18, "kind": "shift",
+                                 "note": "the same imide; the hindered ester slows the closure without changing what "
+                                         "the by-product weighs, so the trace looks identical"},
+    "aspartimide-beta-heteroatom": {"delta": -18, "kind": "shift",
+                                    "note": "the same imide as the glycine case, and the same -18, whichever residue "
+                                            "supplied the attacking backbone N-H"},
+    "aspartimide-prone-xaa": {"delta": -18, "kind": "shift",
+                              "note": "the same imide and the same -18; the neighbour changes how fast it forms, not "
+                                      "what it weighs"},
+    "cys-resin-ester-epimerisation": {"delta": 51, "kind": "shift",
+                                      "note": "the beta-elimination route: the sulfur leaves as dehydroalanine and "
+                                              "piperidine adds, giving 3-(piperidin-1-yl)alanine. Derived +51.07, and "
+                                              "Vol 3 Section 10.2.2.1 quotes +51 Da. NOTE the other route from the "
+                                              "same step, plain racemisation, is same-mass and invisible"},
+    "asn-gln-amide": {"delta": -18, "kind": "shift",
+                      "note": "dehydration of the side-chain amide to the nitrile"},
+    "free-indole": {"delta": None, "kind": "shift",
+                    "note": "the shift is whichever cation reached the indole, so it names the culprit rather than "
+                            "one number: +56 a tert-butyl, +212 an Arg(Mtr) sulfonyl, +254/+266 an Arg(Pbf)/(Pmc) "
+                            "sulfonyl, +172 an EDT-derived dithioketal (Chan & White Table 5)"},
+    "sulfide": {"delta": 16, "kind": "shift",
+                "note": "one oxygen, to the sulfoxide; and it is CHIRAL, so one methionine gives three species in the "
+                        "trace - unoxidised plus two diastereomers (Vol 3 Section 9.2.3)"},
+    # The ones no mass can find, which is why they are gated at all.
+    "cys-epimerisation": {"delta": 0, "kind": "same-mass",
+                          "note": "a D residue is an ISOMER: same formula, same mass. MS cannot see it, and neither "
+                                  "can the balance check or the target comparison. Chiral analysis or an enzymatic "
+                                  "digest is the only way to look"},
+    "his-epimerisation": {"delta": 0, "kind": "same-mass", "note": "as cys-epimerisation; an isomer, not a shift"},
+    "arg-delta-lactam": {"delta": None, "kind": "deletion",
+                         "note": "the residue is consumed without coupling, so the by-product is the n-1 chain and the "
+                                 "shift is that residue's own mass - for arginine, -156 as Arg(Pbf) never arrives. "
+                                 "Look for a deletion peak, not a fixed offset"},
+    "resin-dipeptide-dkp": {"delta": None, "kind": "absent",
+                            "note": "there is no product to weigh: the dipeptide cyclises off the support, so the "
+                                    "evidence is lost yield and bare linker rather than a peak"},
+    "free-alpha-carboxyl": {"delta": None, "kind": "shift",
+                            "note": "the shift is whatever mask went on the wrong oxygen, so it depends on the "
+                                    "reagent; the wrong-selectivity product has the SAME formula as the intended one, "
+                                    "which is why this was measured twice before being believed"},
+}
+
+# The hazards this table is required to cover: the peptide set the rubric is about. Deliberately
+# not every group in GROUPS - the small-molecule hazards have not had this reading done, and
+# claiming a mass signature for them without it would be the same overreach this file keeps
+# correcting elsewhere.
+PEPTIDE_HAZARDS = frozenset(MASS_SHIFTS)
+
+
+def mass_shift(group):
+    """What a hazard's by-product weighs relative to the intended peptide, or None if untabulated."""
+    return MASS_SHIFTS.get(group)
+
+
 # ------------------------------------------------------------------------------ how to keep a group
 # group -> (suggestion, [(protected-form label, SMARTS of the protected form, SMARTS of the group it is made from)])
 # They find a textbook example (Greene) of putting the protecting group on: a step whose reactant has

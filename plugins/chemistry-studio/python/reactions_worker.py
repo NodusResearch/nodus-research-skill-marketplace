@@ -1997,7 +1997,12 @@ def _compatibility(steps, textbook_dir=None):
                                 "reagentLabel": T.label_of(cls), "severity": severity,
                                 "why": (f"another {T.GROUPS[group][0]} reacts in this step while this one must survive; under {T.label_of(cls)} conditions it {why} — check the selectivity"
                                         if selective else f"the {T.GROUPS[group][0]} survives into the product, but under {T.label_of(cls)} conditions it {why}"),
-                                "suggestion": text_hint, "_forms": forms})
+                                "suggestion": text_hint, "_forms": forms,
+                                # What the by-product weighs, where that is known. Carried so a
+                                # scorer can ask whether the route's own analysis would have SEEN
+                                # the hazard, not only whether the route risked it. Absent for the
+                                # groups that have not had the reading done; see MASS_SHIFTS.
+                                **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
         # What the step UNMASKS. Read against the PRODUCTS: a deprotection creates the reactive
         # thing, so before the step it is masked and matches nothing, and the ATTACKS loop above —
         # which only ever sees reactant-side survivors — cannot reach it at all. The cation-source
@@ -2032,7 +2037,12 @@ def _compatibility(steps, textbook_dir=None):
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
                                 "reagentLabel": T.label_of(cls), "severity": severity,
                                 "why": f"the {T.GROUPS[group][0]} {why}",
-                                "suggestion": text_hint, "_forms": forms})
+                                "suggestion": text_hint, "_forms": forms,
+                                # What the by-product weighs, where that is known. Carried so a
+                                # scorer can ask whether the route's own analysis would have SEEN
+                                # the hazard, not only whether the route risked it. Absent for the
+                                # groups that have not had the reading done; see MASS_SHIFTS.
+                                **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
         # What the activated species may do to ITSELF. Read against the reactants, not the
         # survivors: an arginine being activated loses its carboxyl whether it couples or closes
         # the lactam, so the ATTACKS loop above can never reach it. Same `seen` set, so a pair
@@ -2068,7 +2078,12 @@ def _compatibility(steps, textbook_dir=None):
                 hazards.append({"group": group, "groupLabel": T.GROUPS[group][0], "reagentClass": cls,
                                 "reagentLabel": T.label_of(cls), "severity": severity,
                                 "why": f"the {T.GROUPS[group][0]} {why}",
-                                "suggestion": text_hint, "_forms": forms})
+                                "suggestion": text_hint, "_forms": forms,
+                                # What the by-product weighs, where that is known. Carried so a
+                                # scorer can ask whether the route's own analysis would have SEEN
+                                # the hazard, not only whether the route risked it. Absent for the
+                                # groups that have not had the reading done; see MASS_SHIFTS.
+                                **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
         # One flag per site: where the specific alpha-carboxyl reading fires, the generic `acid`
         # entry for the same reagent is dropped rather than printed beside it. Both match the same
         # carboxyl, and the generic wording ("may be alkylated (as the carboxylate)") is true of
