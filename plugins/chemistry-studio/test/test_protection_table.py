@@ -70,6 +70,19 @@ class EveryShippedGroupIsInTheTable(unittest.TestCase):
         self.assertTrue(P.is_auxiliary("psiMe"))
         self.assertFalse(P.is_auxiliary("Boc"))
 
+    def test_cleavage_diagnostics_have_the_book_numbers_and_remedies(self):
+        required = {"delta", "deltaLabel", "residue", "label", "cause", "remedy"}
+        for key, entry in P.CLEAVAGE_DIAGNOSTICS.items():
+            with self.subTest(key=key):
+                self.assertTrue(required <= set(entry), f"{key} is missing {required - set(entry)}")
+                self.assertIsInstance(entry["delta"], int)
+                self.assertTrue(entry["remedy"])
+        self.assertEqual(P.CLEAVAGE_DIAGNOSTICS["trp-indole-reduction"]["delta"], -71)
+        self.assertEqual(P.CLEAVAGE_DIAGNOSTICS["met-sulfoxide"]["delta"], 16)
+        self.assertEqual(P.CLEAVAGE_DIAGNOSTICS["trp-boc-decarboxylation"]["delta"], 44)
+        self.assertEqual(P.CLEAVAGE_DIAGNOSTICS["trp-dithioketal"]["delta"], 172)
+        self.assertEqual(P.CLEAVAGE_DIAGNOSTICS["arg-pbf-incomplete"]["deltaLabel"], "+254/266")
+
     def test_trp_tes_is_recorded_as_incompatible(self):
         trp = P.residue_scavengers("Trp")
         self.assertIsNotNone(trp)

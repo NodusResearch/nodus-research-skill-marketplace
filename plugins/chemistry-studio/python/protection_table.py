@@ -117,6 +117,73 @@ GROUPS = {
     },
 }
 
+# Ch 3 Table 5: the mass-difference diagnostics for a cleavage that went wrong. These are
+# advisories, not gates: the sequence/conditions decide which one is worth saying. The `deltaLabel`
+# is the string a reader sees because the book prints +254/266 as one row.
+CLEAVAGE_DIAGNOSTICS = {
+    "trp-indole-reduction": {
+        "delta": -71, "deltaLabel": "-71", "residue": "Trp",
+        "label": "Trp indole reduction",
+        "cause": "a silane scavenger reduced the indole ring",
+        "remedy": "omit the silane and use EDT instead",
+    },
+    "cys-acm-loss": {
+        "delta": -71, "deltaLabel": "-71", "residue": "Cys(Acm)",
+        "label": "loss of Acm",
+        "cause": "the Acm protecting group was lost during cleavage",
+        "remedy": "repeat the cleavage omitting thioanisole",
+    },
+    "met-sulfoxide": {
+        "delta": 16, "deltaLabel": "+16", "residue": "Met",
+        "label": "Met sulfoxide",
+        "cause": "the sulfide was oxidised to the sulfoxide",
+        "remedy": "use peroxide-free ether, include EDT/EMS, and reduce the sulfoxide",
+    },
+    "trp-boc-decarboxylation": {
+        "delta": 44, "deltaLabel": "+44", "residue": "Trp(Boc)",
+        "label": "Trp(Boc) decarboxylation",
+        "cause": "the Trp(Boc) intermediate did not fully decarboxylate",
+        "remedy": "lyophilise from 0.1% aqueous acetic acid and repeat as needed",
+    },
+    "t-butylation": {
+        "delta": 56, "deltaLabel": "+56", "residue": "Cys/Met/Tyr/Trp",
+        "label": "t-butylation",
+        "cause": "incomplete tBu removal or alkylation by the tBu cation",
+        "remedy": "increase the EDT content and use Trt/Trp(Boc) derivatives",
+    },
+    "trp-dithioketal": {
+        "delta": 172, "deltaLabel": "+172", "residue": "Trp",
+        "label": "Trp dithioketal",
+        "cause": "prolonged EDT exposure formed a dithioketal, especially during Mtr removal",
+        "remedy": "keep cleavage short, use Trp(Boc), or use TMSBr/TFA",
+    },
+    "arg-mtr-incomplete": {
+        "delta": 212, "deltaLabel": "+212", "residue": "Arg(Mtr)",
+        "label": "incomplete Mtr removal",
+        "cause": "the Mtr group or a Trp-Mtr adduct survived",
+        "remedy": "re-treat, use TMSBr/TFA, or switch to Arg(Pbf)",
+    },
+    "fmoc-incomplete": {
+        "delta": 222, "deltaLabel": "+222", "residue": "N-terminus",
+        "label": "Fmoc not removed",
+        "cause": "the final Fmoc was still present before cleavage",
+        "remedy": "treat with 20% piperidine in DMF, evaporate and triturate",
+    },
+    "trt-incomplete": {
+        "delta": 242, "deltaLabel": "+242", "residue": "Cys/N-terminal Asn",
+        "label": "incomplete trityl removal",
+        "cause": "the trityl group survived the cleavage",
+        "remedy": "re-treat with EDT and TIS, or use Asn(Mtt)",
+    },
+    "arg-pbf-incomplete": {
+        "delta": 254, "deltaLabel": "+254/266", "residue": "Arg(Pbf/Pmc)",
+        "label": "incomplete Pbf/Pmc removal",
+        "cause": "the sulfonyl protecting group survived",
+        "remedy": "re-treat with the cleavage cocktail or TMSBr/TFA",
+    },
+}
+
+
 # Scavenger notes that belong to a RESIDUE, not a protecting group. Kept separate because the
 # group table is keyed by the group, and `Trp` + TES is a fact about the indole, not about Boc.
 RESIDUE_SCAVENGERS = {
