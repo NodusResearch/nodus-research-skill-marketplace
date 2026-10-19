@@ -10,14 +10,23 @@ jobs:
   # Linux alone. A path bug that only exists on Windows therefore could not fail until the
   # release workflow's build matrix reached it — after a merge, with a publication waiting
   # on it. This job is those same tests on the platforms the packages are released for.
+  #
+  # The check name comes from `label`, not from the runner, because branch protection requires
+  # these checks by name. GitHub retires a pinned macOS image every year (macos-14 on
+  # 2026-11-02); moving to the next one is then a change to `runner` alone, and the
+  # required `package-tests (macos)` check keeps its name.
   package-tests:
+    name: package-tests (${{ matrix.label }})
     env:
       NODUS_CHEMISTRY_TEST_PYTHON: python
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
-    runs-on: ${{ matrix.os }}
+        include:
+          - { label: ubuntu-latest, runner: ubuntu-latest }
+          - { label: windows-latest, runner: windows-latest }
+          - { label: macos, runner: macos-15 }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
         with:
