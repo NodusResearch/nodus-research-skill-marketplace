@@ -184,6 +184,8 @@ CURATED = {
     # `resin-cleavage`, but the nucleophile decides the product.
     "resin-ester-cleavage": ("*OC(=O)[C@@H](C)N", ["CO"], "COC(=O)[C@@H](C)N", ["*O"]),
     "resin-hydrazide-cleavage": ("*OC(=O)[C@@H](C)N", ["NN"], "C[C@@H](N)C(=O)NN", ["*O"]),
+    # The third HMBA-type nucleophile: hydroxylamine gives the C-terminal hydroxamate.
+    "resin-hydroxamate-cleavage": ("*OC(=O)[C@@H](C)N", ["NO"], "C[C@@H](N)C(=O)NO", ["*O"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
