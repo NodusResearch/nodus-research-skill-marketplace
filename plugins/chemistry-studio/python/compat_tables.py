@@ -205,7 +205,7 @@ REAGENT_CLASSES = [
 
 # ------------------------------------------------------------------------------ functional groups
 GROUPS = {
-    "ester": ("ester", "[#6][CX3](=O)[OX2][#6;!$(C([CH3])([CH3])[CH3])]"),
+    "ester": ("ester", "[#6][CX3](=O)[OX2][#6;!$(C([CH3])([CH3])[CH3]);!$(C[CH]=[CH2]);!$(C[CH2][Si]);!$(C[c]1[cH][cH][c]([NH])[cH][cH]1)]"),
     "support ester": ("support ester", "[#0][OX2][CX3]=[OX1]"),
     "tbu-ester": ("tert-butyl ester", "[#6][CX3](=O)[OX2]C([CH3])([CH3])[CH3]"),
     "lactone": ("lactone", "[#6;R][CX3;R](=O)[OX2;R][#6;R]"),
@@ -440,7 +440,7 @@ GROUPS = {
     "alcohol": ("alcohol", "[OX2H][CX4]"),
     "phenol": ("phenol", "[OX2H]c"),
     "diol": ("1,2- or 1,3-diol", "[OX2H][CX4][CX4,$([CX4][CX4])][OX2H]"),
-    "amine": ("amine (N–H)", "[NX3;H2,H1;!$(N[C,S,P]=[O,S,N]);!$(N-a);!$(N[#7,#8])]"),
+    "amine": ("amine (N–H)", "[NX3;H2,H1;!$(N[C,S,P]=[O,S,N]);!$(N[CX3]=[CX3]);!$(N-a);!$(N[#7,#8])]"),
     # The FREE ALPHA-AMINO group of a resin-bound chain — the one a coupling is aiming at, and the
     # one a uronium coupling reagent will cap if it meets the amine before the carboxylic acid.
     #
@@ -542,7 +542,8 @@ ATTACKS = {
         ("dde-enamine", "high", "is CLEAVED by hydrazine (that is the intended Dde/Ddiv removal; if "
                                 "it must survive, use a group that is stable to hydrazine)"),
         ("aldehyde", "high", "condenses to the hydrazone"), ("ketone", "high", "condenses to the hydrazone"),
-        ("support ester", "high", "is cleaved by hydrazinolysis, releasing the peptide from the support"),
+        ("support ester", "medium", "may be cleaved if the linker is an HMBA-type ester; the "
+                                    "2-CTC/trityl acid linker is not distinguished by the anonymous support"),
         ("odmab-ester", "high", "is CLEAVED by hydrazine (that is the intended ODmab removal; if "
                                 "it must survive, use a different carboxyl protection)"),
         ("fmoc", "high", "is CLEAVED by hydrazine; ODmab removal cannot be done while an Fmoc "

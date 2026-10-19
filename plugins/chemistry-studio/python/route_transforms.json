@@ -701,6 +701,18 @@
       "carries": 1
     },
     {
+      "id": "sidechain-macrolactamisation",
+      "summary": "Join a free side-chain amine to a free side-chain carboxylic acid on one carried peptide, closing a side-chain lactam and releasing water. The same bond as a head-to-tail closure, but the two sites are side chains and the backbone remains open.",
+      "site": null,
+      "siteSlots": [
+        "free amine",
+        "carboxylic acid"
+      ],
+      "smarts": "([NX3;H2,H1;!$(N[C,S]=O);!$(N=*):1].[CX3:2](=[OX1:3])[OX2H1:4])>>([NX3;H1,H0:1][CX3:2]=[OX1:3]).[OH2:4]",
+      "reagents": [],
+      "carries": 1
+    },
+    {
       "id": "boc-protection",
       "summary": "Protect a free amine as its Boc carbamate with di-tert-butyl dicarbonate, releasing carbon dioxide and tert-butanol. Boc2O is what is actually used; Boc-Cl is unstable and n-carbamoylation, written for a chloroformate, cannot match an anhydride. Removed by boc-removal, which runs on acid - the two are not the same equation.",
       "site": "free amine",

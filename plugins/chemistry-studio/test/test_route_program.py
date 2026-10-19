@@ -204,7 +204,8 @@ CURATED = {
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
-CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge", "head-to-tail-macrolactamisation")
+CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge", "head-to-tail-macrolactamisation",
+            "sidechain-macrolactamisation")
 
 # A family verb names the intent and dispatches to the member that fits the molecule, so it has no
 # SMARTS, no single site, and no one product to claim -- the member it picks has all three. Listed
@@ -592,6 +593,13 @@ class Closures(unittest.TestCase):
     ARM_1_3 = "[SH:901]CCCC(CCS)CCCC[SH:902]"
     ARM_2_3 = "SCCCC(CC[SH:901])CCCC[SH:902]"
     PAIR = [{"kind": "handle", "mark": 901}, {"kind": "handle", "mark": 902}]
+
+    def test_the_sidechain_lactam_joins_a_free_amine_and_acid(self):
+        out = named("sidechain-macrolactamisation", "NCCCCC(=O)O")
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"], "O=C1CCCCN1")
+        self.assertEqual(out["coProducts"], ["O"])
+        self.assertEqual(out["ring"], {"size": 6, "bridgeAtoms": 0})
 
     def test_the_disulfide_closure_shuts_a_ring_on_a_molecule_with_two_thiols(self):
         out = named("disulfide-closure", "SCCCCCCS")
