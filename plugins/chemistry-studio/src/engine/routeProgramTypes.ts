@@ -72,6 +72,9 @@ export interface ApplyLine {
    *  a structure the model never sees is exactly the fragile coupling this design removes. An
    *  unresolvable or ambiguous site is an error on the line, not a guess. */
   site?: SiteRef;
+  /** The two sites a closure joins, in the order the operation's siteSlots declare. A line uses
+   *  either `site` or `sites`, never both. */
+  sites?: SiteRef[];
   /** Which fragment continues the route when the step cuts the molecule in two.
    *
    *  Only the line knows. Both sides of an ester hydrolysis are made of the atoms that went in, so

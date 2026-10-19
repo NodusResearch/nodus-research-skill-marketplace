@@ -19,6 +19,7 @@ import {
   type ParseResult,
   type ProgramDiagnostic,
   type ProgramLine,
+  type SiteRef,
   type SpeciesRef,
   type StartLine,
 } from './routeProgramTypes';
@@ -202,6 +203,22 @@ function asRef(v: Value, what: string): MolRef {
   return v.v;
 }
 
+function siteFromValue(v: Value): SiteRef {
+  if (v.t === 'handle') {
+    const h = v.v;
+    if (h !== 'last' && !MOL_REF.test(h)) {
+      throw new Refusal('bad-site', `The site handle "@${h}" is not valid; use @last or a reference such as @M3.`);
+    }
+    return { kind: 'handle', ref: h };
+  }
+  if (v.t === 'str') {
+    const phrase = v.v.trim();
+    if (phrase === '') throw new Refusal('bad-site', 'A site phrase is given but empty.');
+    return { kind: 'phrase', phrase };
+  }
+  throw new Refusal('bad-site', 'A site must be a quoted phrase or a handle such as @last or @M3.');
+}
+
 function speciesFromParts(names: string[], smiles: string[]): SpeciesRef {
   const n = names.map((x) => x.trim());
   const s = smiles.map((x) => x.trim());
@@ -241,6 +258,7 @@ function parseApply(ref: MolRef, line: number, args: Arg[]): ApplyLine {
   const ops: Operation[] = [];
   let reagentsValue: Value | undefined;
   let siteValue: Value | undefined;
+  let sitesValue: Value | undefined;
   let carryValue: Value | undefined;
   const seen = new Set<string>();
   for (const a of args.slice(1)) {
@@ -267,6 +285,9 @@ function parseApply(ref: MolRef, line: number, args: Arg[]): ApplyLine {
       case 'site':
         siteValue = a.value;
         break;
+      case 'sites':
+        sitesValue = a.value;
+        break;
       case 'carry':
         carryValue = a.value;
         break;
@@ -283,18 +304,17 @@ function parseApply(ref: MolRef, line: number, args: Arg[]): ApplyLine {
     );
   }
   const result: ApplyLine = { kind: 'apply', line, ref, from, op: ops[0], reagents: [] };
-  if (siteValue !== undefined) {
-    if (siteValue.t === 'handle') {
-      const h = siteValue.v;
-      if (h !== 'last' && !MOL_REF.test(h)) {
-        throw new Refusal('bad-site', `The site handle "@${h}" is not valid; use @last or a reference such as @M3.`);
-      }
-      result.site = { kind: 'handle', ref: h };
-    } else {
-      const phrase = asString(siteValue, 'site=').trim();
-      if (phrase === '') throw new Refusal('bad-site', 'The site= argument is given but empty.');
-      result.site = { kind: 'phrase', phrase };
-    }
+  if (siteValue !== undefined && sitesValue !== undefined) {
+    throw new Refusal('bad-site', 'Give either site= or sites=, not both.');
+  }
+  if (siteValue !== undefined) result.site = siteFromValue(siteValue);
+  if (sitesValue !== undefined) {
+    if (sitesValue.t !== 'list') throw new Refusal('bad-site', 'The sites= argument must be a list of handles or phrases.');
+    if (sitesValue.items.length === 0) throw new Refusal('bad-site', 'The sites= argument is empty.');
+    result.sites = sitesValue.items.map((item) => {
+      if (item.key !== undefined) throw new Refusal('bad-site', 'A sites= entry is a handle or a quoted phrase, not a key=value.');
+      return siteFromValue(item.value);
+    });
   }
   if (reagentsValue !== undefined) {
     if (reagentsValue.t !== 'list') throw new Refusal('syntax', 'The reagents= argument must be a list in square brackets.');
@@ -440,8 +460,8 @@ export function parseRouteProgram(text: string): ParseResult {
       applies++;
       if (l.from === l.ref) report(l.line, 'self-ref', `The reference ${l.ref} is built from itself.`);
       else checkRef(l.from, l.line, 'This apply line');
-      const site = l.site;
-      if (site?.kind === 'handle') {
+      for (const site of l.sites ?? (l.site ? [l.site] : [])) {
+        if (site.kind !== 'handle') continue;
         if (site.ref === 'last') {
           if (applies === 1) report(l.line, 'bad-site', 'The site @last has no previous operation to point at, because this is the first apply line.');
         } else if (site.ref === l.ref) {

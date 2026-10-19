@@ -68,6 +68,13 @@ The ring formed is reported as {"size", "bridgeAtoms"} and NOTHING is gated on i
 span is reasonable is chemistry judgement that does not belong in a constant here; a five-membered
 closure and a large macrocycle are different propositions and the number is the only way for a
 caller or a report to tell them apart.
+
+UNSYMMETRICAL CLOSURES. A curated closure whose two ends are not equivalent may also declare
+`select`: {"site": 0, "reagentMap": N}. The two sites must then be named, because the choice is
+about which named site bonds to which reagent atom. Among the products the reaction forms, only
+the one whose selected site is bonded to the reagent atom with map number N is kept; if the
+reaction forms neither orientation, the answer is `no-match`, never a guess. A closure without
+`select` behaves exactly as before.
 """
 
 import json
@@ -330,6 +337,9 @@ def _fragments(outcome, owners, reacting, carried_slot, marks, canon):
             records.append({
                 "clean": clean, "mol": frag, "heavy": frag.GetNumHeavyAtoms(),
                 "inherited": frozenset(inherited[i] for i in group if i in inherited),
+                # The same relationship with the atom index, for an outcome selector: a closure
+                # may need to know WHICH carried site ended up bonded to which reagent atom.
+                "inherited_at": {at: inherited[i] for at, i in enumerate(group) if i in inherited},
                 # GetMolFrags lists a fragment's atoms in the order the fragment molecule holds
                 # them, so the position in `group` is the index within the fragment.
                 "changed": frozenset(at for at, i in enumerate(group) if i in changed),
@@ -338,6 +348,7 @@ def _fragments(outcome, owners, reacting, carried_slot, marks, canon):
                 # splits a molecule can say which of its own numbers rides on the piece the route
                 # follows, which is knowledge the toolkit cannot recover from sizes.
                 "numbers": frozenset(numbered[i] for i in group if i in numbered),
+                "mapnos": {at: numbered[i] for at, i in enumerate(group) if i in numbered},
             })
     if not records:
         return None
@@ -541,7 +552,8 @@ def _operation(payload, deadline):
     closure, and names what each of its two sites must be. `flexible` — the reactant order being
     negotiable — holds only for a reversed index template, which was not authored for this
     toolkit's carried-molecule-first convention."""
-    def built(rxn, reagents, site=None, site_slots=(), flexible=False, carries=None, agents=()):
+    def built(rxn, reagents, site=None, site_slots=(), flexible=False, carries=None, agents=(),
+              select=None):
         return {"rxn": rxn, "reagents": list(reagents), "site": site,
                 # Conditions the toolkit supplies, as SMILES. They go to the equation's AGENT slot,
                 # never a reaction slot, so they do not enter the balance — verified against the
@@ -553,7 +565,11 @@ def _operation(payload, deadline):
                 # `carries` is a template map number, and only a curated transformation may set
                 # one: an index template or a caller's raw SMARTS was not authored against this
                 # convention, so guessing a number for it would be worse than the default rule.
-                "carries": carries if _is_mark(carries) else None}
+                "carries": carries if _is_mark(carries) else None,
+                # An optional outcome selector for an unsymmetrical closure. It names one of the
+                # two declared sites and the reagent atom map number that site must bond to. A
+                # transform without one behaves exactly as before.
+                "select": select if isinstance(select, dict) else None}
 
     def anonymous(rxn):
         return [{"role": "reagent", "default": None}] * (rxn.GetNumReactantTemplates() - 1)
@@ -571,7 +587,7 @@ def _operation(payload, deadline):
             return _fail("unavailable", f"The curated SMARTS for {transform['id']} does not parse in this RDKit.")
         return built(rxn, transform.get("reagents") or [], transform.get("site"),
                      transform.get("siteSlots") or (), carries=transform.get("carries"),
-                     agents=transform.get("agents") or ())
+                     agents=transform.get("agents") or (), select=transform.get("select"))
     if kind == "smarts":
         smarts = operation.get("smarts")
         if not isinstance(smarts, str) or not smarts.strip():
@@ -805,6 +821,22 @@ def _apply_once(mol, reagents, rxn, transform):
         return False
 
 
+def _site_bonds_reagent(record, site, reagent_map):
+    """Whether this product bonds one of `site`'s carried atoms to the named reagent atom.
+
+    Used only by a transform that declares `select`. The carried atom is found through the
+    product's `inherited_at` map, and the reagent atom through `mapnos`, both recorded before
+    `_fragments` clears the template numbers. This is deliberately chemistry-free: it asks which
+    graph edge the reaction made, not whether that edge is the "right" one."""
+    for at, came in record.get("inherited_at", {}).items():
+        if came not in site["atoms"]:
+            continue
+        for neighbour in record["mol"].GetAtomWithIdx(at).GetNeighbors():
+            if record.get("mapnos", {}).get(neighbour.GetIdx()) == reagent_map:
+                return True
+    return False
+
+
 def _apply(payload, deadline):
     from rdkit import Chem, RDLogger
     from rdkit.Chem import rdMolDescriptors
@@ -889,6 +921,17 @@ def _apply(payload, deadline):
         if isinstance(ordered, dict) and "error" in ordered:
             return ordered
         sites = ordered
+    select = built.get("select")
+    select_site = select_map = None
+    if select is not None:
+        select_site, select_map = select.get("site"), select.get("reagentMap")
+        if isinstance(select_site, bool) or select_site not in (0, 1) \
+                or isinstance(select_map, bool) or not isinstance(select_map, int) or select_map <= 0:
+            return _fail("unparsable", "A select block needs site 0 or 1 and a positive reagentMap.")
+        if not declared_slots or len(sites) != 2:
+            return _fail("unparsable", "This transformation chooses between two regioisomers and "
+                                       "needs both closure sites named; give sites=[...] for the "
+                                       "two thiols.")
     site_label = " and ".join((f"the {site['phrase']}" if site["phrase"] else site.get("named") or "the site an earlier line marked") for site in sites) or None
     # A phrase names a group, so it reads as "at the ester OF the carried molecule". A handle label
     # already says whose site it is ("the site @M17 points at"), and the suffix would double up.
@@ -936,6 +979,7 @@ def _apply(payload, deadline):
 
     owners, reacting = _owners(rxn), _reacting(rxn)
     distinct = {}
+    saw_outcome = False
     for carried_slot, reactants in assignments:
         _check(deadline)
         try:
@@ -964,6 +1008,10 @@ def _apply(payload, deadline):
                 # rather than skipping to an outcome that happens not to object.
                 return picked
             main, others = picked
+            if select is not None:
+                saw_outcome = True
+                if not _site_bonds_reagent(main, sites[select_site], select_map):
+                    continue
             ring = _ring(main["mol"], reactants, owners, carried_slot) if declared_slots else None
             marked = Chem.Mol(main["mol"])
             if mark_as is not None:
@@ -983,6 +1031,10 @@ def _apply(payload, deadline):
                 "marks": sorted({a.GetAtomMapNum() for a in marked.GetAtoms() if a.GetAtomMapNum()})}
 
     if not distinct:
+        if select is not None and saw_outcome:
+            return _fail("no-match", "The closure formed, but not in the selected orientation: "
+                                   f"no product bonds the selected site to linker atom "
+                                   f"{select_map}.")
         helps = _which_apply(mol, filled, deadline)
         # WHICH HALF failed. The carried molecule reached this point having matched its own
         # reactant template, so when a reagent matches none of its slot's pattern the reagent is
@@ -1018,6 +1070,8 @@ def _apply(payload, deadline):
     answer = {"ok": True, "product": chosen["product"], "coProducts": chosen["coProducts"],
               "formula": rdMolDescriptors.CalcMolFormula(Chem.MolFromSmiles(chosen["product"])),
               "productHandle": chosen["productHandle"], "marks": chosen["marks"]}
+    if select is not None:
+        answer["selected"] = {"site": select_site, "reagentMap": select_map}
     # Reaction slots consume molecules, including defaults such as water. They must enter the
     # equation's reactant side; the caller's remaining reagents are conditions/agents.
     answer["coReactants"] = [canon(Chem.MolToSmiles(m)) for m in filled]

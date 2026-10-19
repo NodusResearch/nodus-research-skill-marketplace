@@ -208,7 +208,8 @@ CURATED = {
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
-CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge", "head-to-tail-macrolactamisation",
+CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge", "mdbx-staple-ortho",
+            "mdbx-staple-para", "head-to-tail-macrolactamisation",
             "sidechain-macrolactamisation")
 
 # A family verb names the intent and dispatches to the member that fits the molecule, so it has no
@@ -657,6 +658,47 @@ class Closures(unittest.TestCase):
                 self.assertEqual(out["product"], product)
                 self.assertEqual(out["ring"], {"size": size, "bridgeAtoms": 6})
                 self.assertEqual(out["coProducts"], ["Br", "Br"])
+
+    def test_the_unsymmetrical_bridge_selects_the_named_regioisomer(self):
+        # Two inequivalent thiols on one chain. The two products differ only in which sulfur is
+        # bonded to the bromomethyl ortho to the carboxylic acid.
+        handle = "[SH:901]CCCCC([SH:902])C"
+        reagent = "O=C(O)c1ccc(CBr)cc1CBr"
+        ortho = apply(moleculeHandle=handle,
+                      operation={"kind": "named", "id": "mdbx-staple-ortho"},
+                      reagents=[reagent], sites=self.PAIR)
+        para = apply(moleculeHandle=handle,
+                     operation={"kind": "named", "id": "mdbx-staple-para"},
+                     reagents=[reagent], sites=self.PAIR)
+        self.assertTrue(ortho.get("ok"), ortho)
+        self.assertTrue(para.get("ok"), para)
+        self.assertNotEqual(ortho["product"], para["product"])
+        self.assertEqual(ortho["selected"], {"site": 0, "reagentMap": 5})
+        self.assertEqual(para["selected"], {"site": 0, "reagentMap": 4})
+        self.assertEqual(ortho["product"], "CC1CCCCSCc2cc(ccc2C(=O)O)CS1")
+        self.assertEqual(para["product"], "CC1CCCCSCc2ccc(C(=O)O)c(c2)CS1")
+        self.assertEqual(ortho["coProducts"], ["Br", "Br"])
+
+    def test_the_site_order_controls_which_thiol_takes_the_ortho_position(self):
+        handle = "[SH:901]CCCCC([SH:902])C"
+        reagent = "O=C(O)c1ccc(CBr)cc1CBr"
+        forward = apply(moleculeHandle=handle,
+                        operation={"kind": "named", "id": "mdbx-staple-ortho"},
+                        reagents=[reagent], sites=self.PAIR)
+        reverse = apply(moleculeHandle=handle,
+                        operation={"kind": "named", "id": "mdbx-staple-ortho"},
+                        reagents=[reagent],
+                        sites=[{"kind": "handle", "mark": 902},
+                               {"kind": "handle", "mark": 901}])
+        self.assertTrue(forward.get("ok"), forward)
+        self.assertTrue(reverse.get("ok"), reverse)
+        self.assertEqual(reverse["product"], "CC1CCCCSCc2ccc(C(=O)O)c(c2)CS1")
+        self.assertNotEqual(forward["product"], reverse["product"])
+
+    def test_a_selecting_closure_needs_both_named_sites(self):
+        out = named("mdbx-staple-ortho", "SCCCCC(S)C", ["O=C(O)c1ccc(CBr)cc1CBr"])
+        self.assertEqual(out["error"], "unparsable")
+        self.assertIn("needs both closure sites named", out["message"])
 
     def test_a_closure_with_no_sites_named_is_ambiguous_when_several_pairs_could_shut(self):
         out = named("disulfide-closure", self.TRI)

@@ -63,7 +63,7 @@
     "aldehyde linker alkene": "[#0][NX3][CX3](=O)[CX3H1]=[CX3H1][CX4H1,H2][NX3][CX3](=O)",
     "S-acetamidomethyl": "[SX2][CH2][NX3][CX3](=O)[CH3]",
     "tert-butyl disulfide": "[#6][SX2][SX2][CX4]([CH3])([CH3])[CH3]",
-  "imidazole nh": "[nH]"
+    "imidazole nh": "[nH]"
   },
   "transforms": [
     {
@@ -290,6 +290,46 @@
           "default": null
         }
       ]
+    },
+    {
+      "summary": "Bridge two thiols with the unsymmetrical mDBX-oCOOH linker, choosing one regioisomer by the order of the two named sites. The first named site bonds to the bromomethyl ortho to the carboxylic acid; the second takes the other bromomethyl.",
+      "site": null,
+      "siteSlots": [
+        "thiol",
+        "thiol"
+      ],
+      "smarts": "([SX2H1:1].[SX2H1:2]).([Br:3][CH2:4]c1ccc(C(=O)[OX2H1])c([CH2:5][Br:6])c1)>>([S;H0:1][CH2:4]c1ccc(C(=O)[OX2H1])c([CH2:5][S;H0:2])c1).[BrH:3].[BrH:6]",
+      "reagents": [
+        {
+          "role": "mDBX-oCOOH",
+          "default": null
+        }
+      ],
+      "select": {
+        "site": 0,
+        "reagentMap": 5
+      },
+      "id": "mdbx-staple-ortho"
+    },
+    {
+      "summary": "Bridge two thiols with the unsymmetrical mDBX-oCOOH linker, choosing one regioisomer by the order of the two named sites. The first named site bonds to the bromomethyl para to the carboxylic acid; the second takes the other bromomethyl.",
+      "site": null,
+      "siteSlots": [
+        "thiol",
+        "thiol"
+      ],
+      "smarts": "([SX2H1:1].[SX2H1:2]).([Br:3][CH2:4]c1ccc(C(=O)[OX2H1])c([CH2:5][Br:6])c1)>>([S;H0:1][CH2:4]c1ccc(C(=O)[OX2H1])c([CH2:5][S;H0:2])c1).[BrH:3].[BrH:6]",
+      "reagents": [
+        {
+          "role": "mDBX-oCOOH",
+          "default": null
+        }
+      ],
+      "select": {
+        "site": 0,
+        "reagentMap": 4
+      },
+      "id": "mdbx-staple-para"
     },
     {
       "id": "n-deprotect",
