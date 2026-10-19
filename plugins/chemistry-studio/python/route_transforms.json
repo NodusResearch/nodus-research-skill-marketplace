@@ -42,6 +42,7 @@
     "tert-butyl ester": "[#6][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
     "3-methylpent-3-yl ester": "[#6][CX3](=O)[OX2][CX4]([CH3])([CH2][CH3])[CH2][CH3]",
     "s-trityl": "[SX2][CX4](c)(c)c",
+    "se-trityl": "[SeX2][CX4](c)(c)c",
     "n-trityl": "[NX3][CX4](c)(c)c",
     "imidazole trityl": "[n][CX4](c)(c)c",
     "tert-butyl ether": "[#6;!$([CX3]=[OX1])][OX2][CX4]([CH3])([CH3])[CH3]",
@@ -399,6 +400,19 @@
       "summary": "Remove a trityl group from a side-chain thiol (TFA with a scavenger), releasing triphenylmethanol.",
       "site": "s-trityl",
       "smarts": "[SX2:1][CX4:2]([c:4])([c:5])[c:6].[OX2H2:3]>>[SX2H1:1].[OX2H1:3][CX4:2]([c:4])([c:5])[c:6]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "se-trityl-removal",
+      "summary": "Remove a trityl group from a selenocysteine side chain with acid and water, releasing triphenylmethanol and the free selenol. The selenium analogue of s-trityl-removal.",
+      "site": "se-trityl",
+      "smarts": "[SeX2:1][CX4:2]([c:4])([c:5])[c:6].[OX2H2:3]>>[SeX2H1:1].[OX2H1:3][CX4:2]([c:4])([c:5])[c:6]",
       "reagents": [
         {
           "role": "water",

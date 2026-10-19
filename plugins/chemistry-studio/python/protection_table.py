@@ -61,6 +61,7 @@ GROUPS = {
         "label": "trityl",
         "sites": {
             "Cys": ("s-trityl-removal", "s-trityl", True),
+            "seC": ("se-trityl-removal", "se-trityl", True),
             "His": ("imidazole-trityl-removal", "imidazole trityl", True),
             "default": ("n-trityl-removal", "n-trityl", True),
         },

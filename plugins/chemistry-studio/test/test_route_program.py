@@ -158,6 +158,8 @@ CURATED = {
     # that picks between them, and it is in FAMILIES below.
     "s-trityl-removal": ("N[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["O"], "N[C@@H](CS)C(=O)O",
                          ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
+    "se-trityl-removal": ("C[Se]C(c1ccccc1)(c1ccccc1)c1ccccc1", ["O"], "C[SeH]",
+                          ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
     "n-trityl-removal": ("O=C(NC(c1ccccc1)(c1ccccc1)c1ccccc1)C[C@H](N)C(=O)O", ["O"],
                          "NC(=O)C[C@H](N)C(=O)O", ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
     "imidazole-trityl-removal": ("N[C@@H](Cc1cn(C(c2ccccc2)(c2ccccc2)c2ccccc2)cn1)C(=O)O", ["O"],
