@@ -55,6 +55,7 @@ EXPECTED_CLASS = {
     "alloc-removal": "pd-coupling",
     "allyl-ester-removal": "pd-coupling",
     "otmse-removal": "fluoride",
+    "odmab-removal": "hydrazine",
     "n-formylation": "acylating",
 }
 
@@ -148,6 +149,12 @@ class ItMakesTheGatesFireOnAProgramStep(unittest.TestCase):
     def test_fluoride_flags_an_otmse_group_that_must_survive(self):
         otmse = "C[Si](C)(C)CCOC(=O)C"
         self.assertIn("otmse-ester", self._check([otmse], [otmse], "otmse-removal"))
+
+    def test_hydrazine_flags_odmab_and_fmoc_that_must_survive(self):
+        odmab = "CC(=O)OCC1=CC=C(NC(=C2C(=O)CC(C)(C)CC2=O)CC(C)C)C=C1"
+        fmoc = "O=C(O)CNC(=O)OCC1c2ccccc2-c2ccccc21"
+        self.assertIn("odmab-ester", self._check([odmab], [odmab], "odmab-removal"))
+        self.assertIn("fmoc", self._check([fmoc], [fmoc], "odmab-removal"))
 
 
 # Nothing goes after this block.

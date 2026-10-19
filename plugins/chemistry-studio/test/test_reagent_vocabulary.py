@@ -69,6 +69,7 @@ EXPECTED = {
     # transforms needed one; it condenses with the enamine and is read now.
     "hydrazine, DMF, 2 x 3 min": "hydrazine",
     "hydrazine hydrate, EtOH": "hydrazine",
+    "2% hydrazine monohydrate, DMF": "hydrazine",
 
     # --- acid cleavage, concentrated. TMSBr and Reagent K are named in our OWN remedy text for the
     # free-indole hazard, and classified as nothing, so a route that took our advice reached no gate.

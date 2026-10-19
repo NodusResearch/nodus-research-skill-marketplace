@@ -331,6 +331,8 @@ GROUPS = {
     "allyl-ester": ("allyl ester", "[#6][CX3](=O)[OX2][CH2][CH]=[CH2]"),
     "otmse-ester": ("2-(trimethylsilyl)ethyl ester",
                     "[#6][CX3](=O)[OX2][CH2][CH2][Si]([CH3])([CH3])[CH3]"),
+    "odmab-ester": ("ODmab p-aminobenzyl ester",
+                    "[#6][CX3](=O)[OX2][CH2][c]1[cH][cH][c]([NH][CX3](=[CX3])[#6])[cH][cH]1"),
     # An N-terminal GLUTAMINE with its alpha-amine free. That amine is five atoms from its own
     # side-chain amide carbonyl, so it closes the five-membered lactam and expels ammonia: the
     # peptide becomes the pyroglutamyl one, with no N-terminus left to extend.
@@ -541,6 +543,10 @@ ATTACKS = {
                                 "it must survive, use a group that is stable to hydrazine)"),
         ("aldehyde", "high", "condenses to the hydrazone"), ("ketone", "high", "condenses to the hydrazone"),
         ("support ester", "high", "is cleaved by hydrazinolysis, releasing the peptide from the support"),
+        ("odmab-ester", "high", "is CLEAVED by hydrazine (that is the intended ODmab removal; if "
+                                "it must survive, use a different carboxyl protection)"),
+        ("fmoc", "high", "is CLEAVED by hydrazine; ODmab removal cannot be done while an Fmoc "
+                         "group must survive"),
         ("ester", "medium", "may be cleaved by hydrazinolysis"),
     ],
     "amine-base": [("fmoc", "high", "is cleaved by amine base"), ("acid-chloride", "high", "is aminolysed"),
@@ -1286,6 +1292,8 @@ PROTECT = {
                                 "different carboxyl protection that is stable to the Pd step", [])},
     "otmse-ester": {"default": ("remove it deliberately with TBAF; if it must survive, use a "
                                 "different carboxyl protection that is stable to fluoride", [])},
+    "odmab-ester": {"default": ("remove it deliberately with hydrazine; if it must survive, use a "
+                                "different carboxyl protection that is stable to hydrazine", [])},
     "cys-acm": {"default": ("omit the thiol scavenger or use a different Cys protection; Acm is "
                              "not the block for an EDT cocktail", [])},
     "free-indole": {
@@ -1459,6 +1467,7 @@ _FORMYLATION = "formic acid, DIC/HOBt, DMF, 2 h"
 _HYDRAZINOLYSIS = "hydrazine, DMF, 2 x 3 min"
 _PD_ALLYL = "Pd(PPh3)4, morpholine, DMF, 2 h"
 _TBAF = "TBAF, THF, 1 h"
+_ODMAB = "2% hydrazine monohydrate, DMF, 2 x 3 min"
 TRANSFORM_CONDITIONS = {
     # assembly
     "fmoc-removal": _FMOC_REMOVAL,
@@ -1485,6 +1494,7 @@ TRANSFORM_CONDITIONS = {
     "alloc-removal": _PD_ALLYL,
     "allyl-ester-removal": _PD_ALLYL,
     "otmse-removal": _TBAF,
+    "odmab-removal": _ODMAB,
 }
 
 

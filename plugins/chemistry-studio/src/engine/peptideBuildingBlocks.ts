@@ -77,6 +77,11 @@ export const PEPTIDE_BUILDING_BLOCKS: Record<string, string> = {
   // carbamates and the Fmoc group are untouched.
   "Fmoc-Glu(OTmse)-OH": "C[Si](C)(C)CCOC(=O)CC[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
   "Fmoc-Asp(OTmse)-OH": "C[Si](C)(C)CCOC(=O)C[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
+  // ODmab is the hydrazine-labile p-aminobenzyl ester. Hydrazine removes the Ddiv enamine and the
+  // resulting p-aminobenzyl ester eliminates, so the same step frees the acid. It also removes an
+  // N-Fmoc group, which is why this is an on-resin orthogonal step, not a final-acid group.
+  "Fmoc-Glu(ODmab)-OH": "CC(C)CC(=C1C(=O)CC(C)(C)CC1=O)Nc1ccc(COC(=O)CC[C@@H](C(=O)O)NC(=O)OCC2c3ccccc3-c3ccccc32)cc1",
+  "Fmoc-Asp(ODmab)-OH": "CC(C)CC(=C1C(=O)CC(C)(C)CC1=O)Nc1ccc(COC(=O)C[C@@H](C(=O)O)NC(=O)OCC2c3ccccc3-c3ccccc32)cc1",
   "Fmoc-Met-OH": "CSCC[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Phe-OH": "C1=CC=C(C=C1)C[C@@H](C(=O)O)NC(=O)OCC2C3=CC=CC=C3C4=CC=CC=C24",
   "Fmoc-Pro-OH": "C1C[C@H](N(C1)C(=O)OCC2C3=CC=CC=C3C4=CC=CC=C24)C(=O)O",

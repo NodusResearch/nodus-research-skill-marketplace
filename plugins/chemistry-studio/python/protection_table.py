@@ -157,6 +157,15 @@ GROUPS = {
         "notes": "Fluoride-labile carboxyl protection; TBAF frees the acid while tBu esters, Boc "
                  "carbamates and Fmoc survive.",
     },
+    "ODmab": {
+        "label": "ODmab p-aminobenzyl ester",
+        "sites": {"default": ("odmab-removal", "ODmab ester", True)},
+        "mass_shift": None,
+        "compatible": ("hydrazine",),
+        "incompatible": ("Fmoc",),
+        "notes": "Hydrazine-labile carboxyl protection; the same reagent removes N-Fmoc, so this "
+                 "is an on-resin orthogonal step, not a final-acid group.",
+    },
     "Bum": {
         "label": "Bum (tert-butoxymethyl)",
         "sites": {},

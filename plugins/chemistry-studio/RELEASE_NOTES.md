@@ -1,6 +1,6 @@
 # Chemistry Studio 2.10.0
 
-Adds orthogonal side-chain building blocks and removals: Fmoc-Lys(Dde/Ddiv/Alloc)-OH, Fmoc-Glu/Asp(OAll)-OH and Fmoc-Glu/Asp(OTmse)-OH, with hydrazine, Pd(0) and TBAF transforms. Hydrazine is now a reagent class and is gated against surviving Dde/Ddiv, carbonyls and support esters; Pd(0) and fluoride gates cover surviving Alloc, allyl and OTmse groups. No permission or data-migration changes.
+Adds orthogonal side-chain building blocks and removals: Fmoc-Lys(Dde/Ddiv/Alloc)-OH, Fmoc-Glu/Asp(OAll)-OH, Fmoc-Glu/Asp(OTmse)-OH and Fmoc-Glu/Asp(ODmab)-OH, with hydrazine, Pd(0), TBAF and ODmab hydrazinolysis transforms. Hydrazine is now a reagent class and is gated against surviving Dde/Ddiv, ODmab, N-Fmoc, carbonyls and support esters; Pd(0) and fluoride gates cover surviving Alloc, allyl and OTmse groups. No permission or data-migration changes.
 
 # Chemistry Studio 2.9.0
 

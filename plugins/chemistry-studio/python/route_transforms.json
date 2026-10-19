@@ -58,6 +58,7 @@
     "alloc carbamate": "[NX3][CX3](=O)[OX2][CH2][CH]=[CH2]",
     "allyl ester": "[#6][CX3](=O)[OX2][CH2][CH]=[CH2]",
     "2-(trimethylsilyl)ethyl ester": "[#6][CX3](=O)[OX2][CH2][CH2][Si]([CH3])([CH3])[CH3]",
+    "ODmab ester": "[#6][CX3](=O)[OX2][CH2][c]1[cH][cH][c]([NH][CX3](=[CX3])[#6])[cH][cH]1",
     "S-acetamidomethyl": "[SX2][CH2][NX3][CX3](=O)[CH3]",
     "tert-butyl disulfide": "[#6][SX2][SX2][CX4]([CH3])([CH3])[CH3]",
   "imidazole nh": "[nH]"
@@ -663,6 +664,23 @@
       "site": "2-(trimethylsilyl)ethyl ester",
       "smarts": "[#6:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH2:6][Si:7]([CH3:8])([CH3:9])[CH3:10].[OX2H2:11]>>[#6:1][CX3:2](=[OX1:3])[OX2H1:4].[CH2:5]=[CH2:6].[OX2H1:11][Si:7]([CH3:8])([CH3:9])[CH3:10]",
       "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "odmab-removal",
+      "summary": "Remove an ODmab p-aminobenzyl ester from a side-chain carboxyl with hydrazine, freeing the acid. Hydrazine removes the Ddiv enamine and the resulting p-aminobenzyl ester eliminates; the equation gives p-aminobenzyl alcohol and the Ddiv hydrazone. The same reagent also removes an N-Fmoc group.",
+      "site": "ODmab ester",
+      "smarts": "[#6:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][c:6]1[cH:7][cH:8][c:9]([NH:10][CX3:11](=[CX3:12])[#6:13])[cH:14][cH:15]1.[NX3;H2:16][NX3;H2:17].[OX2H2:18]>>[#6:1][CX3:2](=[OX1:3])[OX2H1:18].[OX2H1:4][CH2:5][c:6]1[cH:7][cH:8][c:9]([NX3;H2:10])[cH:14][cH:15]1.[NX3;H2:16][NX2:17]=[CX3:11]([#6:13])[CX3:12]",
+      "reagents": [
+        {
+          "role": "hydrazine",
+          "default": "NN"
+        },
         {
           "role": "water",
           "default": "O"

@@ -50,7 +50,8 @@ class TheOrthogonalSideChainBlocksAreShipped(unittest.TestCase):
         query = Chem.MolFromSmarts("[NX3][CX4;H1]([CX3]=[OX1])")
         for name in ("Fmoc-Lys(Dde)-OH", "Fmoc-Lys(Ddiv)-OH", "Fmoc-Lys(Alloc)-OH",
                      "Fmoc-Glu(OAll)-OH", "Fmoc-Asp(OAll)-OH",
-                     "Fmoc-Glu(OTmse)-OH", "Fmoc-Asp(OTmse)-OH"):
+                     "Fmoc-Glu(OTmse)-OH", "Fmoc-Asp(OTmse)-OH",
+                     "Fmoc-Glu(ODmab)-OH", "Fmoc-Asp(ODmab)-OH"):
             with self.subTest(name=name):
                 self.assertIn(name, table)
                 mol = Chem.MolFromSmiles(table[name])
@@ -70,6 +71,8 @@ class TheOrthogonalSideChainBlocksAreShipped(unittest.TestCase):
             "Fmoc-Asp(OAll)-OH": "[#6][CX3](=O)[OX2][CH2][CH]=[CH2]",
             "Fmoc-Glu(OTmse)-OH": "[#6][CX3](=O)[OX2][CH2][CH2][Si]([CH3])([CH3])[CH3]",
             "Fmoc-Asp(OTmse)-OH": "[#6][CX3](=O)[OX2][CH2][CH2][Si]([CH3])([CH3])[CH3]",
+            "Fmoc-Glu(ODmab)-OH": "[#6][CX3](=O)[OX2][CH2][c]1[cH][cH][c]([NH][CX3](=[CX3])[#6])[cH][cH]1",
+            "Fmoc-Asp(ODmab)-OH": "[#6][CX3](=O)[OX2][CH2][c]1[cH][cH][c]([NH][CX3](=[CX3])[#6])[cH][cH]1",
         }
         for name, smarts in cases.items():
             with self.subTest(name=name):
