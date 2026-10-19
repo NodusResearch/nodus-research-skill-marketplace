@@ -48,7 +48,7 @@ PYROGLU_ALA = "O=C1CC[C@H](N1)C(=O)N[C@@H](C)C(=O)O"
 TBU_GLN_ALA = "NC(=O)CC[C@H](N)C(=O)N[C@@H](C)C(=O)OC(C)(C)C"
 
 GROUP = "n-terminal-gln"
-CLEAVAGE = "TFA/H2O 95:5, 2 h"
+CLEAVAGE = "TFA/H2O 95:5, 2 h, then evaporated and triturated with ether"
 
 
 def hazards_for(reactant, product, reagents):

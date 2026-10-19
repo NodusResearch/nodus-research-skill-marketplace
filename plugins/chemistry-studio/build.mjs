@@ -40,6 +40,7 @@ const extraFiles = {
   'python/route_transforms.json': 'python/route_transforms.json',
   'python/decompose.py': 'python/decompose.py',
   'python/peptide_aggregation.py': 'python/peptide_aggregation.py',
+  'python/protection_table.py': 'python/protection_table.py',
   'python/peptide_sequence.py': 'python/peptide_sequence.py',
 };
 const lockRoot = path.join(root, 'runtimes');
