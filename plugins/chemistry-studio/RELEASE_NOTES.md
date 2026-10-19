@@ -1,3 +1,7 @@
+# Chemistry Studio 2.10.0
+
+Adds orthogonal side-chain building blocks and removals: Fmoc-Lys(Dde/Ddiv/Alloc)-OH, Fmoc-Glu/Asp(OAll)-OH and Fmoc-Glu/Asp(OTmse)-OH, with hydrazine, Pd(0) and TBAF transforms. Hydrazine is now a reagent class and is gated against surviving Dde/Ddiv, carbonyls and support esters; Pd(0) and fluoride gates cover surviving Alloc, allyl and OTmse groups. No permission or data-migration changes.
+
 # Chemistry Studio 2.9.0
 
 Adds peptide capping and arginine-to-ornithine compatibility gates, broader reagent vocabulary, mild-acid and additive checks, nominal mass signatures, aromatic nitrogen Boc removal, a pi-protected histidine building block and a transform-to-conditions helper. Aggregation advisory adds a separate residue-identity signal for sheet-prone windows. It skips windows with unknown residues and preserves the strongest tier when merging them. Explicitly omitted preactivation no longer raises the capping flag, and pi-protected histidine clears its epimerisation gate. No permissions or data migrations change. Transform conditions and mass signatures are package data for callers; this change adds no automatic application reporting path.
