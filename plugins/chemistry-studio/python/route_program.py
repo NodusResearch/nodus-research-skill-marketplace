@@ -925,7 +925,8 @@ def _apply(payload, deadline):
     select_site = select_map = None
     if select is not None:
         select_site, select_map = select.get("site"), select.get("reagentMap")
-        if isinstance(select_site, bool) or select_site not in (0, 1) \
+        if isinstance(select_site, bool) or not isinstance(select_site, int) \
+                or select_site not in (0, 1) \
                 or isinstance(select_map, bool) or not isinstance(select_map, int) or select_map <= 0:
             return _fail("unparsable", "A select block needs site 0 or 1 and a positive reagentMap.")
         if not declared_slots or len(sites) != 2:
