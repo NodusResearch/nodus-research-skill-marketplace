@@ -190,6 +190,14 @@ CURATED = {
     "acm-removal-hg": ("N[C@@H](CSCNC(=O)C)C(=O)O", ["O"], "N[C@@H](CS)C(=O)O", ["CC(=O)NCO"]),
     "stbu-removal": ("CC(C)(C)SSC[C@H](N)C(=O)O", ["CS"], "N[C@@H](CS)C(=O)O",
                      ["CSSC(C)(C)C"]),
+    # Orthogonal side-chain deprotections. Dde and Ddiv share one enamine rule; hydrazine displaces
+    # the amine and carries the enamine away as its hydrazone. Alloc and the allyl ester are the
+    # Pd(0)-labile pair; the equation is the formal hydrolysis, so the allyl fragment leaves as
+    # allyl alcohol rather than the nucleophile adduct the practical route traps.
+    "dde-removal": ("CC(=C1C(=O)CC(C)(C)CC1=O)NC", ["NN"], "CN",
+                    ["CC(=NN)C1C(=O)CC(C)(C)CC1=O"]),
+    "alloc-removal": ("C=CCOC(=O)NCC", ["O"], "CCN", ["C=CCO", "O=C=O"]),
+    "allyl-ester-removal": ("C=CCOC(=O)C", ["O"], "CC(=O)O", ["C=CCO"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
@@ -238,6 +246,12 @@ class CuratedSet(unittest.TestCase):
                 self.assertEqual(out["coProducts"], co_products)
                 self.assertEqual(out["site"]["phrase"], route_program._tables()["byId"][transform_id]["site"])
                 self.assertTrue(out["site"]["atoms"])
+
+    def test_ddiv_uses_the_same_enamine_rule_as_dde(self):
+        out = named("dde-removal", "CC(C)CC(=C1C(=O)CC(C)(C)CC1=O)NC", ["NN"])
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"], "CN")
+        self.assertEqual(out["coProducts"], ["CC(C)CC(=NN)C1C(=O)CC(C)(C)CC1=O"])
 
     def test_the_support_amide_release_consumes_the_water_it_needs(self):
         out = named("resin-cleavage-amide", "*NC(=O)[C@@H](C)N", ["O"])

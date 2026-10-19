@@ -62,6 +62,17 @@ export const PEPTIDE_BUILDING_BLOCKS: Record<string, string> = {
   "Fmoc-Ile-OH": "CC[C@H](C)[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Leu-OH": "CC(C)C[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Lys(Boc)-OH": "CC(C)(C)OC(=O)NCCCC[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
+  // Orthogonal Lys side-chain protections, for the on-resin work the Boc group cannot do.
+  // Dde and Ddiv are enamines removed by hydrazine; Ddiv is the more migration-resistant of the
+  // two. Alloc is a Pd(0)-labile carbamate. None of these is selected by the linear generator,
+  // which still defaults to Lys(Boc).
+  "Fmoc-Lys(Dde)-OH": "CC(=C1C(=O)CC(C)(C)CC1=O)NCCCC[C@@H](C(=O)O)NC(=O)OCC2c3ccccc3-c3ccccc32",
+  "Fmoc-Lys(Ddiv)-OH": "CC(C)CC(=C1C(=O)CC(C)(C)CC1=O)NCCCC[C@@H](C(=O)O)NC(=O)OCC2c3ccccc3-c3ccccc32",
+  "Fmoc-Lys(Alloc)-OH": "C=CCOC(=O)NCCCC[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
+  // The same Pd(0)-labile allyl protection on the side-chain carboxyls. These are the carboxyl
+  // partners for an on-resin cyclisation: one group is freed while the tBu/Boc groups survive.
+  "Fmoc-Glu(OAll)-OH": "C=CCOC(=O)CC[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
+  "Fmoc-Asp(OAll)-OH": "C=CCOC(=O)C[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
   "Fmoc-Met-OH": "CSCC[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Phe-OH": "C1=CC=C(C=C1)C[C@@H](C(=O)O)NC(=O)OCC2C3=CC=CC=C3C4=CC=CC=C24",
   "Fmoc-Pro-OH": "C1C[C@H](N(C1)C(=O)OCC2C3=CC=CC=C3C4=CC=CC=C24)C(=O)O",

@@ -54,6 +54,9 @@
     "pseudoproline": "[NX3]1[CX4;H1][CH2][OX2][CX4]1([CH3])[CH3]",
     "guanidine": "[NX3;H2][CX3](=[NX2])[NX3]",
     "ring nitrogen boc": "[n][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
+    "Dde/Ddiv enamine": "[NX3;H1][CX3;H0]([#6])=[CX3]",
+    "alloc carbamate": "[NX3][CX3](=O)[OX2][CH2][CH]=[CH2]",
+    "allyl ester": "[#6][CX3](=O)[OX2][CH2][CH]=[CH2]",
     "S-acetamidomethyl": "[SX2][CH2][NX3][CX3](=O)[CH3]",
     "tert-butyl disulfide": "[#6][SX2][SX2][CX4]([CH3])([CH3])[CH3]",
   "imidazole nh": "[nH]"
@@ -610,6 +613,45 @@
         {
           "role": "thiol",
           "default": "CS"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "dde-removal",
+      "summary": "Remove a Dde or Ddiv enamine from a side-chain amine with hydrazine, freeing the amine and the hydrazone by-product. Ddiv is preferred where the Dde group would migrate or split during extended handling. This is an on-resin orthogonal deprotection, not part of the final TFA endgame.",
+      "site": "Dde/Ddiv enamine",
+      "smarts": "[NX3;H1:1][CX3;H0:2]([#6:3])=[CX3:4].[NX3;H2:5][NX3;H2:6]>>[NX3;H2:1].[NX3;H2:5][NX2:6]=[CX3:2]([#6:3])[CX3:4]",
+      "reagents": [
+        {
+          "role": "hydrazine",
+          "default": "NN"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "alloc-removal",
+      "summary": "Remove an allyloxycarbonyl (Alloc) carbamate from an amine with Pd(PPh3)4 and a nucleophile, freeing the amine. The equation is the formal hydrolysis, which also gives carbon dioxide and allyl alcohol; the practical Pd(0) route traps the allyl fragment with morpholine, dimedone or thiosalicylic acid.",
+      "site": "alloc carbamate",
+      "smarts": "[NX3;H1:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH:6]=[CH2:7].[OX2H2:8]>>[NX3;H2:1].[OX1:3]=[CX3:2]=[OX2:4].[OX2H1:8][CH2:5][CH:6]=[CH2:7]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "allyl-ester-removal",
+      "summary": "Remove an allyl ester from a side-chain carboxyl with Pd(PPh3)4 and a nucleophile, freeing the acid. The equation is the formal hydrolysis, which gives allyl alcohol; the practical Pd(0) route traps the allyl fragment with morpholine, dimedone or thiosalicylic acid.",
+      "site": "allyl ester",
+      "smarts": "[#6:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH:6]=[CH2:7].[OX2H2:8]>>[#6:1][CX3:2](=[OX1:3])[OX2H1:8].[OX2H1:4][CH2:5][CH:6]=[CH2:7]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
         }
       ],
       "carries": 1

@@ -51,6 +51,9 @@ EXPECTED_CLASS = {
     "pseudoproline-opening": "strong-acid",
     "resin-cleavage": "strong-acid",
     "resin-cleavage-amide": "strong-acid",
+    "dde-removal": "hydrazine",
+    "alloc-removal": "pd-coupling",
+    "allyl-ester-removal": "pd-coupling",
     "n-formylation": "acylating",
 }
 

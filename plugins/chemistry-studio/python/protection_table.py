@@ -113,6 +113,41 @@ GROUPS = {
         "notes": "Removed by thiol-disulfide exchange; the mixed disulfide is resistant to further "
                  "interchange because the tert-butyl carbon is tertiary.",
     },
+    "Dde": {
+        "label": "Dde enamine",
+        "sites": {"default": ("dde-removal", "Dde/Ddiv enamine", False)},
+        "mass_shift": None,
+        "compatible": ("hydrazine",),
+        "incompatible": (),
+        "notes": "Hydrazine-labile Lys protection for on-resin orthogonal work; Ddiv is preferred "
+                 "where migration or premature loss is a concern.",
+    },
+    "Ddiv": {
+        "label": "Ddiv enamine",
+        "sites": {"default": ("dde-removal", "Dde/Ddiv enamine", False)},
+        "mass_shift": None,
+        "compatible": ("hydrazine",),
+        "incompatible": (),
+        "notes": "The more migration-resistant alternative to Dde; removed by the same hydrazine "
+                 "step.",
+    },
+    "Alloc": {
+        "label": "allyloxycarbonyl carbamate",
+        "sites": {"default": ("alloc-removal", "alloc carbamate", True)},
+        "mass_shift": None,
+        "compatible": ("Pd(PPh3)4", "morpholine", "dimedone", "thiosalicylic acid"),
+        "incompatible": (),
+        "notes": "Pd(0)-labile amine protection; the allyl fragment is trapped by a nucleophile.",
+    },
+    "OAll": {
+        "label": "allyl ester",
+        "sites": {"default": ("allyl-ester-removal", "allyl ester", True)},
+        "mass_shift": None,
+        "compatible": ("Pd(PPh3)4", "morpholine", "dimedone", "thiosalicylic acid"),
+        "incompatible": (),
+        "notes": "Pd(0)-labile carboxyl protection; frees the acid for on-resin cyclisation or "
+                 "branching while tBu/Boc groups survive.",
+    },
     "Bum": {
         "label": "Bum (tert-butoxymethyl)",
         "sites": {},

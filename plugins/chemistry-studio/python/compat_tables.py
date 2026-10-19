@@ -87,6 +87,8 @@ REAGENT_CLASSES = [
     ("amine-base", "amine base (piperidine, DBU)",
      [r"\bpiperidine\b", r"\bmethylpiperidine\b", r"\bpiperazine\b", r"\bdipropylamine\b",
       _F + r"DBU" + _E, r"\bmorpholine\b"]),
+    ("hydrazine", "hydrazine (Dde/Ddiv and ODmab removal)",
+     [r"\bhydrazine\b", _F + r"NH2NH2" + _E, r"\bH2NNH2\b"]),
     ("hydrogenation", "catalytic hydrogenation", [
         _F + r"H2" + _E + r"[^;]{0,40}(pd|pt|ni|rh|ru|raney|adams)", r"(pd|pt)\s*/\s*c\b[^;]{0,40}" + _F + r"H2" + _E,
         r"hydrogenat", r"\bpd/c\b", r"\bpd\(oh\)2", r"pearlman", r"raney", r"\bpto2\b", r"adams'? catalyst",
@@ -1419,6 +1421,8 @@ _FMOC_REMOVAL = "20% piperidine in DMF, 2 x 5 min"
 _COUPLING = "Fmoc-amino acid, HBTU, DIPEA, DMF, 45 min"
 _ACID_CLEAVAGE = "TFA/H2O 95:5, 2 h"
 _FORMYLATION = "formic acid, DIC/HOBt, DMF, 2 h"
+_HYDRAZINOLYSIS = "hydrazine, DMF, 2 x 3 min"
+_PD_ALLYL = "Pd(PPh3)4, morpholine, DMF, 2 h"
 TRANSFORM_CONDITIONS = {
     # assembly
     "fmoc-removal": _FMOC_REMOVAL,
@@ -1441,6 +1445,9 @@ TRANSFORM_CONDITIONS = {
     "pseudoproline-opening": _ACID_CLEAVAGE,
     "resin-cleavage": _ACID_CLEAVAGE,
     "resin-cleavage-amide": _ACID_CLEAVAGE,
+    "dde-removal": _HYDRAZINOLYSIS,
+    "alloc-removal": _PD_ALLYL,
+    "allyl-ester-removal": _PD_ALLYL,
 }
 
 
