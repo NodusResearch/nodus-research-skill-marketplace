@@ -57,6 +57,7 @@
     "Dde/Ddiv enamine": "[NX3;H1][CX3;H0]([#6])=[CX3]",
     "alloc carbamate": "[NX3][CX3](=O)[OX2][CH2][CH]=[CH2]",
     "allyl ester": "[#6][CX3](=O)[OX2][CH2][CH]=[CH2]",
+    "2-(trimethylsilyl)ethyl ester": "[#6][CX3](=O)[OX2][CH2][CH2][Si]([CH3])([CH3])[CH3]",
     "S-acetamidomethyl": "[SX2][CH2][NX3][CX3](=O)[CH3]",
     "tert-butyl disulfide": "[#6][SX2][SX2][CX4]([CH3])([CH3])[CH3]",
   "imidazole nh": "[nH]"
@@ -648,6 +649,19 @@
       "summary": "Remove an allyl ester from a side-chain carboxyl with Pd(PPh3)4 and a nucleophile, freeing the acid. The equation is the formal hydrolysis, which gives allyl alcohol; the practical Pd(0) route traps the allyl fragment with morpholine, dimedone or thiosalicylic acid.",
       "site": "allyl ester",
       "smarts": "[#6:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH:6]=[CH2:7].[OX2H2:8]>>[#6:1][CX3:2](=[OX1:3])[OX2H1:8].[OX2H1:4][CH2:5][CH:6]=[CH2:7]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "otmse-removal",
+      "summary": "Remove a 2-(trimethylsilyl)ethyl (OTmse) ester from a side-chain carboxyl with TBAF, freeing the acid. The equation is the formal hydrolysis, which gives ethylene and trimethylsilanol; the practical fluoride route also generates TMSF. tBu esters, Boc carbamates and Fmoc survive.",
+      "site": "2-(trimethylsilyl)ethyl ester",
+      "smarts": "[#6:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH2:6][Si:7]([CH3:8])([CH3:9])[CH3:10].[OX2H2:11]>>[#6:1][CX3:2](=[OX1:3])[OX2H1:4].[CH2:5]=[CH2:6].[OX2H1:11][Si:7]([CH3:8])([CH3:9])[CH3:10]",
       "reagents": [
         {
           "role": "water",

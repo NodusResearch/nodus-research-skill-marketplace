@@ -82,6 +82,7 @@ EXPECTED = {
     "cleave with Reagent K, 3 h": "strong-acid",
     "Reagent B, 2 h": "strong-acid",
     "HF, anisole, 0 C": "fluoride",
+    "TBAF, THF, 1 h": "fluoride",
 
     # --- mild acid, the super-acid-labile regime.
     "AcOH/TFE/DCM 1:2:7, 1 h": "mild-acid",

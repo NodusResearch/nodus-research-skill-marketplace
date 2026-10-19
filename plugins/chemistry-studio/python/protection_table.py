@@ -148,6 +148,15 @@ GROUPS = {
         "notes": "Pd(0)-labile carboxyl protection; frees the acid for on-resin cyclisation or "
                  "branching while tBu/Boc groups survive.",
     },
+    "OTmse": {
+        "label": "2-(trimethylsilyl)ethyl ester",
+        "sites": {"default": ("otmse-removal", "2-(trimethylsilyl)ethyl ester", True)},
+        "mass_shift": None,
+        "compatible": ("TBAF", "THF"),
+        "incompatible": (),
+        "notes": "Fluoride-labile carboxyl protection; TBAF frees the acid while tBu esters, Boc "
+                 "carbamates and Fmoc survive.",
+    },
     "Bum": {
         "label": "Bum (tert-butoxymethyl)",
         "sites": {},

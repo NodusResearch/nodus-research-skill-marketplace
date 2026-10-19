@@ -73,6 +73,10 @@ export const PEPTIDE_BUILDING_BLOCKS: Record<string, string> = {
   // partners for an on-resin cyclisation: one group is freed while the tBu/Boc groups survive.
   "Fmoc-Glu(OAll)-OH": "C=CCOC(=O)CC[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
   "Fmoc-Asp(OAll)-OH": "C=CCOC(=O)C[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
+  // OTmse is the fluoride-labile carboxyl protection: TBAF removes it while tBu esters, Boc
+  // carbamates and the Fmoc group are untouched.
+  "Fmoc-Glu(OTmse)-OH": "C[Si](C)(C)CCOC(=O)CC[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
+  "Fmoc-Asp(OTmse)-OH": "C[Si](C)(C)CCOC(=O)C[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
   "Fmoc-Met-OH": "CSCC[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Phe-OH": "C1=CC=C(C=C1)C[C@@H](C(=O)O)NC(=O)OCC2C3=CC=CC=C3C4=CC=CC=C24",
   "Fmoc-Pro-OH": "C1C[C@H](N(C1)C(=O)OCC2C3=CC=CC=C3C4=CC=CC=C24)C(=O)O",

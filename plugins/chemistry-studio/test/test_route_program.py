@@ -198,6 +198,7 @@ CURATED = {
                     ["CC(=NN)C1C(=O)CC(C)(C)CC1=O"]),
     "alloc-removal": ("C=CCOC(=O)NCC", ["O"], "CCN", ["C=CCO", "O=C=O"]),
     "allyl-ester-removal": ("C=CCOC(=O)C", ["O"], "CC(=O)O", ["C=CCO"]),
+    "otmse-removal": ("C[Si](C)(C)CCOC(=O)C", ["O"], "CC(=O)O", ["C=C", "C[Si](C)(C)O"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.

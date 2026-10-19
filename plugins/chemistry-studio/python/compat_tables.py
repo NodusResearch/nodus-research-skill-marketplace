@@ -327,6 +327,10 @@ GROUPS = {
     # Dde and Ddiv are the same enamine chromophore on a side-chain amine, so one pattern answers
     # both. Hydrazine is the intended removal; the gate exists for a step that must leave it alone.
     "dde-enamine": ("Dde/Ddiv enamine", "[NX3;H1][CX3;H0]([#6])=[CX3]"),
+    "alloc-carbamate": ("alloc carbamate", "[NX3][CX3](=O)[OX2][CH2][CH]=[CH2]"),
+    "allyl-ester": ("allyl ester", "[#6][CX3](=O)[OX2][CH2][CH]=[CH2]"),
+    "otmse-ester": ("2-(trimethylsilyl)ethyl ester",
+                    "[#6][CX3](=O)[OX2][CH2][CH2][Si]([CH3])([CH3])[CH3]"),
     # An N-terminal GLUTAMINE with its alpha-amine free. That amine is five atoms from its own
     # side-chain amide carbonyl, so it closes the five-membered lactam and expels ammonia: the
     # peptide becomes the pyroglutamyl one, with no N-terminus left to extend.
@@ -607,7 +611,10 @@ ATTACKS = {
                               "during acidolysis; omit the thiol or use a different Cys protection")],
     "aqueous-acid": [("acetal", "medium", "may be hydrolysed"), ("trityl", "medium", "may be cleaved"),
                      ("silyl-ether", "medium", "may be cleaved (TMS, TES)")],
-    "fluoride": [("silyl-ether", "high", "is cleaved by fluoride")],
+    "fluoride": [("silyl-ether", "high", "is cleaved by fluoride"),
+                 ("otmse-ester", "high", "is CLEAVED by fluoride (that is the intended OTmse "
+                                          "removal; if it must survive, use a different carboxyl "
+                                          "protection)")],
     # A sulfonyl chloride acylates the same heteroatoms an acyl chloride does, which is why these
     # mirror ATTACKS["acylating"] — minus every activation risk, because no carboxyl is activated.
     # `free-alpha-carboxyl` is the important one: the alpha-carboxyl is the most acidic proton in a
@@ -675,7 +682,13 @@ ATTACKS = {
     "ylide": [("aldehyde", "high", "is olefinated"), ("ketone", "medium", "may be olefinated"),
               ("acid", "medium", "quenches the ylide (acidic O–H)"), ("alcohol", "medium", "may quench the ylide (acidic O–H)")],
     "pd-coupling": [("aryl-halide", "medium", "may couple as well (a second aryl halide competes)"),
-                    ("terminal-alkyne", "medium", "may couple (Sonogashira) or homocouple")],
+                    ("terminal-alkyne", "medium", "may couple (Sonogashira) or homocouple"),
+                    ("alloc-carbamate", "high", "is CLEAVED by Pd(0) (that is the intended Alloc "
+                                                "removal; if it must survive, use a different amine "
+                                                "protection)"),
+                    ("allyl-ester", "high", "is CLEAVED by Pd(0) (that is the intended allyl-ester "
+                                            "removal; if it must survive, use a different carboxyl "
+                                            "protection)")],
 }
 
 # ------------------------------------------------------------- what the step UNMASKS, which then reacts
@@ -1267,6 +1280,12 @@ PROTECT = {
                                    "remove the orthogonal group before loading", [])},
     "dde-enamine": {"default": ("remove it deliberately with hydrazine; if it must survive, use a "
                                 "different orthogonal group rather than exposing Dde/Ddiv to hydrazine", [])},
+    "alloc-carbamate": {"default": ("remove it deliberately with Pd(0); if it must survive, use a "
+                                    "different amine protection that is stable to the Pd step", [])},
+    "allyl-ester": {"default": ("remove it deliberately with Pd(0); if it must survive, use a "
+                                "different carboxyl protection that is stable to the Pd step", [])},
+    "otmse-ester": {"default": ("remove it deliberately with TBAF; if it must survive, use a "
+                                "different carboxyl protection that is stable to fluoride", [])},
     "cys-acm": {"default": ("omit the thiol scavenger or use a different Cys protection; Acm is "
                              "not the block for an EDT cocktail", [])},
     "free-indole": {
@@ -1439,6 +1458,7 @@ _ACID_CLEAVAGE = "TFA/H2O 95:5, 2 h"
 _FORMYLATION = "formic acid, DIC/HOBt, DMF, 2 h"
 _HYDRAZINOLYSIS = "hydrazine, DMF, 2 x 3 min"
 _PD_ALLYL = "Pd(PPh3)4, morpholine, DMF, 2 h"
+_TBAF = "TBAF, THF, 1 h"
 TRANSFORM_CONDITIONS = {
     # assembly
     "fmoc-removal": _FMOC_REMOVAL,
@@ -1464,6 +1484,7 @@ TRANSFORM_CONDITIONS = {
     "dde-removal": _HYDRAZINOLYSIS,
     "alloc-removal": _PD_ALLYL,
     "allyl-ester-removal": _PD_ALLYL,
+    "otmse-removal": _TBAF,
 }
 
 
