@@ -59,6 +59,7 @@
     "allyl ester": "[#6][CX3](=O)[OX2][CH2][CH]=[CH2]",
     "2-(trimethylsilyl)ethyl ester": "[#6][CX3](=O)[OX2][CH2][CH2][Si]([CH3])([CH3])[CH3]",
     "ODmab ester": "[#6][CX3](=O)[OX2][CH2][c]1[cH][cH][c]([NH][CX3](=[CX3])[#6])[cH][cH]1",
+    "aldehyde linker alkene": "[#0][NX3][CX3](=O)[CX3H1]=[CX3H1][CH2][NX3][CX3](=O)",
     "S-acetamidomethyl": "[SX2][CH2][NX3][CX3](=O)[CH3]",
     "tert-butyl disulfide": "[#6][SX2][SX2][CX4]([CH3])([CH3])[CH3]",
   "imidazole nh": "[nH]"
@@ -687,6 +688,27 @@
         }
       ],
       "carries": 1
+    },
+    {
+      "id": "c-terminal-aldehyde-ozonolysis",
+      "summary": "Ozonolyse the alpha,beta-unsaturated gamma-amino acid linker and release the peptide as its C-terminal aldehyde with a reductive workup. The formal equation writes the three ozone oxygens as atomic oxygen plus dioxygen so it stays neutral; the practical procedure is O3 in DCM at -80 C, then dimethyl sulfide or thiourea.",
+      "site": "aldehyde linker alkene",
+      "smarts": "[#0:1][NX3:2][CX3:3](=[OX1:4])[CX3H1:5]=[CX3H1:6][CX4H2:7][NX3:8][CX3:9](=[OX1:10])[#6:11].[O:12].[O:13]=[O:14].[S:15]([CH3:16])[CH3:17]>>[#0:1][NX3:2][CX3:3](=[OX1:4])[CX3H1:5]=[OX1:12].[CX3H1:6](=[OX1:13])[CX4H2:7][NX3:8][CX3:9](=[OX1:10])[#6:11].[S:15](=[OX1:14])([CH3:16])[CH3:17]",
+      "reagents": [
+        {
+          "role": "ozone oxygen",
+          "default": "[O]"
+        },
+        {
+          "role": "dioxygen",
+          "default": "O=O"
+        },
+        {
+          "role": "dimethyl sulfide",
+          "default": "CSC"
+        }
+      ],
+      "carries": 6
     },
     {
       "id": "head-to-tail-macrolactamisation",

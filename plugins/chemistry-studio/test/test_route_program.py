@@ -201,6 +201,8 @@ CURATED = {
     "otmse-removal": ("C[Si](C)(C)CCOC(=O)C", ["O"], "CC(=O)O", ["C=C", "C[Si](C)(C)O"]),
     "odmab-removal": ("CC(=O)OCC1=CC=C(NC(=C2C(=O)CC(C)(C)CC2=O)CC(C)C)C=C1", ["NN", "O"],
                       "CC(=O)O", ["CC(C)CC(=NN)C1C(=O)CC(C)(C)CC1=O", "Nc1ccc(CO)cc1"]),
+    "c-terminal-aldehyde-ozonolysis": ("*NC(=O)C=CC(NC(=O)C)", ["[O]", "O=O", "CSC"],
+                                       "CC(=O)NCC=O", ["*NC(=O)C=O", "CS(C)=O"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
