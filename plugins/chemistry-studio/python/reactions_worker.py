@@ -1997,7 +1997,7 @@ def _compatibility(steps, textbook_dir=None):
             for group, severity, why in T.ATTACKS.get(cls, []):
                 if group not in survives or (group, cls) in seen:
                     continue
-                if group == "asn-gln-amide" and group in reported_once:
+                if group in ("asn-gln-amide", "asp-pro") and group in reported_once:
                     continue
                 # A protecting group that is absent from the final product is removed later by
                 # design. Its presence in this intermediate is not a residual-group hazard; the
@@ -2046,7 +2046,7 @@ def _compatibility(steps, textbook_dir=None):
                                 # the hazard, not only whether the route risked it. Absent for the
                                 # groups that have not had the reading done; see MASS_SHIFTS.
                                 **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
-                if group == "asn-gln-amide":
+                if group in ("asn-gln-amide", "asp-pro"):
                     reported_once.add(group)
         # What the step UNMASKS. Read against the PRODUCTS: a deprotection creates the reactive
         # thing, so before the step it is masked and matches nothing, and the ATTACKS loop above —

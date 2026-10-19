@@ -216,6 +216,16 @@ GROUPS = {
     # silent too, which is the point: the remedy is already in the building-block set.
     "asn-gln-amide": ("unprotected asparagine or glutamine side-chain amide",
                       "[NX3;H2][CX3](=[OX1])[CH2][CX4]"),
+    # Asn deamidation is a SEQUENCE motif, not a lone amide: the side-chain amide closes on the
+    # next backbone nitrogen to form a succinimide, which hydrolyses to Asp (or iso-Asp). The two
+    # neighbours the literature singles out are glycine (no side chain) and serine (small, polar).
+    # The pattern says "Asn side-chain amide - alpha carbon - carbonyl - next N - Gly/Ser", so a
+    # mid-chain Asn-Ala or a protected Asn(Trt) (secondary amide) stays silent.
+    "asn-deamidation-gly": ("Asn-Gly deamidation motif",
+                            "[NX3;H2][CX3](=O)[CH2][CX4H1]([NX3])[CX3](=O)[NX3;H1][CH2][CX3]=O"),
+    "asn-deamidation-ser": ("Asn-Ser deamidation motif",
+                            "[NX3;H2][CX3](=O)[CH2][CX4H1]([NX3])[CX3](=O)[NX3;H1]"
+                            "[CX4H1]([CH2][OX2])[CX3]=O"),
     # Sequence context, not a lone functional group: an aspartate SIDE-CHAIN ESTER whose
     # neighbour supplies a backbone N–H. Under repeated base that N–H closes onto the ester
     # (5-exo) to give the aspartimide, which then reopens to a mixture of the alpha- and
@@ -416,6 +426,15 @@ GROUPS = {
     "tertiary-amine": ("tertiary amine", "[NX3;H0;!$(N[C,S,P]=[O,S,N]);!$(N-a);!$(N[#7,#8]);!$([N+])]([#6])([#6])[#6]"),
     "thiol": ("thiol", "[SX2H]"),
     "sulfide": ("sulfide", "[#6][SX2;!$(S[SX2])][#6]"),
+    # Methionine's side-chain thioether specifically. The generic `sulfide` above also matches an
+    # S-trityl cysteine, which is deliberately stable to adventitious air; the two-CH2 chain is
+    # what makes this the methionine case rather than every thioether.
+    "met-sulfide": ("methionine sulfide", "[CH2][CH2][SX2][CH3]"),
+    # The Asp-Pro peptide bond: the Asp side-chain carboxyl (free or protected) can close on the
+    # proline nitrogen under strong acid, cleaving the chain at Asp-Pro. A sequence motif, not a
+    # lone functional group.
+    "asp-pro": ("Asp-Pro motif",
+                "[NX3][CX4H1]([CH2][CX3](=O)[OX2])[CX3](=O)[NX3]1[CH2][CH2][CH2][CX4]1"),
     "alkene": ("alkene", "[CX3;!$(C=[O,N,S])]=[CX3;!$(C=[O,N,S])]"),
     "alkyne": ("alkyne", "[CX2]#[CX2]"),
     "terminal-alkyne": ("terminal alkyne", "[CX2H1]#[CX2]"),
@@ -543,6 +562,7 @@ ATTACKS = {
         ("benzyl-ether", "medium", "may be cleaved"), ("aryl-halide", "medium", "may be reduced"), ("ester", "medium", "may be reduced")],
     "strong-acid": [
         ("boc", "high", "is cleaved by acid"), ("acetal", "high", "is hydrolysed by aqueous acid"),
+        ("asp-pro", "high", "is cleaved at the Asp-Pro bond by acid"),
         ("tbu-ester", "high", "is cleaved by acid"), ("silyl-ether", "medium", "may be cleaved (TMS, TES, TBS more than TBDPS, TIPS)"),
         ("trityl", "high", "is cleaved by acid"), ("epoxide", "medium", "may be opened")],
     "aqueous-acid": [("acetal", "medium", "may be hydrolysed"), ("trityl", "medium", "may be cleaved"),
@@ -573,6 +593,8 @@ ATTACKS = {
     # disulfide on air is a real step, so the message asks for it to be declared rather than
     # calling it a mistake.
     "air-oxidation": [
+        ("met-sulfide", "medium", "may be oxidized to the sulfoxide on standing; keep the peptide under "
+                                  "nitrogen or include EDT where the work-up allows it"),
         ("thiol", "medium", "may be oxidized to the DISULFIDE on standing, which dimerises the peptide or closes "
                             "a ring. If that is what this step is for, declare the disulfide as the product so the "
                             "route says so; if it is not, keep the cysteine S-tritylated (Fmoc-Cys(Trt)-OH ships) "
@@ -687,6 +709,14 @@ UNMASKED_RISKS = {
                                      "aspartimide, use OXYMA instead of HOBt: it suppresses aspartimide at least as "
                                      "well and is not a catalyst for this. Otherwise carry the glutamine as "
                                      "Fmoc-Gln(Trt)-OH, which ships and leaves nothing to close onto"),
+        ("asn-deamidation-gly", "medium",
+         "may DEAMIDATE via the succinimide under the piperidine, converting Asn to Asp/iso-Asp; "
+         "the side-chain amide closes on the next backbone nitrogen. Carry Asn as the trityl amide "
+         "or keep the base treatment short"),
+        ("asn-deamidation-ser", "medium",
+         "may DEAMIDATE via the succinimide under the piperidine, converting Asn to Asp/iso-Asp; "
+         "the side-chain amide closes on the next backbone nitrogen. Carry Asn as the trityl amide "
+         "or keep the base treatment short"),
         ("cys-resin-ester-epimerisation", "medium",
          "EPIMERISES under the base that removes the Fmoc: the alpha-proton sits between the "
          "sulfur that acidifies it and the ester that holds the residue to the support, and "
@@ -1004,12 +1034,24 @@ MASS_SHIFTS = {
                                               "piperidine adds, giving 3-(piperidin-1-yl)alanine. Derived +51.07, and "
                                               "Vol 3 Section 10.2.2.1 quotes +51 Da. NOTE the other route from the "
                                               "same step, plain racemisation, is same-mass and invisible"},
+    "asn-deamidation-gly": {"delta": 1, "kind": "shift",
+                            "note": "Asn -> Asp by hydrolysis of the side-chain amide, +0.984 Da; the "
+                                    "iso-Asp product has the same mass, so the trace cannot tell them apart"},
+    "asn-deamidation-ser": {"delta": 1, "kind": "shift",
+                            "note": "Asn -> Asp by hydrolysis of the side-chain amide, +0.984 Da; the "
+                                    "iso-Asp product has the same mass, so the trace cannot tell them apart"},
     "asn-gln-amide": {"delta": -18, "kind": "shift",
                       "note": "dehydration of the side-chain amide to the nitrile"},
     "free-indole": {"delta": None, "kind": "shift",
                     "note": "the shift is whichever cation reached the indole, so it names the culprit rather than "
                             "one number: +56 a tert-butyl, +212 an Arg(Mtr) sulfonyl, +252/+266 an Arg(Pbf)/(Pmc) "
                             "sulfonyl, +172 an EDT-derived dithioketal (Chan & White Table 5)"},
+    "met-sulfide": {"delta": 16, "kind": "shift",
+                    "note": "one oxygen on the methionine sulfide, to the sulfoxide; the sulfoxide is chiral, "
+                            "so one Met gives two diastereomers in the trace"},
+    "asp-pro": {"delta": None, "kind": "deletion",
+                "note": "the Asp-Pro bond is hydrolysed; the chain is cut, so the evidence is two fragments, "
+                        "not a single modified product"},
     "sulfide": {"delta": 16, "kind": "shift",
                 "note": "one oxygen, to the sulfoxide; and it is CHIRAL, so one methionine gives three species in the "
                         "trace - unoxidised plus two diastereomers (Vol 3 Section 9.2.3)"},
@@ -1082,7 +1124,8 @@ PEPTIDE_HAZARDS = frozenset({
     "aspartimide-gly", "aspartimide-gly-hindered", "aspartimide-beta-heteroatom",
     "aspartimide-prone-xaa", "cys-epimerisation", "his-epimerisation",
     "cys-resin-ester-epimerisation", "resin-dipeptide-dkp", "asn-gln-amide", "free-indole",
-    "free-alpha-carboxyl", "sulfide", "d-amino-acid",
+    "free-alpha-carboxyl", "sulfide", "met-sulfide", "asp-pro",
+    "asn-deamidation-gly", "asn-deamidation-ser", "d-amino-acid",
 })
 
 
@@ -1124,6 +1167,10 @@ PROTECT = {
     "phenol": {"default": ("protect it as a methyl, benzyl or silyl ether", [_ME_ETHER_AR, _BN_ETHER, _TBS])},
     # Unlike most entries here, this remedy needs nothing new: the trityl-protected blocks are
     # already the ones a solid-phase synthesis would reach for.
+    "asn-deamidation-gly": {"default": ("carry Asn as Fmoc-Asn(Trt)-OH and keep the piperidine "
+                                        "treatment short; avoid aqueous base", [])},
+    "asn-deamidation-ser": {"default": ("carry Asn as Fmoc-Asn(Trt)-OH and keep the piperidine "
+                                        "treatment short; avoid aqueous base", [])},
     "asn-gln-amide": {"default": ("carry the side chain as the N-trityl amide — Fmoc-Asn(Trt)-OH or "
                                   "Fmoc-Gln(Trt)-OH, removed by the same TFA as the other acid-labile groups",
                                   [_TRT_AMIDE])},
@@ -1192,6 +1239,10 @@ PROTECT = {
     "alkyl-halide": {"default": ("use a non-nucleophilic, milder base or introduce the halide later", [])},
     "epoxide": {"default": ("introduce the epoxide later", [])},
     "sulfide": {"default": ("use a milder or more selective oxidant, or change the order of steps", [])},
+    "met-sulfide": {"default": ("keep the peptide under nitrogen or add EDT to the cleavage/work-up; "
+                                "reduce the sulfoxide if it has already formed", [])},
+    "asp-pro": {"default": ("avoid prolonged strong acid at the Asp-Pro bond; use a milder cleavage or "
+                            "shorten the acid treatment", [])},
     "tertiary-amine": {"default": ("protonate it (as the salt) or change the order of steps", [])},
 }
 
