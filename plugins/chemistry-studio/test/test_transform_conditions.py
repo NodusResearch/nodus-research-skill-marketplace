@@ -130,6 +130,14 @@ class ItMakesTheGatesFireOnAProgramStep(unittest.TestCase):
         fired = self._check([chain_amine, arg], [product], "n-peptide-coupling")
         self.assertIn("arg-delta-lactam", fired)
 
+    def test_hydrazine_flags_a_dde_group_that_must_survive(self):
+        molecule = "CC(=C1C(=O)CC(C)(C)CC1=O)NC"
+        self.assertIn("dde-enamine", self._check([molecule], [molecule], "dde-removal"))
+
+    def test_hydrazine_flags_a_support_ester(self):
+        molecule = "*OC(=O)[C@@H](C)N"
+        self.assertIn("support ester", self._check([molecule], [molecule], "dde-removal"))
+
 
 # Nothing goes after this block.
 if __name__ == "__main__":
