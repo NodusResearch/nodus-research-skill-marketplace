@@ -200,7 +200,7 @@ class ItReachesTheHazardARouteSees(unittest.TestCase):
                                   "reagents": reagents}])[0]["hazards"]
 
     def test_a_fired_hazard_carries_its_mass_shift(self):
-        found = [h for h in self._hazards(self.QAG, self.QAG, "TFA/H2O 95:5, 2 h")
+        found = [h for h in self._hazards(self.QAG, self.QAG, "TFA/H2O 95:5, 2 h, then evaporated and triturated")
                  if h["group"] == "n-terminal-gln"]
         self.assertTrue(found)
         self.assertEqual(found[0]["massShift"]["delta"], -17)
@@ -211,7 +211,8 @@ class ItReachesTheHazardARouteSees(unittest.TestCase):
         # first version of this wiring only touched one of them.
         cases = [
             # (reactant, product, conditions, group) — one per reading
-            (self.QAG, self.QAG, "TFA/H2O 95:5, 2 h", "n-terminal-gln"),                 # UNMASKED
+            (self.QAG, self.QAG, "TFA/H2O 95:5, 2 h, then evaporated and triturated",
+             "n-terminal-gln"),                                                          # UNMASKED
             ("C[C@H](N)C(=O)N[C@@H](CC(=O)OC(C)(C)C)C(=O)NCC(=O)O",
              "C[C@H](N)C(=O)N[C@@H](CC(=O)OC(C)(C)C)C(=O)NCC(=O)O",
              "20% piperidine in DMF", "aspartimide-gly"),                                 # ATTACKS

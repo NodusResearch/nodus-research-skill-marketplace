@@ -16,11 +16,14 @@ alpha-amine has to be UNPROTONATED to be the nucleophile, while the side-chain c
 protonated to be electrophilic. In 95% TFA the amine is fully protonated and cannot attack. So Vol
 3 is right about the concentrated step.
 
-BUT THE FLAG STAYS ON THE CLEAVAGE STEP, and that is a correction to my own first reading. A TFA
-cleavage does not end at 95% TFA: the acid is evaporated and the peptide triturated, which takes
-the mixture straight through the dilute and residual regime where the window is open. That is
-exactly why Benoiton's remedy is "at least removal of trifluoroacetic acid as quickly as possible".
-So the step is a genuine risk and the wording was what needed fixing, not the gate.
+THE FLAG NOW NEEDS THE WORK-UP NAMED, and that is a reversal of the paragraph that used to sit here.
+A TFA cleavage does not end at 95% TFA: the acid is evaporated and the peptide triturated, which
+takes the mixture through the dilute and residual regime where the window is open. That part is
+right. What was wrong was firing on the step as WRITTEN, because a route's conditions line almost
+never mentions the work-up — so every concentrated final cleavage was flagged. The strong-acid path
+now requires the step to name the regime (`has_dilute_workup`: evaporate, triturate, dilute,
+aqueous, work-up, pH N); a step that names it still fires. The mild-acid path needs no such token,
+because there the acid IS the step.
 
 WHAT WAS MISSING is the case both sources point at directly: cleavage from 2-chlorotrityl or SASRIN
 with a mild acid, where the window is open for the whole step. Those cocktails — AcOH/TFE/DCM,
@@ -63,6 +66,7 @@ MILD = {
     "dilute TFA": "1% TFA in DCM, 5 x 2 min, SASRIN resin",
 }
 CONCENTRATED = "TFA/H2O 95:5, 2 h"
+CONCENTRATED_WORKUP = CONCENTRATED + ", then evaporated and triturated with ether"
 GROUP = "n-terminal-gln"
 
 
@@ -129,20 +133,24 @@ class TheHazardFiresOnAMildCleavage(unittest.TestCase):
                         f"name where this happens: {words}")
 
 
-class TheConcentratedCleavagePathIsKeptButCorrected(unittest.TestCase):
+class TheConcentratedCleavagePathNeedsTheWorkUpNamed(unittest.TestCase):
     """The part I first got wrong, kept as tests so the reasoning is not lost again.
 
     My first reading of Vol 3 was that the `strong-acid` path is a false positive and should go. It
     should not: a TFA cleavage is evaporated and triturated, which carries the mixture through the
-    dilute and residual regime where the pH window is open. The gate stays; its EXPLANATION is what
-    was wrong.
+    dilute and residual regime where the pH window is open. But the step TEXT usually does not say
+    that, so firing on a bare "95% TFA" flagged every concentrated final cleavage. The gate now
+    requires the regime to be named.
     """
 
-    def test_it_still_fires(self):
-        self.assertIn(GROUP, groups(QAG_RESIN, QAG_FREE, CONCENTRATED))
+    def test_it_fires_when_the_work_up_is_named(self):
+        self.assertIn(GROUP, groups(QAG_RESIN, QAG_FREE, CONCENTRATED_WORKUP))
+
+    def test_a_bare_concentrated_cleavage_is_silent(self):
+        self.assertNotIn(GROUP, groups(QAG_RESIN, QAG_FREE, CONCENTRATED))
 
     def test_the_message_no_longer_blames_the_concentrated_acid_itself(self):
-        got = hazard(QAG_RESIN, QAG_FREE, CONCENTRATED, GROUP)
+        got = hazard(QAG_RESIN, QAG_FREE, CONCENTRATED_WORKUP, GROUP)
         words = f"{got['why']} {got.get('suggestion') or ''}".lower()
         self.assertTrue(any(k in words for k in ("evapora", "work-up", "workup", "residual",
                                                  "trituart", "triturat", "dilute")),

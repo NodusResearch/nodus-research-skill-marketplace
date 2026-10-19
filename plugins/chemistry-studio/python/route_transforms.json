@@ -47,6 +47,7 @@
     "tert-butyl ether": "[#6;!$([CX3]=[OX1])][OX2][CX4]([CH3])([CH3])[CH3]",
     "pbf sulfonamide": "[#7]([SX4](=O)(=O)c)[CX3]=[#7]",
     "support ester": "[#0][OX2][CX3]=[OX1]",
+    "support amide": "[#0][NX3][CX3]=[OX1]",
     "primary amide": "[NX3;H2][CX3]=[OX1]",
     "hydroxyl": "[OX2H1][#6;!$([CX3]=[OX1])]",
     "dmb amide": "[NX3][CH2]c1ccc(O[CH3])cc1O[CH3]",
@@ -115,6 +116,19 @@
           "default": null
         }
       ]
+    },
+    {
+      "id": "n-formylation",
+      "summary": "Formylate a free amine with a formyl donor under DIC/HOBt activation, releasing water. The donor has no carbon substituent on the carbonyl, so it needs its own rule rather than the generic amide-bond transform. The formyl group is acid-stable and survives the final TFA cleavage.",
+      "site": "free amine",
+      "smarts": "[N;X3;H1,H2;!$(N[C,S]=O);!$(N=*);!$(N#*);!$([N+]):1].[CH1:2](=[OX1:3])[OX2H1:4]>>[N:1][CH1:2]=[OX1:3].[OH2:4]",
+      "reagents": [
+        {
+          "role": "carboxylic acid",
+          "default": "O=CO"
+        }
+      ],
+      "carries": 1
     },
     {
       "id": "ketone-reduction",
@@ -519,6 +533,45 @@
         }
       ],
       "carries": 2
+    },
+    {
+      "id": "resin-cleavage-amide",
+      "summary": "Release a peptide AMIDE from a Rink-type support, cleaving the support-nitrogen bond with water and leaving the C-terminal carboxamide. The support leaves as its alcohol and the peptide is the piece carrying map 3, the carbonyl carbon; map 1 is the support itself, which the route does not follow.",
+      "site": "support amide",
+      "smarts": "[#0:1][NX3;H1:2][CX3:3](=[OX1:4]).[OX2H2:5]>>[#0:1][OX2H1:5].[NX3;H2:2][CX3:3](=[OX1:4])",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 3
+    },
+    {
+      "id": "resin-ester-cleavage",
+      "summary": "Release a peptide ESTER from a support ester by transesterification with an alcohol. The support leaves as its alcohol and the peptide carries the alcohol's alkoxy group; the carbonyl carbon (map 3) is the peptide. Methanol gives the methyl ester.",
+      "site": "support ester",
+      "smarts": "[#0:1][OX2:2][CX3:3](=[OX1:4]).[OX2H1:5]>>[#0:1][OX2H1:2].[OX2:5][CX3:3](=[OX1:4])",
+      "reagents": [
+        {
+          "role": "alcohol",
+          "default": "CO"
+        }
+      ],
+      "carries": 3
+    },
+    {
+      "id": "resin-hydrazide-cleavage",
+      "summary": "Release a peptide HYDRAZIDE from a support ester with hydrazine. The support leaves as its alcohol and the peptide carries the acyl hydrazide; the carbonyl carbon (map 3) is the peptide. Hydrazides are used for fragment condensation after activation.",
+      "site": "support ester",
+      "smarts": "[#0:1][OX2:2][CX3:3](=[OX1:4]).[NX3;H2:5]>>[#0:1][OX2H1:2].[NX3;H1:5][CX3:3](=[OX1:4])",
+      "reagents": [
+        {
+          "role": "hydrazine",
+          "default": "NN"
+        }
+      ],
+      "carries": 3
     },
     {
       "id": "head-to-tail-macrolactamisation",

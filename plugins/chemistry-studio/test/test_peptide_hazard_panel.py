@@ -111,6 +111,10 @@ PIPERIDINE = "20% piperidine in DMF, 2 x 5 min, rt"
 COUPLING = "Fmoc-amino acid (3 eq), HBTU (3 eq), DIPEA (6 eq), DMF, 45 min, rt"
 DIC_OXYMA = "Fmoc-amino acid (5 eq), DIC (5 eq), Oxyma (5 eq), DMF, 2 min, in situ, no base"
 BARE_TFA = "TFA/H2O 95:5, 2 h"
+# The regime that can actually free an amine to cyclise: the acid is removed and the peptide passes
+# through the dilute/residual work-up (Vol 3 Section 9.2.4). A bare concentrated cleavage is silent
+# for this hazard now.
+WORKUP_TFA = "TFA/H2O 95:5, 2 h, then evaporated and triturated with ether"
 TES_ONLY = "TFA/triethylsilane/H2O 95:2.5:2.5, 2 h"
 TIS_ONLY = "TFA/triisopropylsilane/H2O 95:2.5:2.5, 2 h"
 REAGENT_K = "Reagent K: TFA/thioanisole/water/phenol/EDT 82.5:5:5:5:2.5, 3 h"
@@ -525,10 +529,16 @@ class NTerminalGlutamineToPyroglutamate(unittest.TestCase):
 
     def test_a_chain_with_N_terminal_Gln_flags_on_cleavage(self):
         chain, _ = build("QAG")
-        self.assertIn("n-terminal-gln", cleavage(chain, BARE_TFA).groups())
+        self.assertIn("n-terminal-gln", cleavage(chain, WORKUP_TFA).groups())
+
+    def test_a_bare_concentrated_cleavage_is_silent(self):
+        # Reversal of the earlier reading, now that the mechanism is settled: in 95% TFA the amine
+        # is protonated and cannot attack. Only the dilute/residual work-up can free it.
+        chain, _ = build("QAG")
+        self.assertNotIn("n-terminal-gln", cleavage(chain, BARE_TFA).groups())
 
     def test_the_remedy_names_the_block_Benoiton_supports(self):
-        for hazard in cleavage(build("QAG")[0]).hazards():
+        for hazard in cleavage(build("QAG")[0], WORKUP_TFA).hazards():
             if hazard["group"] == "n-terminal-gln":
                 self.assertIn("gln(trt)", advice(hazard), advice(hazard))
                 return
@@ -538,7 +548,7 @@ class NTerminalGlutamineToPyroglutamate(unittest.TestCase):
         # The alpha-nitrogen of a mid-chain Gln is an amide and cannot attack. If this fires the
         # gate is reading the side chain and not the position, and would flag every Gln anywhere.
         chain, _ = build("AQG")
-        self.assertNotIn("n-terminal-gln", cleavage(chain).groups(),
+        self.assertNotIn("n-terminal-gln", cleavage(chain, WORKUP_TFA).groups(),
                          "only the N-TERMINAL glutamine can cyclise")
 
 
@@ -689,7 +699,7 @@ class ThePanelAsAWhole(unittest.TestCase):
 
     FIRES_ON = {
         "aspartimide-gly": ("ADG", None), "free-indole": ("WD", "cleave"),
-        "n-terminal-gln": ("QAG", "cleave"), "arg-delta-lactam": ("ARG", None),
+        "n-terminal-gln": ("QAG", "workup"), "arg-delta-lactam": ("ARG", None),
         "cys-epimerisation": ("AC", None), "his-epimerisation": ("AHG", None),
     }
 
@@ -700,8 +710,13 @@ class ThePanelAsAWhole(unittest.TestCase):
         for group, (sequence, where) in self.FIRES_ON.items():
             with self.subTest(group):
                 chain, steps = build(sequence)
-                found = [h for s in (steps if where != "cleave" else [cleavage(chain)])
-                         for h in s.hazards() if h["group"] == group]
+                if where is None:
+                    outcomes = steps
+                elif where == "workup":
+                    outcomes = [cleavage(chain, WORKUP_TFA)]
+                else:
+                    outcomes = [cleavage(chain)]
+                found = [h for s in outcomes for h in s.hazards() if h["group"] == group]
                 self.assertTrue(found, f"{group} did not fire on {sequence}")
                 for hazard in found:
                     self.assertGreater(len(advice(hazard)), 60, hazard)

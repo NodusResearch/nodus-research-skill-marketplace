@@ -50,6 +50,8 @@ EXPECTED_CLASS = {
     "dmb-removal": "strong-acid",
     "pseudoproline-opening": "strong-acid",
     "resin-cleavage": "strong-acid",
+    "resin-cleavage-amide": "strong-acid",
+    "n-formylation": "acylating",
 }
 
 

@@ -171,6 +171,19 @@ CURATED = {
     # co-product. Caught by assembling a hexapeptide from non-natural blocks and reading what came
     # out of the cleavage. `carries` is now 2, the ester oxygen that stays with the acid.
     "resin-cleavage": ("*OC(=O)[C@@H](C)N", ["O"], "C[C@@H](N)C(=O)O", ["*O"]),
+    # The AMIDE release, added 2026-10-18 for the Rink-type linker. Water is consumed: the
+    # support-nitrogen bond is broken, the support leaves as its alcohol and the peptide retains
+    # the C-terminal carboxamide. `carries` is 3, the carbonyl carbon, because the peptide is the
+    # fragment that continues the route. Without the water the equation is one H short, which the
+    # generated amide route found at its final statement on 2026-10-18.
+    "resin-cleavage-amide": ("*NC(=O)[C@@H](C)N", ["O"], "C[C@@H](N)C(N)=O", ["*O"]),
+    # Formylation: formic acid has no carbon substituent on the carbonyl, so the generic amide
+    # transform cannot take it. This rule is why the N-terminal formyl group works.
+    "n-formylation": ("NCC(=O)O", ["O=CO"], "O=CNCC(=O)O", ["O"]),
+    # The C-terminal ester and hydrazide releases. Both break the same support ester as
+    # `resin-cleavage`, but the nucleophile decides the product.
+    "resin-ester-cleavage": ("*OC(=O)[C@@H](C)N", ["CO"], "COC(=O)[C@@H](C)N", ["*O"]),
+    "resin-hydrazide-cleavage": ("*OC(=O)[C@@H](C)N", ["NN"], "C[C@@H](N)C(=O)NN", ["*O"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
@@ -219,6 +232,13 @@ class CuratedSet(unittest.TestCase):
                 self.assertEqual(out["coProducts"], co_products)
                 self.assertEqual(out["site"]["phrase"], route_program._tables()["byId"][transform_id]["site"])
                 self.assertTrue(out["site"]["atoms"])
+
+    def test_the_support_amide_release_consumes_the_water_it_needs(self):
+        out = named("resin-cleavage-amide", "*NC(=O)[C@@H](C)N", ["O"])
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["coReactants"], ["O"])
+        self.assertEqual(out["coProducts"], ["*O"])
+        self.assertEqual(out["product"], "C[C@@H](N)C(N)=O")
 
     def test_the_formula_is_the_main_product_s(self):
         self.assertEqual(named("nitro-reduction", "O=[N+]([O-])c1ccccc1")["formula"], "C6H7N")
@@ -1347,9 +1367,10 @@ class NoWayOntoABareSupport(unittest.TestCase):
         self.assertIn("*O", out["message"])
 
     def test_no_curated_transformation_puts_a_molecule_onto_a_support(self):
-        """The whole table, not just the one the model reached for. Only `resin-cleavage` mentions a
-        dummy atom, and only in the release direction: dummy on the left, dummy on the left of the
-        product too, with the ester broken rather than made."""
+        """The whole table, not just the one the model reached for. The two release transforms
+        (`resin-cleavage`, `resin-cleavage-amide`) mention a dummy atom, and only in the release
+        direction: dummy on the left, dummy on the left of the product too, with the ester or amide
+        broken rather than made."""
         loaders = []
         table = route_program._transforms()
         self.assertTrue(table.get("ok"), table)

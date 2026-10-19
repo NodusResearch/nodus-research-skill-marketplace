@@ -433,6 +433,11 @@ GROUPS = {
     "cbz": ("Cbz carbamate", "[NX3][CX3](=O)O[CH2]c1ccccc1"),
     "fmoc": ("Fmoc carbamate", "[NX3][CX3](=O)OCC1c2ccccc2-c2ccccc21"),
     "trityl": ("trityl ether or amine", "[O,N,S]C(c1ccccc1)(c1ccccc1)c1ccccc1"),
+    # An alpha-carbon of a free amino acid or peptide acid: the incoming BUILDING BLOCK in a coupling,
+    # as opposed to the growing resin-bound chain (whose carboxyl is an ester to the support). The
+    # pattern itself is achiral and matches L and D alike; the configuration is read from RDKit's
+    # CIP label in `_compatibility`, because SMARTS cannot express "the wrong enantiomer".
+    "d-amino-acid": ("D-alpha-amino-acid block", "[NX3][CX4;H1]([CX3]=[OX1])"),
 }
 
 # ------------------------------------------------------------------------------ what attacks what
@@ -777,7 +782,7 @@ ACTIVATION_RISKS = {
 # character, and misparsing one would silence the flag on a route that deserves it, so a cold
 # coupling has to say collidine or Oxyma to clear this.
 _EPIMERISATION_CARE = re.compile(r"\bcollidine\b|trimethylpyridine|\boxyma\b|\bHOAt\b"
-                                 r"|cyanohydroxyimino", re.I)
+                                 r"|cyanohydroxyimino|\bOPfp\b|pentafluorophenyl", re.I)
 
 
 def has_epimerisation_care(text):
@@ -832,6 +837,23 @@ _PYROGLUTAMATE_CATALYST = re.compile(
 def has_pyroglutamate_catalyst(text):
     """Whether a step names one of the weak acids or benzotriazoles Benoiton lists as catalysing it."""
     return bool(_PYROGLUTAMATE_CATALYST.search(text or ""))
+
+
+# The regime a concentrated final cleavage passes through AFTER the acid is removed. Vol 3 Section
+# 9.2.4 is explicit that strong acids do not catalyse pyroglutamate formation because the amine is
+# protonated, and Benoiton's own case is "left at pH 2-3" — so the risk is the dilute/residual
+# work-up, not the 95% TFA itself. A strong-acid step that says nothing about a work-up is treated
+# as concentrated throughout and stays silent; the mild-acid class covers the dilute cocktails that
+# are themselves the step (1% TFA, AcOH/TFE, HFIP). No bare percentage is parsed here, for the same
+# reason temperature and time are not: "95%" and "5%" are one character apart.
+_DILUTE_WORKUP = re.compile(
+    r"\bevaporat|\btriturat|\bdilut|\bresidual\b|\bwork-?up\b|\baqueous\b|\bph\s*[0-9]"
+    r"|\bprecipitat|\bconcentrat\w*\s+(?:in\s+)?vacuo", re.I)
+
+
+def has_dilute_workup(text):
+    """Whether the step names the dilute/residual regime that can free an amine to cyclise."""
+    return bool(_DILUTE_WORKUP.search(text or ""))
 
 
 # The linker that answers two hazards at once. Benoiton Section 5.23: "The obstacles of
@@ -997,6 +1019,10 @@ MASS_SHIFTS = {
                                   "can the balance check or the target comparison. Chiral analysis or an enzymatic "
                                   "digest is the only way to look"},
     "his-epimerisation": {"delta": 0, "kind": "same-mass", "note": "as cys-epimerisation; an isomer, not a shift"},
+    "d-amino-acid": {"delta": 0, "kind": "same-mass",
+                     "note": "a D residue substituted for its L form is an ISOMER: same formula, same mass, same "
+                             "connectivity. MS, the balance check and the target comparison all pass; only chiral "
+                             "analysis (or the stereocentre reader) can see it"},
     "arg-delta-lactam": {"delta": None, "kind": "deletion",
                          "note": "the residue is consumed without coupling, so the by-product is the n-1 chain and the "
                                  "shift is that residue's own mass - for arginine, -156 as Arg(Pbf) never arrives. "
@@ -1056,7 +1082,7 @@ PEPTIDE_HAZARDS = frozenset({
     "aspartimide-gly", "aspartimide-gly-hindered", "aspartimide-beta-heteroatom",
     "aspartimide-prone-xaa", "cys-epimerisation", "his-epimerisation",
     "cys-resin-ester-epimerisation", "resin-dipeptide-dkp", "asn-gln-amide", "free-indole",
-    "free-alpha-carboxyl", "sulfide",
+    "free-alpha-carboxyl", "sulfide", "d-amino-acid",
 })
 
 
@@ -1277,11 +1303,13 @@ def classify(text):
 _FMOC_REMOVAL = "20% piperidine in DMF, 2 x 5 min"
 _COUPLING = "Fmoc-amino acid, HBTU, DIPEA, DMF, 45 min"
 _ACID_CLEAVAGE = "TFA/H2O 95:5, 2 h"
+_FORMYLATION = "formic acid, DIC/HOBt, DMF, 2 h"
 TRANSFORM_CONDITIONS = {
     # assembly
     "fmoc-removal": _FMOC_REMOVAL,
     "n-peptide-coupling": _COUPLING,
     "n-acylation": _COUPLING,
+    "n-formylation": _FORMYLATION,
     "amide-formation": _COUPLING,
     # global deprotection and resin cleavage, all under the final acid
     "boc-removal": _ACID_CLEAVAGE,
@@ -1297,6 +1325,7 @@ TRANSFORM_CONDITIONS = {
     "dmb-removal": _ACID_CLEAVAGE,
     "pseudoproline-opening": _ACID_CLEAVAGE,
     "resin-cleavage": _ACID_CLEAVAGE,
+    "resin-cleavage-amide": _ACID_CLEAVAGE,
 }
 
 
