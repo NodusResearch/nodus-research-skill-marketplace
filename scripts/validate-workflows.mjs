@@ -30,6 +30,9 @@ function jobsOf(text) {
 
 const SIGNING_ENVIRONMENT = 'capability-signing';
 const SECRET = 'CAPABILITY_SIGNING_KEY';
+// The catalog App may open PRs whose CI then runs unattended, so its key stays with the job
+// whose diff is limited to signed catalog metadata.
+const CATALOG_APP_SECRET = 'CATALOG_APP_PRIVATE_KEY';
 
 export function validateWorkflowSources(sources, codeowners) {
   const problems = [];
@@ -39,6 +42,10 @@ export function validateWorkflowSources(sources, codeowners) {
     for (const [name, body] of jobs) {
       const protectedEnvironment = new RegExp(`^\\s*environment:\\s*${SIGNING_ENVIRONMENT}\\s*$`, 'm').test(body);
       const usesSecret = body.includes(`secrets.${SECRET}`);
+
+      if (body.includes(`secrets.${CATALOG_APP_SECRET}`) && (file !== 'release-plugin.yml' || name !== 'catalog')) {
+        problems.push(`${file}: only release-plugin.yml's catalog job may use ${CATALOG_APP_SECRET}.`);
+      }
 
       if ((usesSecret || protectedEnvironment) && (file !== 'release-plugin.yml' || name !== 'sign')) {
         problems.push(`${file}: only release-plugin.yml's sign job may reach the signing environment or key.`);
@@ -63,6 +70,7 @@ export function validateWorkflowSources(sources, codeowners) {
     if (/^on:\s*\[?[^\n]*pull_request/m.test(text) || /^\s{2}pull_request:/m.test(text)) {
       if (text.includes(`secrets.${SECRET}`)) problems.push(`${file}: runs on pull requests and mentions ${SECRET}.`);
       if (text.includes(SIGNING_ENVIRONMENT)) problems.push(`${file}: runs on pull requests and names the ${SIGNING_ENVIRONMENT} environment.`);
+      if (text.includes(`secrets.${CATALOG_APP_SECRET}`)) problems.push(`${file}: runs on pull requests and mentions ${CATALOG_APP_SECRET}.`);
       if (/^\s+[a-z-]+:\s*write\s*$/m.test(text)) problems.push(`${file}: pull-request validation must have read-only tokens.`);
     }
   }

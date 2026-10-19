@@ -208,9 +208,10 @@ The workflow keeps separate privileges:
    production signature and archive digests agree; existing bytes are never rewritten.
 4. **catalog** has no signing key. It downloads the production manifests/signatures, verifies them
    and updates `assetBytes` together with `assetVersion` in each package's `catalog.json`. It
-   regenerates `catalog-v2.json`, checks a strict metadata-only diff, creates a PR and explicitly
-   dispatches read-only marketplace CI on its exact head. It merges only after all required checks
-   pass, retrying from fresh main if another merge advanced the base.
+   regenerates `catalog-v2.json`, checks a strict metadata-only diff, pushes a branch and has the
+   catalog GitHub App open the PR, so the PR's own read-only marketplace CI starts on its exact
+   head. It merges only after those required checks pass, retrying from fresh main if another
+   merge advanced the base.
 5. **report-failure** opens or updates an issue for the source commit, assigned to the maintainer,
    linking the failed run without credentials or logs. Required CI failures stop publication; a
    signing failure may leave earlier complete packages published, and their verified sizes can
@@ -253,10 +254,19 @@ and `plugins/*/catalog.json` have no human code owner; their CI must prove that 
 sizes/version metadata changed. Generic approval count is zero after activation because owner
 review remains mandatory for every other file. Generated catalog PRs pass the same required
 CI and cannot bypass it. The default Actions token remains read-only; only the metadata job
-requests contents/PR/Actions writes to create its PR and explicitly dispatch validation.
-GitHub's setting allowing Actions to create PRs must be enabled; it gives the bot no code-owner
-status or branch bypass. Workflow dispatch is explicit because GITHUB_TOKEN pushes/merges do
-not recursively start workflows. A generated catalog merge changes no package version.
+requests contents/PR writes to push its branch and merge. A generated catalog merge changes no
+package version.
+
+GitHub starts a PR's `pull_request` CI only after a maintainer approves it when the PR was opened
+with `GITHUB_TOKEN`, and a dispatched run does not count toward the PR's required checks. So a
+dedicated GitHub App opens the catalog PR. Create it once under **Organization settings →
+Developer settings → GitHub Apps** with no webhook and only the repository permissions
+**Contents: read** and **Pull requests: read and write**, install it on this repository alone,
+then store its client ID as the Actions variable `CATALOG_APP_CLIENT_ID` and a private key as
+the Actions secret `CATALOG_APP_PRIVATE_KEY`. Do not add the App to any branch-protection
+bypass list: its PRs pass the same required checks. Only the `catalog` job can read that key
+(`scripts/validate-workflows.mjs` checks it). Without the App the job stops before pushing a
+branch and names the missing configuration.
 
 If the organization forbids Actions from creating/approving PRs, the repository cannot override
 that policy (GitHub returns HTTP 409). An organization owner must first permit it under

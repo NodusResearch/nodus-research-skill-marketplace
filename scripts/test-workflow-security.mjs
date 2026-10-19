@@ -51,3 +51,8 @@ test('CODEOWNERS cannot exempt a runtime, workflow or broad directory', () => {
     assert.ok(validateWorkflowSources(files, `${owners}\n${line}`).some(p => p.includes('CODEOWNERS')));
   }
 });
+test('the catalog App key stays in the catalog job', () => {
+  const key = '          private-key: ${{ secrets.CATALOG_APP_PRIVATE_KEY }}\n';
+  assert.ok(changed('release-plugin.yml', '      - name: Collect every declared target\n', `      - name: Collect every declared target\n        with:\n${key}`).some(p => p.includes('catalog job')));
+  assert.ok(changed('validate.yml', '      - name: Validate templates\n', `      - name: Validate templates\n        with:\n${key}`).some(p => p.includes('CATALOG_APP_PRIVATE_KEY')));
+});

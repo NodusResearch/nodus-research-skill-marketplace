@@ -60,14 +60,26 @@ function fixture(outcome) {
           throw Error('Unexpected public fixture URL');
         }
         if(url.hostname!=='api.github.com')throw Error('Network is forbidden in this fixture');
-        calls.push({method,route,body}); fs.writeFileSync(stateFile,JSON.stringify(calls));
+        calls.push({method,route,body,token:options.headers?.Authorization}); fs.writeFileSync(stateFile,JSON.stringify(calls));
         if(route.startsWith('releases/tags/'))return response({draft:false,prerelease:false,assets:[{name:${JSON.stringify(target.asset)},state:'uploaded',size:12,digest:'sha256:${target.sha256}'}]});
         if(route==='pulls'&&method==='POST'){
           const number=7+prs.size; prs.set(number,{branch:body.head,base:git(['rev-parse','main'])});
           return response({number,html_url:'https://github.com/MarketplaceFixture/repo/pull/'+number});
         }
-        if(route==='actions/workflows/validate.yml/dispatches')return new Response(null,{status:204});
-        if(route==='actions/workflows/validate.yml/runs')return response({workflow_runs:[{head_sha:url.searchParams.get('head_sha'),event:'workflow_dispatch',status:'completed',conclusion:outcome==='failure'?'failure':'success',html_url:'https://github.com/MarketplaceFixture/repo/actions/runs/1'}]});
+        if(route==='actions/runs'){
+          const head_sha=url.searchParams.get('head_sha');
+          return response({workflow_runs:[outcome==='approval'
+            ?{head_sha,event:'pull_request',status:'action_required',conclusion:null}
+            :{head_sha,event:'pull_request',status:'completed',conclusion:outcome==='failure'?'failure':'success'}]});
+        }
+        if(/^commits\\/[0-9a-f]{40}\\/check-runs$/.test(route)){
+          if(outcome==='approval')return response({check_runs:[]});
+          const names=${JSON.stringify(['validate', 'package-tests (ubuntu-latest)', 'package-tests (windows-latest)', 'package-tests (macos-14)'])};
+          const check_runs=names.map(name=>({name,status:'completed',conclusion:outcome==='failure'&&name==='validate'?'failure':'success',app:{id:15368},html_url:'https://github.com/MarketplaceFixture/repo/runs/1'}));
+          // Another app's green check with a required name must not stand in for GitHub Actions.
+          if(outcome==='failure')check_runs.unshift({name:'validate',status:'completed',conclusion:'success',app:{id:1}});
+          return response({check_runs});
+        }
         const match=/^pulls\\/(\\d+)(?:\\/(files|merge))?$/.exec(route);
         if(match){
           const pr=prs.get(Number(match[1])); if(!pr)throw Error('Unknown synthetic PR');
@@ -93,39 +105,59 @@ function fixture(outcome) {
       execFileSync(process.execPath, ['--import', pathToFileURL(preload).href, path.join(checkout, 'scripts/sync-published-catalog.mjs')], {
         cwd: checkout, stdio: 'pipe', timeout: 30000,
         env: { ...process.env, CI: 'true', GITHUB_REF: 'refs/heads/main', GITHUB_RUN_ID: '123',
-          GITHUB_RUN_ATTEMPT: '1', GITHUB_REPOSITORY: 'MarketplaceFixture/repo', GH_TOKEN: 'synthetic-fixture-token', GITHUB_STEP_SUMMARY: '' },
+          GITHUB_RUN_ATTEMPT: '1', GITHUB_REPOSITORY: 'MarketplaceFixture/repo', GH_TOKEN: 'synthetic-fixture-token', GITHUB_STEP_SUMMARY: '',
+          CATALOG_PR_TOKEN: outcome === 'no-app' ? '' : 'synthetic-app-token' },
       });
     } catch (caught) { error = caught; }
-    const calls = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    const calls = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : [];
+    const branches = execFileSync('git', ['--git-dir', remote, 'branch', '--format=%(refname:short)'], { encoding: 'utf8' }).trim().split('\n');
     const after = execFileSync('git', ['--git-dir', remote, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
     const catalog = JSON.parse(execFileSync('git', ['--git-dir', remote, 'show', 'main:plugins/test-package/catalog.json'], { encoding: 'utf8' }));
-    return { error, before, after, catalog, calls };
+    return { error, before, after, catalog, calls, branches };
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }
 
-test('a generated metadata PR dispatches exact-head CI and merges the signed sizes through normal GitHub operations', () => {
+test('the catalog App opens the metadata PR and its own required checks gate the merge', () => {
   const result = fixture('success');
   assert.equal(result.error, undefined);
   assert.notEqual(result.after, result.before);
   assert.equal(result.catalog.assetVersion, '1.0.1');
   assert.deepEqual(result.catalog.assetBytes, { any: 12 });
-  assert.ok(result.calls.find(c => c.route.endsWith('/dispatches')));
+  const opened = result.calls.filter(c => c.route === 'pulls' && c.method === 'POST');
+  assert.deepEqual(opened.map(c => c.token), ['Bearer synthetic-app-token']);
+  assert.ok(result.calls.filter(c => !(c.route === 'pulls' && c.method === 'POST')).every(c => c.token === 'Bearer synthetic-fixture-token'));
+  assert.ok(!result.calls.some(c => c.route.endsWith('/dispatches')));
   const merge = result.calls.findIndex(c => c.route.endsWith('/merge'));
-  const ci = result.calls.findIndex(c => c.route.endsWith('/runs'));
+  const ci = result.calls.findIndex(c => c.route.endsWith('/check-runs'));
   assert.ok(ci >= 0 && merge > ci);
 });
 test('failed metadata CI leaves main untouched and never attempts a merge', () => {
   const result = fixture('failure');
-  assert.ok(result.error);
+  assert.match(String(result.error?.stderr), /Catalog PR CI failed \(validate\)/);
   assert.equal(result.after, result.before);
   assert.equal(result.catalog.assetVersion, undefined);
   assert.ok(!result.calls.some(c => c.route.endsWith('/merge')));
+});
+test('a metadata PR whose CI waits for approval fails at once instead of timing out', () => {
+  const result = fixture('approval');
+  assert.match(String(result.error?.stderr), /waiting for a maintainer's approval/);
+  assert.equal(result.after, result.before);
+  assert.ok(!result.calls.some(c => c.route.endsWith('/merge')));
+});
+test('without the catalog App no branch is pushed and no PR is opened', () => {
+  const result = fixture('no-app');
+  assert.match(String(result.error?.stderr), /CATALOG_PR_TOKEN is missing/);
+  assert.equal(result.after, result.before);
+  assert.deepEqual(result.branches, ['main']);
+  assert.ok(!result.calls.some(c => c.route === 'pulls'));
 });
 test('a concurrent main merge closes the stale metadata PR and regenerates with fresh CI', () => {
   const result = fixture('advance');
   assert.equal(result.error, undefined);
   assert.equal(result.catalog.assetVersion, '1.0.1');
-  assert.equal(result.calls.filter(c => c.route === 'pulls' && c.method === 'POST').length, 2);
-  assert.equal(result.calls.filter(c => c.route.endsWith('/dispatches')).length, 2);
+  const opened = result.calls.filter(c => c.route === 'pulls' && c.method === 'POST');
+  assert.equal(opened.length, 2);
+  const polled = new Set(result.calls.filter(c => c.route.endsWith('/check-runs')).map(c => c.route));
+  assert.equal(polled.size, 2);
   assert.ok(result.calls.some(c => c.method === 'PATCH' && c.body?.state === 'closed'));
 });
