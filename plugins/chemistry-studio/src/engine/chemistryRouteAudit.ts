@@ -3,7 +3,7 @@ import { MAX_CHEMICAL_NAME } from './chemistryIdentity';
 import type { RouteAudit, RouteLinkAudit, RouteSpeciesSummary, RouteStepAudit, RouteTargetAudit } from './chemistryDocument';
 import { BalanceUnchecked, balanceReaction } from './chemistryReaction';
 import { splitReactionSmiles } from './chemistryReactionShared';
-import { deliveredAtOpenCentres, productMatchesTarget, stereoGraph, validateChemicalReferences, type StereoGraph } from './chemistryValidationCore';
+import { deliveredAtOpenCentres, inchiTargetMatcher, productMatchesTarget, stereoGraph, validateChemicalReferences, type StereoGraph } from './chemistryValidationCore';
 import { bondLedger, skeletonChange, type SkeletonReport } from './chemistrySkeleton';
 import { maxSpeciesPerStep, maxSpeciesTotal, maxSteps, type ChemistryCapBudget } from './chemistryLimits';
 
@@ -1093,8 +1093,33 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
           return null;
         }))).filter((index): index is number => index !== null)
         : [];
+      // Tautomer-insensitive fallback. A guanidine (arginine) or imidazole (histidine) revealed at
+      // the final deprotection can canonicalise to a different mobile-H tautomer than the requested
+      // target names — the same molecule, but a different SMILES and a different stereo-stripped
+      // skeleton — so `exact` and `skeleton` both miss it and the route reads as not-formed though
+      // it made the compound. InChI normalises mobile H, so it compares equal; this can only ADD a
+      // match. Computed only when the exact and open-centre tests have already failed, so a route
+      // they settle pays nothing, and it falls back silently on a toolkit with no InChI support.
+      const tautomerFull: number[] = [];
+      const tautomerConstitution: number[] = [];
+      if (!exact.length && !admitted.length) {
+        const matchesTarget = await inchiTargetMatcher(requested);
+        for (const step of audited) {
+          if (!step.ok) continue;
+          let full = false;
+          let constitution = false;
+          for (const product of step.products) {
+            const same = await matchesTarget(product.input);
+            full = full || same.full;
+            constitution = constitution || same.constitution;
+          }
+          if (full) tautomerFull.push(step.index);
+          else if (constitution) tautomerConstitution.push(step.index);
+        }
+      }
       const formed = exact.length ? exact
         : admitted.length ? admitted
+        : tautomerFull.length ? tautomerFull
         : wanted.stereocentres === 0 ? skeleton : [];
       const formedAt = formed.length ? Math.max(...formed) : null;
       // What the route actually chose where the request left the choice open. Measured from the
@@ -1125,7 +1150,7 @@ export async function auditRoute(input: RouteAuditInput, budget?: ChemistryCapBu
       target = {
         input: requested, canonicalSmiles: wanted.canonicalSmiles, formula: wanted.formula,
         formedAt,
-        reason: formed.length ? 'formed' : skeleton.length ? 'stereo-mismatch' : 'not-formed',
+        reason: formed.length ? 'formed' : (skeleton.length || tautomerConstitution.length) ? 'stereo-mismatch' : 'not-formed',
         ...(deliveredStructure ? { deliveredStructure } : {}),
         ...(openCentres.length ? { openCentres } : {}),
       };
