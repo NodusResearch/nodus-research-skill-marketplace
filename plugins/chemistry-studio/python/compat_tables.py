@@ -548,6 +548,11 @@ ATTACKS = {
                                 "it must survive, use a different carboxyl protection)"),
         ("fmoc", "high", "is CLEAVED by hydrazine; ODmab removal cannot be done while an Fmoc "
                          "group must survive"),
+        ("alloc-carbamate", "high", "may be reduced or cleaved by hydrazine; free an Alloc group "
+                                     "before a Dde/ODmab hydrazinolysis, or add allyl alcohol as a "
+                                     "scavenger"),
+        ("allyl-ester", "high", "may be reduced by hydrazine; free an allyl ester before a "
+                                "Dde/ODmab hydrazinolysis, or add allyl alcohol as a scavenger"),
         ("ester", "medium", "may be cleaved by hydrazinolysis"),
     ],
     "amine-base": [("fmoc", "high", "is cleaved by amine base"), ("acid-chloride", "high", "is aminolysed"),
@@ -621,7 +626,9 @@ ATTACKS = {
     "fluoride": [("silyl-ether", "high", "is cleaved by fluoride"),
                  ("otmse-ester", "high", "is CLEAVED by fluoride (that is the intended OTmse "
                                           "removal; if it must survive, use a different carboxyl "
-                                          "protection)")],
+                                          "protection)"),
+                 ("fmoc", "high", "is CLEAVED by fluoride (TBAF), so OTmse removal cannot be done "
+                                  "while an Fmoc group must survive")],
     # A sulfonyl chloride acylates the same heteroatoms an acyl chloride does, which is why these
     # mirror ATTACKS["acylating"] — minus every activation risk, because no carboxyl is activated.
     # `free-alpha-carboxyl` is the important one: the alpha-carboxyl is the most acidic proton in a

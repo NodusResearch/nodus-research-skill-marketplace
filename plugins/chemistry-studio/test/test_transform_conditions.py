@@ -150,6 +150,16 @@ class ItMakesTheGatesFireOnAProgramStep(unittest.TestCase):
         otmse = "C[Si](C)(C)CCOC(=O)C"
         self.assertIn("otmse-ester", self._check([otmse], [otmse], "otmse-removal"))
 
+    def test_hydrazine_flags_allyl_groups_that_must_survive(self):
+        alloc = "C=CCOC(=O)NCC"
+        allyl = "C=CCOC(=O)C"
+        self.assertIn("alloc-carbamate", self._check([alloc], [alloc], "dde-removal"))
+        self.assertIn("allyl-ester", self._check([allyl], [allyl], "dde-removal"))
+
+    def test_fluoride_flags_an_fmoc_group_that_must_survive(self):
+        fmoc = "O=C(O)CNC(=O)OCC1c2ccccc2-c2ccccc21"
+        self.assertIn("fmoc", self._check([fmoc], [fmoc], "otmse-removal"))
+
     def test_hydrazine_flags_odmab_and_fmoc_that_must_survive(self):
         odmab = "CC(=O)OCC1=CC=C(NC(=C2C(=O)CC(C)(C)CC2=O)CC(C)C)C=C1"
         fmoc = "O=C(O)CNC(=O)OCC1c2ccccc2-c2ccccc21"
