@@ -35,7 +35,7 @@ await build({
   stdin: {
     contents: `
       export { default as createWorker, resetPubchemPacing } from './src/worker';
-      export { validateChemicalReferences } from './src/engine/chemistryValidationCore';
+      export { validateChemicalReferences, sameMoleculeByInchi } from './src/engine/chemistryValidationCore';
       export { splitFences } from './src/engine/fences';
       export { documentView, summarize } from './src/view';
       export { assignLonePairs, forceTetrahedralPerspective } from './src/engine/chemistryScene';
@@ -4462,4 +4462,51 @@ test('a solvent the step genuinely forms is not called a duplicate', async () =>
     [...r(2), 'agent', ...p(2)],
     [1, 1, 1, 1, 1]);
   assert.ok(Array.isArray(coefficients), 'a step that balances is simply balanced');
+});
+
+// ---------------------------------------------------------------- tautomer-insensitive target match
+// A guanidine (arginine) or imidazole (histidine) revealed at the final deprotection can
+// canonicalise to a different mobile-H tautomer than the requested target names — the same molecule,
+// a different SMILES — and the exact and stereo-stripped skeleton comparisons both miss it, so the
+// route reads as not-formed though it made the compound. InChI normalises mobile H; the match now
+// falls back to it. These assert both halves: tautomers are admitted, and nothing that is a genuinely
+// different compound (wrong constitution) or a different enantiomer (wrong stereo) is.
+
+test('sameMoleculeByInchi admits tautomers but not wrong constitution or stereo', async () => {
+  // Arg guanidine: the block leaves N=C(N)N, the builder writes NC(=N)N — same molecule.
+  assert.deepEqual(await lib.sameMoleculeByInchi('CCCN=C(N)N', 'CCCNC(=N)N'), { full: true, constitution: true });
+  // His imidazole: block Nτ-H vs builder Nπ-H — same molecule, stereo preserved.
+  assert.deepEqual(
+    await lib.sameMoleculeByInchi('N[C@@H](Cc1c[nH]cn1)C(=O)O', 'N[C@@H](Cc1cnc[nH]1)C(=O)O'),
+    { full: true, constitution: true });
+  // L- vs D-alanine: same constitution, different stereo — NOT a full match.
+  assert.deepEqual(await lib.sameMoleculeByInchi('C[C@H](N)C(=O)O', 'C[C@@H](N)C(=O)O'), { full: false, constitution: true });
+  // Leucine vs isoleucine: a genuinely different compound — neither.
+  assert.deepEqual(await lib.sameMoleculeByInchi('CC(C)C[C@H](N)C(=O)O', 'CC[C@H](C)[C@H](N)C(=O)O'), { full: false, constitution: false });
+});
+
+test('auditRoute reports a tautomer of the target as formed', async () => {
+  // One balanced step frees a propyl-guanidine written as the N=C(N)N tautomer; the requested target
+  // is the other tautomer, NC(=N)N. Same molecule, so the route formed it.
+  const audit = await lib.auditRoute({
+    steps: ['CC(=O)N=C(N)NCCC.O>>CC(=O)O.CCCN=C(N)N'],
+    target: 'CCCNC(=N)N',
+  });
+  assert.equal(audit.target.reason, 'formed', `a tautomer of the target is the target (got ${audit.target.reason})`);
+});
+
+test('auditRoute still separates a wrong enantiomer and a wrong compound from a formed target', async () => {
+  // The route frees one alanine enantiomer; the target names the other. Same constitution, wrong
+  // stereo — stereo-mismatch, never 'formed'.
+  const stereo = await lib.auditRoute({
+    steps: ['CC(=O)N[C@@H](C)C(=O)O.O>>CC(=O)O.N[C@@H](C)C(=O)O'],
+    target: 'N[C@H](C)C(=O)O',
+  });
+  assert.equal(stereo.target.reason, 'stereo-mismatch', `a wrong enantiomer is not formed (got ${stereo.target.reason})`);
+  // The route frees alanine; the target is valine — a different compound, not formed.
+  const wrong = await lib.auditRoute({
+    steps: ['CC(=O)N[C@@H](C)C(=O)O.O>>CC(=O)O.N[C@@H](C)C(=O)O'],
+    target: 'CC(C)[C@@H](N)C(=O)O',
+  });
+  assert.equal(wrong.target.reason, 'not-formed', `a different compound is not formed (got ${wrong.target.reason})`);
 });

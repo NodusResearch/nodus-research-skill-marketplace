@@ -349,6 +349,62 @@ export async function productMatchesTarget(target: string, product: string): Pro
   }
 }
 
+/** Standard InChI of a SMILES, or null when the toolkit cannot produce one. The one use is a
+ *  tautomer-insensitive fallback for target matching: InChI normalises mobile hydrogens, so a
+ *  guanidine (arginine) or an imidazole (histidine) written as a different tautomer of the SAME
+ *  molecule compares equal, while stereochemistry (the /t,/m,/s,/b layers) and the constitution
+ *  are preserved. Feature-detected and wrapped: a build without InChI support, or a molecule it
+ *  declines, yields null and the caller falls back to the exact canonical comparison it already
+ *  did — so this can only ADMIT a match the stricter tests missed, never reject one they made. */
+async function standardInchi(smiles: string): Promise<string | null> {
+  const kit = await rdkit();
+  const mol = kit.get_mol(smiles) as (JSMol & { get_inchi?: () => string }) | null;
+  try {
+    if (!mol || !mol.is_valid() || typeof mol.get_inchi !== 'function') return null;
+    const inchi = mol.get_inchi();
+    return typeof inchi === 'string' && inchi.startsWith('InChI=') ? inchi : null;
+  } catch {
+    return null;
+  } finally {
+    mol?.delete();
+  }
+}
+
+/** An InChI with its stereochemistry layers removed, so two compare equal when they are the same
+ *  constitution up to stereo AND tautomer. The /b (double-bond), /t (tetrahedral), /m (parity) and
+ *  /s (stereo-type) layers are dropped; the formula and the connection, hydrogen, charge, proton
+ *  and isotope layers are kept. The formula (segment 1) is kept unconditionally — an element symbol
+ *  may begin with one of those letters (B, S) — and only later layers are filtered. */
+function inchiConstitution(inchi: string): string {
+  return inchi.split('/').filter((seg, i) => i <= 1 || !/^[btms]/.test(seg)).join('/');
+}
+
+/** Whether two structures are the same compound ignoring tautomer (mobile-H) differences, reported
+ *  as a full match (stereochemistry included) and a constitution-only match (stereo ignored). Both
+ *  are false when InChI is unavailable, so a caller treats a true as an extra match and otherwise
+ *  behaves exactly as before. The target's InChI is computed once per call; callers comparing many
+ *  products against one target should bind the target through `inchiTargetMatcher`. */
+export async function sameMoleculeByInchi(a: string, b: string): Promise<{ full: boolean; constitution: boolean }> {
+  const [ia, ib] = await Promise.all([standardInchi(a), standardInchi(b)]);
+  if (!ia || !ib) return { full: false, constitution: false };
+  if (ia === ib) return { full: true, constitution: true };
+  return { full: false, constitution: inchiConstitution(ia) === inchiConstitution(ib) };
+}
+
+/** A tautomer-insensitive matcher bound to one target, so its InChI is computed once and each
+ *  product is a single InChI away. Returns `null` for both flags when the target has no InChI. */
+export async function inchiTargetMatcher(target: string): Promise<(product: string) => Promise<{ full: boolean; constitution: boolean }>> {
+  const wanted = await standardInchi(target);
+  const wantedFlat = wanted ? inchiConstitution(wanted) : null;
+  return async (product: string) => {
+    if (!wanted) return { full: false, constitution: false };
+    const got = await standardInchi(product);
+    if (!got) return { full: false, constitution: false };
+    if (got === wanted) return { full: true, constitution: true };
+    return { full: false, constitution: wantedFlat === inchiConstitution(got) };
+  };
+}
+
 /** The inspection summary read straight from the parsed reference, for the route checker. The
  *  numbers are the ones the full path reports — the same canonical graph, composition and stereo
  *  counts — and the centres are numbered in the string the author wrote, which is the handle the
