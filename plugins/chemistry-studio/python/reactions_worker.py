@@ -2029,6 +2029,15 @@ def _compatibility(steps, textbook_dir=None):
                 # to compete with, and flagging it would be wallpaper.
                 if group == "free-alpha-carboxyl" and not (reacted & {"alcohol", "phenol"}):
                     continue
+                # A named cation scavenger is the remedy for O-acylation and Tyr alkylation.
+                if group in ("ser-hydroxyl", "thr-hydroxyl", "tyr") and cls == "strong-acid" \
+                        and T.has_cation_scavenger(text):
+                    continue
+                # Acm only exchanges when a thiol (or thioanisole) is present; plain TFA is not the
+                # trigger, so the gate would otherwise fire on every Cys(Acm) route.
+                if group == "cys-acm" and cls == "strong-acid" \
+                        and not T.has_thiol_scavenger(text):
+                    continue
                 seen.add((group, cls))
                 # Another group of the same kind reacts in this step: the step is meant to tell them
                 # apart, so it is a selectivity question rather than a clash.
@@ -2060,6 +2069,7 @@ def _compatibility(steps, textbook_dir=None):
                 # An indole is only at risk when this step actually sets a cation loose and nothing
                 # in the cocktail is there to take it.
                 if group == "free-indole" and (T.has_cation_scavenger(text)
+                                               or "silane-reduction" in classes
                                                or not (before.keys() & {"boc", "tbu-ester", "tbu-ether", "trityl"})):
                     continue
                 # Both of the support-ester hazards are eliminated by a 2-chlorotrityl linker
@@ -2084,6 +2094,20 @@ def _compatibility(steps, textbook_dir=None):
                 # entry still fires without it, because there the acid IS the step.
                 if group == "n-terminal-gln" and cls == "strong-acid" \
                         and not T.has_dilute_workup(text):
+                    continue
+                # A TES-containing step is the reduction case, not the cation-alkylation case; let
+                # the silane-reduction class report it with the -71 message instead of two messages.
+                if group == "free-indole" and cls == "strong-acid" and "silane-reduction" in classes:
+                    continue
+                # A named cation scavenger is the remedy for O-acylation and Tyr alkylation. The
+                # indole gate already has its own scavenger path; these two need the same answer.
+                if group in ("ser-hydroxyl", "thr-hydroxyl", "tyr") and cls == "strong-acid" \
+                        and T.has_cation_scavenger(text):
+                    continue
+                # Acm only exchanges when a thiol (or thioanisole) is present. Plain TFA is not the
+                # trigger, so the gate would otherwise fire on every Cys(Acm) route.
+                if group == "cys-acm" and cls == "strong-acid" \
+                        and not T.has_thiol_scavenger(text):
                     continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)

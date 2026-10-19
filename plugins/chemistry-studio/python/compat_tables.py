@@ -105,6 +105,10 @@ REAGENT_CLASSES = [
         # matched "reagent k", which is what made the gap easy to miss: the scavenger was read and
         # the acid was not, so the hazard could only ever be cleared, never raised.
         _F + r"TMSBr" + _E, r"trimethylsilyl bromide", _COCKTAIL_ANY]),
+    # Triethylsilane is a scavenger, but it also reduces a free indole. It is its own class so the
+    # `free-indole` alkylation gate can stand aside and the reduction can be reported with the
+    # Table 5 -71 signature instead of a cation-alkylation message.
+    ("silane-reduction", "triethylsilane (indole-reducing)", [r"\bTES\b", r"triethylsilane"]),
     # The MILD acid regime of Fmoc/tBu work: cleaving a peptide off a super-acid-labile support
     # (2-chlorotrityl, SASRIN) or taking off a super-acid-labile side-chain group, with dilute TFA,
     # acetic acid, trifluoroethanol or hexafluoroisopropanol. Chemically this is a different regime
@@ -304,6 +308,19 @@ GROUPS = {
     # `boc` group above, whose [NX3] cannot match an aromatic n, so it is not a cation source by
     # that reading either.
     "free-indole": ("unprotected tryptophan indole", "c1ccc2[nH]ccc2c1"),
+    # The same indole, but the risk is reduction by a triethylsilane rather than alkylation by a
+    # cation. Kept separate so the remedy can say "replace the silane with EDT" rather than
+    # "add a scavenger", which would be wrong.
+    "trp-indole-reduction": ("tryptophan indole (silane reduction)", "c1ccc2[nH]ccc2c1"),
+    # Free side-chain hydroxyls of Ser/Thr, and the Tyr phenol. Strong acid can O-acylate the
+    # former (the O-acyl then migrates to the backbone N) and alkylate the latter with the tBu
+    # cation; a cation scavenger is the answer, which is why the gate is suppressed when one is
+    # explicitly named.
+    "ser-hydroxyl": ("serine side-chain hydroxyl", "[NX3][CX4H1]([CH2][OX2H1])[CX3]=O"),
+    "thr-hydroxyl": ("threonine side-chain hydroxyl", "[NX3][CX4H1]([CX4H1]([CH3])[OX2H1])[CX3]=O"),
+    "tyr": ("tyrosine phenol", "c1ccc([OX2H1])cc1"),
+    # S-acetamidomethyl cysteine. Thiol scavengers can exchange with it; plain acid does not.
+    "cys-acm": ("S-acetamidomethyl cysteine", "[SX2][CH2][NX3][CX3](=O)[CH3]"),
     # An N-terminal GLUTAMINE with its alpha-amine free. That amine is five atoms from its own
     # side-chain amide carbonyl, so it closes the five-membered lactam and expels ammonia: the
     # peptide becomes the pyroglutamyl one, with no N-terminus left to extend.
@@ -564,7 +581,17 @@ ATTACKS = {
         ("boc", "high", "is cleaved by acid"), ("acetal", "high", "is hydrolysed by aqueous acid"),
         ("asp-pro", "high", "is cleaved at the Asp-Pro bond by acid"),
         ("tbu-ester", "high", "is cleaved by acid"), ("silyl-ether", "medium", "may be cleaved (TMS, TES, TBS more than TBDPS, TIPS)"),
-        ("trityl", "high", "is cleaved by acid"), ("epoxide", "medium", "may be opened")],
+        ("trityl", "high", "is cleaved by acid"), ("epoxide", "medium", "may be opened"),
+        ("ser-hydroxyl", "medium", "may be O-acylated by the tBu cation, and the O-acyl can migrate "
+                                    "to the backbone nitrogen; a cation scavenger and a short acid "
+                                    "treatment are the answer"),
+        ("thr-hydroxyl", "medium", "may be O-acylated by the tBu cation, and the O-acyl can migrate "
+                                    "to the backbone nitrogen; a cation scavenger and a short acid "
+                                    "treatment are the answer"),
+        ("tyr", "medium", "may be alkylated by the tBu cation during acidolysis; a cation scavenger "
+                          "(TIS, phenol) is the answer"),
+        ("cys-acm", "medium", "may lose the Acm group or exchange with a thiol scavenger (EDT/DTT) "
+                              "during acidolysis; omit the thiol or use a different Cys protection")],
     "aqueous-acid": [("acetal", "medium", "may be hydrolysed"), ("trityl", "medium", "may be cleaved"),
                      ("silyl-ether", "medium", "may be cleaved (TMS, TES)")],
     "fluoride": [("silyl-ether", "high", "is cleaved by fluoride")],
@@ -681,6 +708,11 @@ UNMASKED_RISKS = {
                                    "evaporating the acid and triturating. Remove the acid as quickly as possible, and "
                                    "better, carry the glutamine as Fmoc-Gln(Trt)-OH, which ships: a protected "
                                    "side-chain amide leaves nothing to close onto"),
+    ],
+    "silane-reduction": [
+        ("trp-indole-reduction", "medium", "is REDUCED by the triethylsilane: the indole loses a double "
+                                          "bond (-71 Da), and the product is not the tryptophan that was "
+                                          "asked for. Replace TES with TIS or EDT"),
     ],
     "amine-base": [
         ("resin-dipeptide-dkp", "high", "is what this step CREATES, and it closes to the diketopiperazine, taking the "
@@ -1042,6 +1074,19 @@ MASS_SHIFTS = {
                                     "iso-Asp product has the same mass, so the trace cannot tell them apart"},
     "asn-gln-amide": {"delta": -18, "kind": "shift",
                       "note": "dehydration of the side-chain amide to the nitrile"},
+    "trp-indole-reduction": {"delta": -71, "kind": "shift",
+                             "note": "the indole ring is reduced; -71 Da is the Table 5 signature, and the "
+                                     "product is no longer tryptophan"},
+    "ser-hydroxyl": {"delta": 56, "kind": "shift",
+                      "note": "O-acylation by the tBu cation adds +56; the O-acyl can migrate to the "
+                              "backbone nitrogen"},
+    "thr-hydroxyl": {"delta": 56, "kind": "shift",
+                      "note": "O-acylation by the tBu cation adds +56; the O-acyl can migrate to the "
+                              "backbone nitrogen"},
+    "tyr": {"delta": 56, "kind": "shift",
+            "note": "t-butylation of the tyrosine ring adds +56"},
+    "cys-acm": {"delta": -71, "kind": "shift",
+                "note": "loss of the acetamidomethyl group; -71 Da is the Table 5 signature"},
     "free-indole": {"delta": None, "kind": "shift",
                     "note": "the shift is whichever cation reached the indole, so it names the culprit rather than "
                             "one number: +56 a tert-butyl, +212 an Arg(Mtr) sulfonyl, +252/+266 an Arg(Pbf)/(Pmc) "
@@ -1125,7 +1170,8 @@ PEPTIDE_HAZARDS = frozenset({
     "aspartimide-prone-xaa", "cys-epimerisation", "his-epimerisation",
     "cys-resin-ester-epimerisation", "resin-dipeptide-dkp", "asn-gln-amide", "free-indole",
     "free-alpha-carboxyl", "sulfide", "met-sulfide", "asp-pro",
-    "asn-deamidation-gly", "asn-deamidation-ser", "d-amino-acid",
+    "asn-deamidation-gly", "asn-deamidation-ser", "trp-indole-reduction",
+    "ser-hydroxyl", "thr-hydroxyl", "tyr", "cys-acm", "d-amino-acid",
 })
 
 
@@ -1197,6 +1243,14 @@ PROTECT = {
                     "until after the cleavage, so the amine is never free in acid",
                     [_TRT_AMIDE]),
     },
+    "trp-indole-reduction": {"default": ("replace TES with TIS or EDT; TIS is the Trp-safe silane", [])},
+    "ser-hydroxyl": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment "
+                                 "short; check the O-to-N shift", [])},
+    "thr-hydroxyl": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment "
+                                 "short; check the O-to-N shift", [])},
+    "tyr": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment short", [])},
+    "cys-acm": {"default": ("omit the thiol scavenger or use a different Cys protection; Acm is "
+                             "not the block for an EDT cocktail", [])},
     "free-indole": {
         "default": ("add a cation scavenger to the cocktail — a thiol (EDT or DODT), or thioanisole with "
                     "phenol, optionally alongside triisopropylsilane; those are the components of the "
@@ -1302,6 +1356,16 @@ def has_cation_scavenger(text):
     A trialkylsilane alone does not qualify; see the note on `_INDOLE_SCAVENGER`.
     """
     return bool(_INDOLE_SCAVENGER.search(text or ""))
+
+
+_THIOL_SCAVENGER = re.compile(
+    r"\bEDT\b|ethanedithiol|\bDODT\b|dioxa[- ]?octanedithiol|\bdithiothreitol\b|\bDTT\b|"
+    r"\bTCEP\b|tris\(2-carboxyethyl\)phosphine|\bmercaptoethanol\b|\bthioanisole\b", re.I)
+
+
+def has_thiol_scavenger(text):
+    """Whether the step names a thiol (or thioanisole) that can exchange with Cys(Acm)."""
+    return bool(_THIOL_SCAVENGER.search(text or ""))
 _ZINC = re.compile(r"(?<![A-Za-z])Zn(Cl2|Br2|I2)(?![A-Za-z0-9])|\bEt2Zn\b", re.I)
 _COPPER = re.compile(r"(?<![A-Za-z])Cu(I|Br|Cl|CN|SPh|\(I\)|OTf)?(?![a-z])|copper", re.I)
 

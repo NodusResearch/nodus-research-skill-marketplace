@@ -183,8 +183,10 @@ class TheFlagClears(unittest.TestCase):
         for cocktail in (TES_ONLY, "TFA/TES/water, 3 h", "TFA/triethylsilane 95:5"):
             with self.subTest(cocktail):
                 found = hazards_for(TRP_PEPTIDE, CLEAVED, cocktail)
-                self.assertIn(GROUP, groups_in(found),
+                self.assertIn("trp-indole-reduction", groups_in(found),
                               f"{cocktail}: TES reduces a free indole; hazards were {groups_in(found)}")
+                self.assertNotIn(GROUP, groups_in(found),
+                                 "the reduction is not the cation-alkylation case")
 
     def test_TRIISOPROPYLsilane_alone_DOES_clear_it(self):
         # The half of this that the first version of the suite got backwards. Vol 3: TIS "is

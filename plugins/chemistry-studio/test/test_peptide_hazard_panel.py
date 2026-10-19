@@ -506,8 +506,10 @@ class FreeIndoleOnCleavage(unittest.TestCase):
         # 10.1 marks TFA/TES 95:5 "no: Trp" and TFA/TIS 95:5 "acceptable: Trp", because TES
         # "has the ability to reduce the indole function of this residue".
         chain, _ = build("WD")
-        self.assertIn("free-indole", cleavage(chain, TES_ONLY).groups(),
+        self.assertIn("trp-indole-reduction", cleavage(chain, TES_ONLY).groups(),
                       "TES reduces a free indole")
+        self.assertNotIn("free-indole", cleavage(chain, TES_ONLY).groups(),
+                         "the reduction is not the cation-alkylation case")
         self.assertNotIn("free-indole", cleavage(chain, TIS_ONLY).groups(),
                          "TIS is the silane recommended FOR Trp-containing sequences")
 
