@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { githubClient, readPublishedRelease } from './lib/github-release-api.mjs';
-import { assertCatalogDiff, assertCatalogIndexDiff, isCatalogPath } from './lib/release-automation.mjs';
+import { REQUIRED_CHECKS, assertCatalogDiff, assertCatalogIndexDiff, isCatalogPath } from './lib/release-automation.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 if (process.env.CI !== 'true' || process.env.GITHUB_REF !== 'refs/heads/main') {
@@ -14,6 +14,12 @@ const runId = process.env.GITHUB_RUN_ID;
 const attempt = process.env.GITHUB_RUN_ATTEMPT;
 if (!/^\d+$/.test(runId ?? '') || !/^\d+$/.test(attempt ?? '')) throw new Error('A workflow run identity is required.');
 const client = githubClient();
+// A PR opened with GITHUB_TOKEN gets its pull_request CI only after a maintainer approves the
+// run, and dispatched runs do not satisfy the PR's required checks. The catalog GitHub App
+// therefore opens the PR, so its own required checks start like any other PR's. It can only
+// write pull requests; pushing, waiting and merging keep the job's GITHUB_TOKEN.
+const author = process.env.CATALOG_PR_TOKEN ? githubClient(undefined, process.env.CATALOG_PR_TOKEN) : null;
+const ACTIONS_APP_ID = 15368; // The only app branch protection accepts for the required checks.
 const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
 const node = args => execFileSync(process.execPath, args, { cwd: root, stdio: 'inherit' });
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -52,28 +58,34 @@ for (let retry = 0; retry < 3; retry++) {
   }
   node(['scripts/build-catalog-v2.mjs', '--check']);
   git(['diff', '--check']);
+  if (!author) {
+    throw new Error('CATALOG_PR_TOKEN is missing. Configure the catalog GitHub App (variable CATALOG_APP_CLIENT_ID, '
+      + 'secret CATALOG_APP_PRIVATE_KEY): a PR opened with GITHUB_TOKEN cannot run its required checks unattended.');
+  }
   const branch = `codex/release-catalog-${runId}-${attempt}-${retry}`;
   git(['switch', '-c', branch]);
   git(['add', '--', ...files]);
   git(['commit', '-m', 'Record sizes from published signed capability manifests']);
   const sha = git(['rev-parse', 'HEAD']);
   git(['push', 'origin', `HEAD:refs/heads/${branch}`]);
-  const pr = await client.request('pulls', { method: 'POST', body: {
+  const pr = await author.request('pulls', { method: 'POST', body: {
     title: 'Record signed capability release sizes', base: 'main', head: branch,
     body: `Record the exact archive bounds and versions verified from published release signatures.\n\n${records.map(r => `- ${r}`).join('\n')}\n\nOnly catalog metadata changes. The complete marketplace CI must pass before this generated update merges.\n\n[Release workflow](https://github.com/${client.repository}/actions/runs/${runId})`,
   } });
   summary(`Generated catalog PR: ${pr.html_url}`);
-  // GITHUB_TOKEN pushes do not start another workflow. Dispatch read-only validation explicitly.
-  await client.request('actions/workflows/validate.yml/dispatches', { method: 'POST', body: { ref: branch } });
+  // Wait for the PR's own required checks on its exact head: the ones branch protection reads.
   const deadline = Date.now() + 20 * 60 * 1000;
   let validated = false;
   while (Date.now() < deadline) {
-    const response = await client.request(`actions/workflows/validate.yml/runs?branch=${encodeURIComponent(branch)}&event=workflow_dispatch&head_sha=${sha}&per_page=100`);
-    const run = response.workflow_runs.find(r => r.head_sha === sha && r.event === 'workflow_dispatch');
-    if (run?.status === 'completed') {
-      if (run.conclusion !== 'success') throw new Error(`Catalog PR CI failed: ${run.html_url}`);
-      validated = true; break;
+    const runs = await client.request(`actions/runs?head_sha=${sha}&event=pull_request&per_page=100`);
+    if (runs.workflow_runs.some(r => r.status === 'action_required' || r.conclusion === 'action_required')) {
+      throw new Error(`Catalog PR CI is waiting for a maintainer's approval; the catalog GitHub App must open the PR: ${pr.html_url}`);
     }
+    const { check_runs: checks } = await client.request(`commits/${sha}/check-runs?filter=latest&per_page=100`);
+    const required = REQUIRED_CHECKS.map(name => checks.find(c => c.name === name && c.app?.id === ACTIONS_APP_ID));
+    const failed = required.find(c => c?.status === 'completed' && c.conclusion !== 'success');
+    if (failed) throw new Error(`Catalog PR CI failed (${failed.name}): ${failed.html_url}`);
+    if (required.every(c => c?.status === 'completed')) { validated = true; break; }
     await sleep(15000);
   }
   if (!validated) throw new Error(`Catalog PR CI did not finish within 20 minutes: ${pr.html_url}`);
@@ -81,7 +93,7 @@ for (let retry = 0; retry < 3; retry++) {
   if (changed.some(f => !isCatalogPath(f.filename) || f.status === 'removed' || f.status === 'renamed')) {
     throw new Error('The generated PR no longer contains only catalog metadata.');
   }
-  for (let settle = 0; settle < 6; settle++) {
+  for (let settle = 0; settle < 12; settle++) {
     try {
       const merged = await client.request(`pulls/${pr.number}/merge`, {
         method: 'PUT', body: { sha, merge_method: 'squash', commit_title: 'Record signed capability release sizes' },
@@ -98,7 +110,7 @@ for (let retry = 0; retry < 3; retry++) {
         await client.request(`git/refs/heads/${branch}`, { method: 'DELETE' });
         break; // Rebuild the metadata from the new main, with a fresh CI run.
       }
-      if (settle === 5) throw new Error(`Catalog PR remains blocked by branch policy: ${pr.html_url}`);
+      if (settle === 11) throw new Error(`Catalog PR remains blocked by branch policy: ${pr.html_url}`);
       await sleep(5000);
     }
   }

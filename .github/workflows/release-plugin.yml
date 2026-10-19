@@ -170,7 +170,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      actions: write
+      actions: read
+      checks: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -179,9 +180,21 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
+      # A PR opened with GITHUB_TOKEN runs its required CI only after a maintainer approves it.
+      # The catalog App opens it instead; its token can write pull requests and nothing else.
+      - name: Authenticate as the catalog PR author
+        id: catalog-pr-author
+        if: vars.CATALOG_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.CATALOG_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CATALOG_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
       - name: Verify published signatures and merge a checked metadata PR
         env:
           GH_TOKEN: ${{ github.token }}
+          CATALOG_PR_TOKEN: ${{ steps.catalog-pr-author.outputs.token }}
         run: node scripts/sync-published-catalog.mjs
 
   report-failure:
