@@ -23,9 +23,10 @@ Two deliberate restrictions, both of them judgments about wallpaper rather than 
     in, and at room temperature it does not oxidise a methionine appreciably. Flagging every DMSO
     step would bury the real ones. DMSO/TFA, which IS used to oxidise Met and to close disulfides,
     is recognised through its acid.
-  - AIR ATTACKS THE THIOL ONLY, not the thioether. A free cysteine air-oxidises to the disulfide;
-    a methionine thioether and an S-tritylated cysteine do not, at any rate that matters. So the
-    shipped Fmoc-Cys(Trt)-OH stays silent under air, which is the remedy working as intended.
+  - AIR ATTACKS THE FREE THIOL AND THE METHIONINE SULFIDE, but not an S-tritylated cysteine. A free
+    cysteine air-oxidises to the disulfide; methionine gives the +16 sulfoxide that Chan & White
+    Table 5 lists, so the `met-sulfide` group is its own pattern (the two-CH2 Met chain) and the
+    shipped Fmoc-Cys(Trt)-OH stays silent under air. The old thioether exemption was too broad.
 
 And the disulfide case carries a caveat the others do not: forming one is often the POINT (the
 cyclisation work in Phase 2), so the message has to say "if that is what this step is for, declare
@@ -109,10 +110,18 @@ class AirOxidisesTheThiolOnly(unittest.TestCase):
         found = hazards_for(CYS_TRT_PEPTIDE, CYS_TRT_PEPTIDE, "air oxidation, pH 8, 24 h")
         self.assertNotIn("thiol", groups_in(found), "the S-trityl is the remedy and must clear it")
 
-    def test_methionine_is_silent_under_air(self):
-        # A thioether does not air-oxidise at a rate worth flagging; the peroxide case covers Met.
+    def test_methionine_is_flagged_under_air_as_the_sulfoxide(self):
+        # Chan & White Table 5: +16 on Met is the sulfoxide. The pattern is the Met side chain, so
+        # an S-trityl cysteine is not caught by it.
         found = hazards_for(MET_PEPTIDE, MET_PEPTIDE, "air oxidation, pH 8, 24 h")
-        self.assertNotIn("sulfide", groups_in(found), f"hazards were {groups_in(found)}")
+        self.assertIn("met-sulfide", groups_in(found), f"hazards were {groups_in(found)}")
+        hazard = next(h for h in found if h["group"] == "met-sulfide")
+        self.assertEqual(hazard["severity"], "medium")
+        self.assertIn("sulfoxide", hazard["why"].lower())
+
+    def test_a_tritylated_cysteine_is_silent_for_the_met_pattern_too(self):
+        found = hazards_for(CYS_TRT_PEPTIDE, CYS_TRT_PEPTIDE, "air oxidation, pH 8, 24 h")
+        self.assertNotIn("met-sulfide", groups_in(found))
 
 
 class WhatMustNotBeFlagged(unittest.TestCase):

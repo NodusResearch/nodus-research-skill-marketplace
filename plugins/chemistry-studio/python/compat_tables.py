@@ -105,6 +105,10 @@ REAGENT_CLASSES = [
         # matched "reagent k", which is what made the gap easy to miss: the scavenger was read and
         # the acid was not, so the hazard could only ever be cleared, never raised.
         _F + r"TMSBr" + _E, r"trimethylsilyl bromide", _COCKTAIL_ANY]),
+    # Triethylsilane is a scavenger, but it also reduces a free indole. It is its own class so the
+    # `free-indole` alkylation gate can stand aside and the reduction can be reported with the
+    # Table 5 -71 signature instead of a cation-alkylation message.
+    ("silane-reduction", "triethylsilane (indole-reducing)", [r"\bTES\b", r"triethylsilane"]),
     # The MILD acid regime of Fmoc/tBu work: cleaving a peptide off a super-acid-labile support
     # (2-chlorotrityl, SASRIN) or taking off a super-acid-labile side-chain group, with dilute TFA,
     # acetic acid, trifluoroethanol or hexafluoroisopropanol. Chemically this is a different regime
@@ -216,6 +220,16 @@ GROUPS = {
     # silent too, which is the point: the remedy is already in the building-block set.
     "asn-gln-amide": ("unprotected asparagine or glutamine side-chain amide",
                       "[NX3;H2][CX3](=[OX1])[CH2][CX4]"),
+    # Asn deamidation is a SEQUENCE motif, not a lone amide: the side-chain amide closes on the
+    # next backbone nitrogen to form a succinimide, which hydrolyses to Asp (or iso-Asp). The two
+    # neighbours the literature singles out are glycine (no side chain) and serine (small, polar).
+    # The pattern says "Asn side-chain amide - alpha carbon - carbonyl - next N - Gly/Ser", so a
+    # mid-chain Asn-Ala or a protected Asn(Trt) (secondary amide) stays silent.
+    "asn-deamidation-gly": ("Asn-Gly deamidation motif",
+                            "[NX3;H2][CX3](=O)[CH2][CX4H1]([NX3])[CX3](=O)[NX3;H1][CH2][CX3]=O"),
+    "asn-deamidation-ser": ("Asn-Ser deamidation motif",
+                            "[NX3;H2][CX3](=O)[CH2][CX4H1]([NX3])[CX3](=O)[NX3;H1]"
+                            "[CX4H1]([CH2][OX2])[CX3]=O"),
     # Sequence context, not a lone functional group: an aspartate SIDE-CHAIN ESTER whose
     # neighbour supplies a backbone N–H. Under repeated base that N–H closes onto the ester
     # (5-exo) to give the aspartimide, which then reopens to a mixture of the alpha- and
@@ -294,6 +308,19 @@ GROUPS = {
     # `boc` group above, whose [NX3] cannot match an aromatic n, so it is not a cation source by
     # that reading either.
     "free-indole": ("unprotected tryptophan indole", "c1ccc2[nH]ccc2c1"),
+    # The same indole, but the risk is reduction by a triethylsilane rather than alkylation by a
+    # cation. Kept separate so the remedy can say "replace the silane with EDT" rather than
+    # "add a scavenger", which would be wrong.
+    "trp-indole-reduction": ("tryptophan indole (silane reduction)", "c1ccc2[nH]ccc2c1"),
+    # Free side-chain hydroxyls of Ser/Thr, and the Tyr phenol. Strong acid can O-acylate the
+    # former (the O-acyl then migrates to the backbone N) and alkylate the latter with the tBu
+    # cation; a cation scavenger is the answer, which is why the gate is suppressed when one is
+    # explicitly named.
+    "ser-hydroxyl": ("serine side-chain hydroxyl", "[NX3][CX4H1]([CH2][OX2H1])[CX3]=O"),
+    "thr-hydroxyl": ("threonine side-chain hydroxyl", "[NX3][CX4H1]([CX4H1]([CH3])[OX2H1])[CX3]=O"),
+    "tyr": ("tyrosine phenol", "c1ccc([OX2H1])cc1"),
+    # S-acetamidomethyl cysteine. Thiol scavengers can exchange with it; plain acid does not.
+    "cys-acm": ("S-acetamidomethyl cysteine", "[SX2][CH2][NX3][CX3](=O)[CH3]"),
     # An N-terminal GLUTAMINE with its alpha-amine free. That amine is five atoms from its own
     # side-chain amide carbonyl, so it closes the five-membered lactam and expels ammonia: the
     # peptide becomes the pyroglutamyl one, with no N-terminus left to extend.
@@ -416,6 +443,15 @@ GROUPS = {
     "tertiary-amine": ("tertiary amine", "[NX3;H0;!$(N[C,S,P]=[O,S,N]);!$(N-a);!$(N[#7,#8]);!$([N+])]([#6])([#6])[#6]"),
     "thiol": ("thiol", "[SX2H]"),
     "sulfide": ("sulfide", "[#6][SX2;!$(S[SX2])][#6]"),
+    # Methionine's side-chain thioether specifically. The generic `sulfide` above also matches an
+    # S-trityl cysteine, which is deliberately stable to adventitious air; the two-CH2 chain is
+    # what makes this the methionine case rather than every thioether.
+    "met-sulfide": ("methionine sulfide", "[CH2][CH2][SX2][CH3]"),
+    # The Asp-Pro peptide bond: the Asp side-chain carboxyl (free or protected) can close on the
+    # proline nitrogen under strong acid, cleaving the chain at Asp-Pro. A sequence motif, not a
+    # lone functional group.
+    "asp-pro": ("Asp-Pro motif",
+                "[NX3][CX4H1]([CH2][CX3](=O)[OX2])[CX3](=O)[NX3]1[CH2][CH2][CH2][CX4]1"),
     "alkene": ("alkene", "[CX3;!$(C=[O,N,S])]=[CX3;!$(C=[O,N,S])]"),
     "alkyne": ("alkyne", "[CX2]#[CX2]"),
     "terminal-alkyne": ("terminal alkyne", "[CX2H1]#[CX2]"),
@@ -433,6 +469,11 @@ GROUPS = {
     "cbz": ("Cbz carbamate", "[NX3][CX3](=O)O[CH2]c1ccccc1"),
     "fmoc": ("Fmoc carbamate", "[NX3][CX3](=O)OCC1c2ccccc2-c2ccccc21"),
     "trityl": ("trityl ether or amine", "[O,N,S]C(c1ccccc1)(c1ccccc1)c1ccccc1"),
+    # An alpha-carbon of a free amino acid or peptide acid: the incoming BUILDING BLOCK in a coupling,
+    # as opposed to the growing resin-bound chain (whose carboxyl is an ester to the support). The
+    # pattern itself is achiral and matches L and D alike; the configuration is read from RDKit's
+    # CIP label in `_compatibility`, because SMARTS cannot express "the wrong enantiomer".
+    "d-amino-acid": ("D-alpha-amino-acid block", "[NX3][CX4;H1]([CX3]=[OX1])"),
 }
 
 # ------------------------------------------------------------------------------ what attacks what
@@ -538,8 +579,19 @@ ATTACKS = {
         ("benzyl-ether", "medium", "may be cleaved"), ("aryl-halide", "medium", "may be reduced"), ("ester", "medium", "may be reduced")],
     "strong-acid": [
         ("boc", "high", "is cleaved by acid"), ("acetal", "high", "is hydrolysed by aqueous acid"),
+        ("asp-pro", "high", "is cleaved at the Asp-Pro bond by acid"),
         ("tbu-ester", "high", "is cleaved by acid"), ("silyl-ether", "medium", "may be cleaved (TMS, TES, TBS more than TBDPS, TIPS)"),
-        ("trityl", "high", "is cleaved by acid"), ("epoxide", "medium", "may be opened")],
+        ("trityl", "high", "is cleaved by acid"), ("epoxide", "medium", "may be opened"),
+        ("ser-hydroxyl", "medium", "may be O-acylated by the tBu cation, and the O-acyl can migrate "
+                                    "to the backbone nitrogen; a cation scavenger and a short acid "
+                                    "treatment are the answer"),
+        ("thr-hydroxyl", "medium", "may be O-acylated by the tBu cation, and the O-acyl can migrate "
+                                    "to the backbone nitrogen; a cation scavenger and a short acid "
+                                    "treatment are the answer"),
+        ("tyr", "medium", "may be alkylated by the tBu cation during acidolysis; a cation scavenger "
+                          "(TIS, phenol) is the answer"),
+        ("cys-acm", "medium", "may lose the Acm group or exchange with a thiol scavenger (EDT/DTT) "
+                              "during acidolysis; omit the thiol or use a different Cys protection")],
     "aqueous-acid": [("acetal", "medium", "may be hydrolysed"), ("trityl", "medium", "may be cleaved"),
                      ("silyl-ether", "medium", "may be cleaved (TMS, TES)")],
     "fluoride": [("silyl-ether", "high", "is cleaved by fluoride")],
@@ -568,6 +620,8 @@ ATTACKS = {
     # disulfide on air is a real step, so the message asks for it to be declared rather than
     # calling it a mistake.
     "air-oxidation": [
+        ("met-sulfide", "medium", "may be oxidized to the sulfoxide on standing; keep the peptide under "
+                                  "nitrogen or include EDT where the work-up allows it"),
         ("thiol", "medium", "may be oxidized to the DISULFIDE on standing, which dimerises the peptide or closes "
                             "a ring. If that is what this step is for, declare the disulfide as the product so the "
                             "route says so; if it is not, keep the cysteine S-tritylated (Fmoc-Cys(Trt)-OH ships) "
@@ -655,6 +709,11 @@ UNMASKED_RISKS = {
                                    "better, carry the glutamine as Fmoc-Gln(Trt)-OH, which ships: a protected "
                                    "side-chain amide leaves nothing to close onto"),
     ],
+    "silane-reduction": [
+        ("trp-indole-reduction", "medium", "is REDUCED by the triethylsilane: the indole loses a double "
+                                          "bond (-71 Da), and the product is not the tryptophan that was "
+                                          "asked for. Replace TES with TIS or EDT"),
+    ],
     "amine-base": [
         ("resin-dipeptide-dkp", "high", "is what this step CREATES, and it closes to the diketopiperazine, taking the "
                                         "peptide off the support: the amine this deprotection frees sits six atoms "
@@ -682,6 +741,14 @@ UNMASKED_RISKS = {
                                      "aspartimide, use OXYMA instead of HOBt: it suppresses aspartimide at least as "
                                      "well and is not a catalyst for this. Otherwise carry the glutamine as "
                                      "Fmoc-Gln(Trt)-OH, which ships and leaves nothing to close onto"),
+        ("asn-deamidation-gly", "medium",
+         "may DEAMIDATE via the succinimide under the piperidine, converting Asn to Asp/iso-Asp; "
+         "the side-chain amide closes on the next backbone nitrogen. Carry Asn as the trityl amide "
+         "or keep the base treatment short"),
+        ("asn-deamidation-ser", "medium",
+         "may DEAMIDATE via the succinimide under the piperidine, converting Asn to Asp/iso-Asp; "
+         "the side-chain amide closes on the next backbone nitrogen. Carry Asn as the trityl amide "
+         "or keep the base treatment short"),
         ("cys-resin-ester-epimerisation", "medium",
          "EPIMERISES under the base that removes the Fmoc: the alpha-proton sits between the "
          "sulfur that acidifies it and the ester that holds the residue to the support, and "
@@ -777,7 +844,7 @@ ACTIVATION_RISKS = {
 # character, and misparsing one would silence the flag on a route that deserves it, so a cold
 # coupling has to say collidine or Oxyma to clear this.
 _EPIMERISATION_CARE = re.compile(r"\bcollidine\b|trimethylpyridine|\boxyma\b|\bHOAt\b"
-                                 r"|cyanohydroxyimino", re.I)
+                                 r"|cyanohydroxyimino|\bOPfp\b|pentafluorophenyl", re.I)
 
 
 def has_epimerisation_care(text):
@@ -832,6 +899,23 @@ _PYROGLUTAMATE_CATALYST = re.compile(
 def has_pyroglutamate_catalyst(text):
     """Whether a step names one of the weak acids or benzotriazoles Benoiton lists as catalysing it."""
     return bool(_PYROGLUTAMATE_CATALYST.search(text or ""))
+
+
+# The regime a concentrated final cleavage passes through AFTER the acid is removed. Vol 3 Section
+# 9.2.4 is explicit that strong acids do not catalyse pyroglutamate formation because the amine is
+# protonated, and Benoiton's own case is "left at pH 2-3" — so the risk is the dilute/residual
+# work-up, not the 95% TFA itself. A strong-acid step that says nothing about a work-up is treated
+# as concentrated throughout and stays silent; the mild-acid class covers the dilute cocktails that
+# are themselves the step (1% TFA, AcOH/TFE, HFIP). No bare percentage is parsed here, for the same
+# reason temperature and time are not: "95%" and "5%" are one character apart.
+_DILUTE_WORKUP = re.compile(
+    r"\bevaporat|\btriturat|\bdilut|\bresidual\b|\bwork-?up\b|\baqueous\b|\bph\s*[0-9]"
+    r"|\bprecipitat|\bconcentrat\w*\s+(?:in\s+)?vacuo", re.I)
+
+
+def has_dilute_workup(text):
+    """Whether the step names the dilute/residual regime that can free an amine to cyclise."""
+    return bool(_DILUTE_WORKUP.search(text or ""))
 
 
 # The linker that answers two hazards at once. Benoiton Section 5.23: "The obstacles of
@@ -982,12 +1066,37 @@ MASS_SHIFTS = {
                                               "piperidine adds, giving 3-(piperidin-1-yl)alanine. Derived +51.07, and "
                                               "Vol 3 Section 10.2.2.1 quotes +51 Da. NOTE the other route from the "
                                               "same step, plain racemisation, is same-mass and invisible"},
+    "asn-deamidation-gly": {"delta": 1, "kind": "shift",
+                            "note": "Asn -> Asp by hydrolysis of the side-chain amide, +0.984 Da; the "
+                                    "iso-Asp product has the same mass, so the trace cannot tell them apart"},
+    "asn-deamidation-ser": {"delta": 1, "kind": "shift",
+                            "note": "Asn -> Asp by hydrolysis of the side-chain amide, +0.984 Da; the "
+                                    "iso-Asp product has the same mass, so the trace cannot tell them apart"},
     "asn-gln-amide": {"delta": -18, "kind": "shift",
                       "note": "dehydration of the side-chain amide to the nitrile"},
+    "trp-indole-reduction": {"delta": -71, "kind": "shift",
+                             "note": "the indole ring is reduced; -71 Da is the Table 5 signature, and the "
+                                     "product is no longer tryptophan"},
+    "ser-hydroxyl": {"delta": 56, "kind": "shift",
+                      "note": "O-acylation by the tBu cation adds +56; the O-acyl can migrate to the "
+                              "backbone nitrogen"},
+    "thr-hydroxyl": {"delta": 56, "kind": "shift",
+                      "note": "O-acylation by the tBu cation adds +56; the O-acyl can migrate to the "
+                              "backbone nitrogen"},
+    "tyr": {"delta": 56, "kind": "shift",
+            "note": "t-butylation of the tyrosine ring adds +56"},
+    "cys-acm": {"delta": -71, "kind": "shift",
+                "note": "loss of the acetamidomethyl group; -71 Da is the Table 5 signature"},
     "free-indole": {"delta": None, "kind": "shift",
                     "note": "the shift is whichever cation reached the indole, so it names the culprit rather than "
                             "one number: +56 a tert-butyl, +212 an Arg(Mtr) sulfonyl, +252/+266 an Arg(Pbf)/(Pmc) "
                             "sulfonyl, +172 an EDT-derived dithioketal (Chan & White Table 5)"},
+    "met-sulfide": {"delta": 16, "kind": "shift",
+                    "note": "one oxygen on the methionine sulfide, to the sulfoxide; the sulfoxide is chiral, "
+                            "so one Met gives two diastereomers in the trace"},
+    "asp-pro": {"delta": None, "kind": "deletion",
+                "note": "the Asp-Pro bond is hydrolysed; the chain is cut, so the evidence is two fragments, "
+                        "not a single modified product"},
     "sulfide": {"delta": 16, "kind": "shift",
                 "note": "one oxygen, to the sulfoxide; and it is CHIRAL, so one methionine gives three species in the "
                         "trace - unoxidised plus two diastereomers (Vol 3 Section 9.2.3)"},
@@ -997,6 +1106,10 @@ MASS_SHIFTS = {
                                   "can the balance check or the target comparison. Chiral analysis or an enzymatic "
                                   "digest is the only way to look"},
     "his-epimerisation": {"delta": 0, "kind": "same-mass", "note": "as cys-epimerisation; an isomer, not a shift"},
+    "d-amino-acid": {"delta": 0, "kind": "same-mass",
+                     "note": "a D residue substituted for its L form is an ISOMER: same formula, same mass, same "
+                             "connectivity. MS, the balance check and the target comparison all pass; only chiral "
+                             "analysis (or the stereocentre reader) can see it"},
     "arg-delta-lactam": {"delta": None, "kind": "deletion",
                          "note": "the residue is consumed without coupling, so the by-product is the n-1 chain and the "
                                  "shift is that residue's own mass - for arginine, -156 as Arg(Pbf) never arrives. "
@@ -1056,7 +1169,9 @@ PEPTIDE_HAZARDS = frozenset({
     "aspartimide-gly", "aspartimide-gly-hindered", "aspartimide-beta-heteroatom",
     "aspartimide-prone-xaa", "cys-epimerisation", "his-epimerisation",
     "cys-resin-ester-epimerisation", "resin-dipeptide-dkp", "asn-gln-amide", "free-indole",
-    "free-alpha-carboxyl", "sulfide",
+    "free-alpha-carboxyl", "sulfide", "met-sulfide", "asp-pro",
+    "asn-deamidation-gly", "asn-deamidation-ser", "trp-indole-reduction",
+    "ser-hydroxyl", "thr-hydroxyl", "tyr", "cys-acm", "d-amino-acid",
 })
 
 
@@ -1098,6 +1213,10 @@ PROTECT = {
     "phenol": {"default": ("protect it as a methyl, benzyl or silyl ether", [_ME_ETHER_AR, _BN_ETHER, _TBS])},
     # Unlike most entries here, this remedy needs nothing new: the trityl-protected blocks are
     # already the ones a solid-phase synthesis would reach for.
+    "asn-deamidation-gly": {"default": ("carry Asn as Fmoc-Asn(Trt)-OH and keep the piperidine "
+                                        "treatment short; avoid aqueous base", [])},
+    "asn-deamidation-ser": {"default": ("carry Asn as Fmoc-Asn(Trt)-OH and keep the piperidine "
+                                        "treatment short; avoid aqueous base", [])},
     "asn-gln-amide": {"default": ("carry the side chain as the N-trityl amide — Fmoc-Asn(Trt)-OH or "
                                   "Fmoc-Gln(Trt)-OH, removed by the same TFA as the other acid-labile groups",
                                   [_TRT_AMIDE])},
@@ -1124,6 +1243,14 @@ PROTECT = {
                     "until after the cleavage, so the amine is never free in acid",
                     [_TRT_AMIDE]),
     },
+    "trp-indole-reduction": {"default": ("replace TES with TIS or EDT; TIS is the Trp-safe silane", [])},
+    "ser-hydroxyl": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment "
+                                 "short; check the O-to-N shift", [])},
+    "thr-hydroxyl": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment "
+                                 "short; check the O-to-N shift", [])},
+    "tyr": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment short", [])},
+    "cys-acm": {"default": ("omit the thiol scavenger or use a different Cys protection; Acm is "
+                             "not the block for an EDT cocktail", [])},
     "free-indole": {
         "default": ("add a cation scavenger to the cocktail — a thiol (EDT or DODT), or thioanisole with "
                     "phenol, optionally alongside triisopropylsilane; those are the components of the "
@@ -1166,6 +1293,10 @@ PROTECT = {
     "alkyl-halide": {"default": ("use a non-nucleophilic, milder base or introduce the halide later", [])},
     "epoxide": {"default": ("introduce the epoxide later", [])},
     "sulfide": {"default": ("use a milder or more selective oxidant, or change the order of steps", [])},
+    "met-sulfide": {"default": ("keep the peptide under nitrogen or add EDT to the cleavage/work-up; "
+                                "reduce the sulfoxide if it has already formed", [])},
+    "asp-pro": {"default": ("avoid prolonged strong acid at the Asp-Pro bond; use a milder cleavage or "
+                            "shorten the acid treatment", [])},
     "tertiary-amine": {"default": ("protonate it (as the salt) or change the order of steps", [])},
 }
 
@@ -1225,6 +1356,16 @@ def has_cation_scavenger(text):
     A trialkylsilane alone does not qualify; see the note on `_INDOLE_SCAVENGER`.
     """
     return bool(_INDOLE_SCAVENGER.search(text or ""))
+
+
+_THIOL_SCAVENGER = re.compile(
+    r"\bEDT\b|ethanedithiol|\bDODT\b|dioxa[- ]?octanedithiol|\bdithiothreitol\b|\bDTT\b|"
+    r"\bTCEP\b|tris\(2-carboxyethyl\)phosphine|\bmercaptoethanol\b|\bthioanisole\b", re.I)
+
+
+def has_thiol_scavenger(text):
+    """Whether the step names a thiol (or thioanisole) that can exchange with Cys(Acm)."""
+    return bool(_THIOL_SCAVENGER.search(text or ""))
 _ZINC = re.compile(r"(?<![A-Za-z])Zn(Cl2|Br2|I2)(?![A-Za-z0-9])|\bEt2Zn\b", re.I)
 _COPPER = re.compile(r"(?<![A-Za-z])Cu(I|Br|Cl|CN|SPh|\(I\)|OTf)?(?![a-z])|copper", re.I)
 
@@ -1277,11 +1418,13 @@ def classify(text):
 _FMOC_REMOVAL = "20% piperidine in DMF, 2 x 5 min"
 _COUPLING = "Fmoc-amino acid, HBTU, DIPEA, DMF, 45 min"
 _ACID_CLEAVAGE = "TFA/H2O 95:5, 2 h"
+_FORMYLATION = "formic acid, DIC/HOBt, DMF, 2 h"
 TRANSFORM_CONDITIONS = {
     # assembly
     "fmoc-removal": _FMOC_REMOVAL,
     "n-peptide-coupling": _COUPLING,
     "n-acylation": _COUPLING,
+    "n-formylation": _FORMYLATION,
     "amide-formation": _COUPLING,
     # global deprotection and resin cleavage, all under the final acid
     "boc-removal": _ACID_CLEAVAGE,
@@ -1297,6 +1440,7 @@ TRANSFORM_CONDITIONS = {
     "dmb-removal": _ACID_CLEAVAGE,
     "pseudoproline-opening": _ACID_CLEAVAGE,
     "resin-cleavage": _ACID_CLEAVAGE,
+    "resin-cleavage-amide": _ACID_CLEAVAGE,
 }
 
 

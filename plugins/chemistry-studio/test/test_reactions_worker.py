@@ -423,6 +423,39 @@ class SideChainAmideDehydration(unittest.TestCase):
             ["C[C@@H](N)C(=O)N", "OC(=O)C"], ["CC(=O)N[C@@H](C)C(=O)N"],
             "HATU, DIPEA, DMF, 30 min"), [])
 
+    def test_it_is_reported_once_per_route_not_once_per_activation(self):
+        # The hazard belongs to the BUILDING-BLOCK CHOICE, so one unprotected residue must not be
+        # restated on every coupling that carries it. Measured on a real 105-step route: the same
+        # message fired 36 times, which was 36 of that suite's 40 hazards. A count-increase test
+        # cannot separate them - the incoming monomer already carries the amide, so `before` and
+        # `after` are both 1 even on the introducing step.
+        asn = "N[C@@H](CC(=O)N)C(=O)O"
+        resin = "NCC(=O)OC"
+        coupled = "COC(=O)CNC(=O)[C@@H](N)CC(=O)N"
+        alanine = "N[C@@H](C)C(=O)O"
+        after_one = "COC(=O)CNC(=O)[C@@H](NC(=O)[C@@H](N)C)CC(=O)N"
+        after_two = "COC(=O)CNC(=O)[C@@H](NC(=O)[C@@H](NC(=O)[C@@H](N)C)C)CC(=O)N"
+        steps = [
+            {"reactants": [asn, resin], "products": [coupled], "reagents": "HATU, DIPEA, DMF"},
+            {"reactants": [coupled, alanine], "products": [after_one], "reagents": "HATU, DIPEA, DMF"},
+            {"reactants": [after_one, alanine], "products": [after_two], "reagents": "HATU, DIPEA, DMF"},
+        ]
+        rows = W._compatibility(steps)
+        flagged = [index for index, row in enumerate(rows) for h in row["hazards"]
+                   if h["group"] == "asn-gln-amide"]
+        # Only the coupling that introduces the residue: the two later couplings carry it.
+        self.assertEqual(flagged, [0])
+
+    def test_a_second_route_is_not_silenced_by_the_first(self):
+        # The dedup is per call, so a fresh route still gets its own flag.
+        asn, resin = "N[C@@H](CC(=O)N)C(=O)O", "NCC(=O)OC"
+        coupled = "COC(=O)CNC(=O)[C@@H](N)CC(=O)N"
+        step = [{"reactants": [asn, resin], "products": [coupled], "reagents": "HATU, DIPEA, DMF"}]
+        for _ in range(2):
+            self.assertEqual([h["group"] for h in W._compatibility(step)[0]["hazards"]].count(
+                "asn-gln-amide"), 1)
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1934,6 +1934,12 @@ def _compatibility(steps, textbook_dir=None):
 
     T = _compat_tables()
     patterns = {g: Chem.MolFromSmarts(smarts) for g, (_label, smarts) in T.GROUPS.items()}
+    # Stereochemistry is READ, not matched: SMARTS cannot express "the wrong enantiomer". These find
+    # the alpha-carbon of a FREE ACID only, so the check below sees the building block being coupled
+    # and not the growing resin-bound chain, whose carboxyl is an ester to the support.
+    alpha_centre = Chem.MolFromSmarts("[NX3][CX4;H1]([CX3]=[OX1])")
+    cysteine_centre = Chem.MolFromSmarts("[NX3][CX4;H1]([CX3]=[OX1])[CH2][S]")
+    free_acid = Chem.MolFromSmarts("[CX3](=O)[OX2H1]")
 
     def counts(smiles_list):
         found = Counter()
@@ -1948,7 +1954,34 @@ def _compatibility(steps, textbook_dir=None):
                         found[group] += n
         return found
 
+    # The FINAL product, for the residual-group reading below. A route checks each step in
+    # isolation, so a strong-acid step that removes one group also sees every other acid-labile
+    # group still present in its intermediate and calls it a survivor. That is not a hazard when
+    # the route removes it later; it is only a hazard when the group is meant to be in the target.
+    # Take the last step that has a product, which is the target for a complete route and the
+    # on-resin chain for `cleave=False`.
+    final_products = []
+    for candidate in reversed(steps):
+        candidate = candidate if isinstance(candidate, dict) else {}
+        products = [s for s in candidate.get("products", []) if isinstance(s, str)]
+        if products:
+            final_products = products
+            break
+    final_counts = counts(final_products)
+
     carbonyl_reacting = {"aldehyde", "ester", "acid-chloride", "anhydride", "lactone", "ketone"}
+    # `asn-gln-amide` is a property of the BUILDING-BLOCK CHOICE, not of each activation that later
+    # carries the residue. `survives` deliberately reads carry-through, so once an unprotected Asn
+    # or Gln is incorporated, every following coupling re-flags the same advice: 36 of one real
+    # route's 40 hazards were this one message. A count-increase test cannot separate them — the
+    # incoming monomer already carries the amide, so `before` and `after` are both 1 on the
+    # introducing step too (measured on the real route). Report it once per route instead, on the
+    # first step that has the group in a product under an activating class, which is the earliest
+    # step whose choice the advice can still change.
+    #
+    # Scoped to this one group on purpose. Every other attack is a property of ITS step and must
+    # keep firing wherever it occurs; changing `survives` itself would silence them all.
+    reported_once = set()
     results = []
     for index, step in enumerate(steps):
         step = step if isinstance(step, dict) else {}
@@ -1963,6 +1996,16 @@ def _compatibility(steps, textbook_dir=None):
         for cls in classes:
             for group, severity, why in T.ATTACKS.get(cls, []):
                 if group not in survives or (group, cls) in seen:
+                    continue
+                if group in ("asn-gln-amide", "asp-pro") and group in reported_once:
+                    continue
+                # A protecting group that is absent from the final product is removed later by
+                # design. Its presence in this intermediate is not a residual-group hazard; the
+                # real risk, premature loss, would show the group missing from THIS product and is
+                # a different branch of the check. A protected target keeps the flag because the
+                # group is still in the final product.
+                shift = T.MASS_SHIFTS.get(group) or {}
+                if shift.get("kind") == "residual" and group not in final_counts:
                     continue
                 # An aspartimide flag is answered in the deprotection as well as in the building
                 # block: an additive in the piperidine (Oxyma, HOBt, dinitrophenol) or a milder
@@ -1986,6 +2029,15 @@ def _compatibility(steps, textbook_dir=None):
                 # to compete with, and flagging it would be wallpaper.
                 if group == "free-alpha-carboxyl" and not (reacted & {"alcohol", "phenol"}):
                     continue
+                # A named cation scavenger is the remedy for O-acylation and Tyr alkylation.
+                if group in ("ser-hydroxyl", "thr-hydroxyl", "tyr") and cls == "strong-acid" \
+                        and T.has_cation_scavenger(text):
+                    continue
+                # Acm only exchanges when a thiol (or thioanisole) is present; plain TFA is not the
+                # trigger, so the gate would otherwise fire on every Cys(Acm) route.
+                if group == "cys-acm" and cls == "strong-acid" \
+                        and not T.has_thiol_scavenger(text):
+                    continue
                 seen.add((group, cls))
                 # Another group of the same kind reacts in this step: the step is meant to tell them
                 # apart, so it is a selectivity question rather than a clash.
@@ -2003,6 +2055,8 @@ def _compatibility(steps, textbook_dir=None):
                                 # the hazard, not only whether the route risked it. Absent for the
                                 # groups that have not had the reading done; see MASS_SHIFTS.
                                 **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
+                if group in ("asn-gln-amide", "asp-pro"):
+                    reported_once.add(group)
         # What the step UNMASKS. Read against the PRODUCTS: a deprotection creates the reactive
         # thing, so before the step it is masked and matches nothing, and the ATTACKS loop above —
         # which only ever sees reactant-side survivors — cannot reach it at all. The cation-source
@@ -2015,6 +2069,7 @@ def _compatibility(steps, textbook_dir=None):
                 # An indole is only at risk when this step actually sets a cation loose and nothing
                 # in the cocktail is there to take it.
                 if group == "free-indole" and (T.has_cation_scavenger(text)
+                                               or "silane-reduction" in classes
                                                or not (before.keys() & {"boc", "tbu-ester", "tbu-ether", "trityl"})):
                     continue
                 # Both of the support-ester hazards are eliminated by a 2-chlorotrityl linker
@@ -2031,6 +2086,28 @@ def _compatibility(steps, textbook_dir=None):
                 # three tests in the pyroglutamate suite caught that.
                 if group == "n-terminal-gln" and cls == "amine-base" \
                         and not T.has_pyroglutamate_catalyst(text):
+                    continue
+                # The strong-acid entry describes the DILUTE and RESIDUAL regime the work-up passes
+                # through, not the 95% TFA itself: in concentrated acid the amine is protonated and
+                # cannot attack (Vol 3 Section 9.2.4), which is why this gate used to fire on every
+                # concentrated final cleavage. Require the step to name that regime. The mild-acid
+                # entry still fires without it, because there the acid IS the step.
+                if group == "n-terminal-gln" and cls == "strong-acid" \
+                        and not T.has_dilute_workup(text):
+                    continue
+                # A TES-containing step is the reduction case, not the cation-alkylation case; let
+                # the silane-reduction class report it with the -71 message instead of two messages.
+                if group == "free-indole" and cls == "strong-acid" and "silane-reduction" in classes:
+                    continue
+                # A named cation scavenger is the remedy for O-acylation and Tyr alkylation. The
+                # indole gate already has its own scavenger path; these two need the same answer.
+                if group in ("ser-hydroxyl", "thr-hydroxyl", "tyr") and cls == "strong-acid" \
+                        and T.has_cation_scavenger(text):
+                    continue
+                # Acm only exchanges when a thiol (or thioanisole) is present. Plain TFA is not the
+                # trigger, so the gate would otherwise fire on every Cys(Acm) route.
+                if group == "cys-acm" and cls == "strong-acid" \
+                        and not T.has_thiol_scavenger(text):
                     continue
                 seen.add((group, cls))
                 text_hint, forms = T.suggestion(group, cls)
@@ -2084,6 +2161,51 @@ def _compatibility(steps, textbook_dir=None):
                                 # the hazard, not only whether the route risked it. Absent for the
                                 # groups that have not had the reading done; see MASS_SHIFTS.
                                 **({"massShift": T.mass_shift(group)} if T.mass_shift(group) else {})})
+        # A D-alpha-amino-acid block, which nothing else here can see. The group/attack machinery is
+        # SMARTS-based and achiral, and the target comparison is constitution-level, so a route that
+        # couples the wrong enantiomer passes every other check: same formula, same mass, same
+        # connectivity. That is exactly how the chainC-4 false pass happened - a correct all-L route
+        # was rejected against a target that accidentally specified D-Ala, the model substituted a D
+        # block to match it, and the route then verified.
+        #
+        # Only reactants carrying a FREE CARBOXYLIC ACID are read: that is the incoming building
+        # block, not the growing resin-bound chain (whose acid is an ester to the support), so the
+        # flag lands on the step that introduces the residue and not on every later coupling.
+        d_block = False
+        for smiles in reactants:
+            if d_block:
+                break
+            mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) and smiles.strip() else None
+            if mol is None or not mol.HasSubstructMatch(free_acid):
+                continue
+            Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
+            cysteines = {match[1] for match in mol.GetSubstructMatches(cysteine_centre)}
+            for match in mol.GetSubstructMatches(alpha_centre):
+                centre = mol.GetAtomWithIdx(match[1])
+                label = centre.GetPropsAsDict().get("_CIPCode")
+                if label not in ("R", "S"):
+                    continue
+                # L-cysteine is (R) by CIP, because its sulfur outranks the carboxyl oxygen; every
+                # other proteinogenic L residue is (S). The shipped table is swept in the tests, so
+                # this exception cannot drift into a hard-coded letter for everything.
+                expected = "R" if centre.GetIdx() in cysteines else "S"
+                if label == expected:
+                    continue
+                hazards.append({
+                    "group": "d-amino-acid", "groupLabel": T.GROUPS["d-amino-acid"][0],
+                    "reagentClass": None, "reagentLabel": None, "severity": "medium",
+                    "why": f"this step couples a building block whose alpha-centre is ({label}), the D "
+                           f"configuration, while the residue it stands for is the L one. The peptide "
+                           f"will carry an inverted residue with the same formula and mass, so "
+                           f"balance, mass and the target comparison all pass",
+                    "suggestion": "use the L block for this residue; if the D residue is really "
+                                  "intended, say so, because a D substitution is otherwise "
+                                  "indistinguishable from an error",
+                    "_forms": [],
+                    **({"massShift": T.mass_shift("d-amino-acid")}
+                       if T.mass_shift("d-amino-acid") else {})})
+                d_block = True
+                break
         # One flag per site: where the specific alpha-carboxyl reading fires, the generic `acid`
         # entry for the same reagent is dropped rather than printed beside it. Both match the same
         # carboxyl, and the generic wording ("may be alkylated (as the carboxylate)") is true of

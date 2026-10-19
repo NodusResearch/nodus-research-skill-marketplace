@@ -26,6 +26,11 @@ export const PEPTIDE_BUILDING_BLOCKS: Record<string, string> = {
   // close the succinimide that makes Asp-Gly the classic aspartimide sequence. C34H38N2O9.
   "Fmoc-Asp(OtBu)-(Dmb)Gly-OH": "COc1ccc(CN(CC(=O)O)C(=O)[C@H](CC(=O)OC(C)(C)C)NC(=O)OCC2c3ccccc3-c3ccccc32)c(OC)c1",
   "Fmoc-Cys(Trt)-OH": "C1=CC=C(C=C1)C(C2=CC=CC=C2)(C3=CC=CC=C3)SC[C@@H](C(=O)O)NC(=O)OCC4C5=CC=CC=C5C6=CC=CC=C46",
+  // Orthogonal Cys blocks for the future disulfide route. Acm is acid-stable and removed by
+  // Hg(II)/I2/Tl(III); StBu is removed by thiolysis. Both are L (S) and are asserted by the D-aa
+  // sweep; neither is selected by the linear generator, which still defaults to Cys(Trt).
+  "Fmoc-Cys(Acm)-OH": "CC(=O)NCSC[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
+  "Fmoc-Cys(StBu)-OH": "CC(C)(C)SSC[C@@H](C(=O)O)NC(=O)OCC1c2ccccc2-c2ccccc21",
   "Fmoc-Gln(Trt)-OH": "C1=CC=C(C=C1)C(C2=CC=CC=C2)(C3=CC=CC=C3)NC(=O)CC[C@@H](C(=O)O)NC(=O)OCC4C5=CC=CC=C5C6=CC=CC=C46",
   "Fmoc-Glu(OtBu)-OH": "CC(C)(C)OC(=O)CC[C@@H](C(=O)O)NC(=O)OCC1C2=CC=CC=C2C3=CC=CC=C13",
   "Fmoc-Gly-OH": "C1=CC=C2C(=C1)C(C3=CC=CC=C32)COC(=O)NCC(=O)O",
