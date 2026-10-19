@@ -54,6 +54,8 @@
     "pseudoproline": "[NX3]1[CX4;H1][CH2][OX2][CX4]1([CH3])[CH3]",
     "guanidine": "[NX3;H2][CX3](=[NX2])[NX3]",
     "ring nitrogen boc": "[n][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
+    "S-acetamidomethyl": "[SX2][CH2][NX3][CX3](=O)[CH3]",
+    "tert-butyl disulfide": "[#6][SX2][SX2][CX4]([CH3])([CH3])[CH3]",
   "imidazole nh": "[nH]"
   },
   "transforms": [
@@ -585,6 +587,32 @@
         }
       ],
       "carries": 3
+    },
+    {
+      "id": "acm-removal-hg",
+      "summary": "Remove an S-acetamidomethyl (Acm) group from cysteine, leaving the free thiol. The equation is the formal hydrolysis of the S-CH2 bond; the practical Fmoc/tBu procedure is Hg(II) acetate followed by H2S or a thiol to release the mercaptide. The Acm-derived co-product is N-hydroxymethylacetamide.",
+      "site": "S-acetamidomethyl",
+      "smarts": "[SX2:1][CH2:2][NX3;H1:3][CX3:4](=[OX1:5])[CH3:6].[OX2H2:7]>>[SX2H1:1].[OX2H1:7][CH2:2][NX3;H1:3][CX3:4](=[OX1:5])[CH3:6]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "stbu-removal",
+      "summary": "Remove an S-tert-butylsulfanyl (StBu) group from cysteine by thiol-disulfide exchange, leaving the free thiol and a mixed disulfide with the attacking thiol. Methanethiol is the formal reagent; the practical Fmoc/tBu procedure uses DTT or mercaptoethanol.",
+      "site": "tert-butyl disulfide",
+      "smarts": "[#6:1][SX2:2][SX2:3][CX4:4]([CH3])([CH3])[CH3].[SX2H1:5][CH3:6]>>[#6:1][SX2H1:2].[SX2:5]([CH3:6])[SX2:3][CX4:4]([CH3])([CH3])[CH3]",
+      "reagents": [
+        {
+          "role": "thiol",
+          "default": "CS"
+        }
+      ],
+      "carries": 1
     },
     {
       "id": "head-to-tail-macrolactamisation",

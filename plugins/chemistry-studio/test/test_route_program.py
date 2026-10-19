@@ -186,6 +186,10 @@ CURATED = {
     "resin-hydrazide-cleavage": ("*OC(=O)[C@@H](C)N", ["NN"], "C[C@@H](N)C(=O)NN", ["*O"]),
     # The third HMBA-type nucleophile: hydroxylamine gives the C-terminal hydroxamate.
     "resin-hydroxamate-cleavage": ("*OC(=O)[C@@H](C)N", ["NO"], "C[C@@H](N)C(=O)NO", ["*O"]),
+    # Orthogonal Cys deprotections: Acm by the formal Hg(II)/water route, StBu by thiol exchange.
+    "acm-removal-hg": ("N[C@@H](CSCNC(=O)C)C(=O)O", ["O"], "N[C@@H](CS)C(=O)O", ["CC(=O)NCO"]),
+    "stbu-removal": ("CC(C)(C)SSC[C@H](N)C(=O)O", ["CS"], "N[C@@H](CS)C(=O)O",
+                     ["CSSC(C)(C)C"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.

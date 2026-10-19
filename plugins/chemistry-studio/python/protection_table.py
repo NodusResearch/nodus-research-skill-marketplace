@@ -95,6 +95,24 @@ GROUPS = {
         "incompatible": (),
         "notes": "The Ala-Ser pseudoproline auxiliary; opened in the final acid.",
     },
+    "Acm": {
+        "label": "S-acetamidomethyl",
+        "sites": {"default": ("acm-removal-hg", "S-acetamidomethyl", True)},
+        "mass_shift": "cys-acm",
+        "compatible": ("I2/MeOH", "Hg(II)/H2S", "Tl(III)"),
+        "incompatible": ("EDT", "DTT"),
+        "notes": "Acid-stable and orthogonal to Trt; removed by Hg(II)/I2/Tl(III). A thiol "
+                 "scavenger can exchange with it.",
+    },
+    "StBu": {
+        "label": "S-tert-butylsulfanyl",
+        "sites": {"default": ("stbu-removal", "tert-butyl disulfide", False)},
+        "mass_shift": None,
+        "compatible": ("DTT", "mercaptoethanol", "Hg(II)"),
+        "incompatible": (),
+        "notes": "Removed by thiol-disulfide exchange; the mixed disulfide is resistant to further "
+                 "interchange because the tert-butyl carbon is tertiary.",
+    },
     "Bum": {
         "label": "Bum (tert-butoxymethyl)",
         "sites": {},
