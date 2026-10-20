@@ -199,6 +199,21 @@ test('a handle site reaches ops.apply unchanged, last included', async () => {
   assert.equal('sites' in ops.calls.apply[2], true);
 });
 
+test('a sites list reaches ops.apply in order', async () => {
+  const ops = fakeOps();
+  const sites = [
+    { kind: 'handle', ref: 'M1' },
+    { kind: 'handle', ref: 'M2' },
+  ];
+  const p = program([
+    start(1, 'M1', 'a'),
+    apply(2, 'M2', 'M1', 'x'),
+    apply(3, 'M3', 'M2', 'y', { sites }),
+  ]);
+  await executeRouteProgram(p, ops);
+  assert.deepEqual(ops.calls.apply[1].sites, sites);
+});
+
 test('a molecule handle survives from one line into the next, and into stateBeforeFailure', async () => {
   const ops = fakeOps({ z: 'no-match' }, { handles: true });
   const p = program([

@@ -42,6 +42,7 @@
     "tert-butyl ester": "[#6][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
     "3-methylpent-3-yl ester": "[#6][CX3](=O)[OX2][CX4]([CH3])([CH2][CH3])[CH2][CH3]",
     "s-trityl": "[SX2][CX4](c)(c)c",
+    "se-trityl": "[SeX2][CX4](c)(c)c",
     "n-trityl": "[NX3][CX4](c)(c)c",
     "imidazole trityl": "[n][CX4](c)(c)c",
     "tert-butyl ether": "[#6;!$([CX3]=[OX1])][OX2][CX4]([CH3])([CH3])[CH3]",
@@ -54,9 +55,15 @@
     "pseudoproline": "[NX3]1[CX4;H1][CH2][OX2][CX4]1([CH3])[CH3]",
     "guanidine": "[NX3;H2][CX3](=[NX2])[NX3]",
     "ring nitrogen boc": "[n][CX3](=O)[OX2][CX4]([CH3])([CH3])[CH3]",
+    "Dde/Ddiv enamine": "[NX3;H1][CX3;H0]([#6])=[CX3]",
+    "alloc carbamate": "[NX3][CX3](=O)[OX2][CH2][CH]=[CH2]",
+    "allyl ester": "[#6][CX3](=O)[OX2][CH2][CH]=[CH2]",
+    "2-(trimethylsilyl)ethyl ester": "[#6][CX3](=O)[OX2][CH2][CH2][Si]([CH3])([CH3])[CH3]",
+    "ODmab ester": "[#6][CX3](=O)[OX2][CH2][c]1[cH][cH][c]([NH][CX3](=[CX3])[#6])[cH][cH]1",
+    "aldehyde linker alkene": "[#0][NX3][CX3](=O)[CX3H1]=[CX3H1][CX4H1,H2][NX3][CX3](=O)",
     "S-acetamidomethyl": "[SX2][CH2][NX3][CX3](=O)[CH3]",
     "tert-butyl disulfide": "[#6][SX2][SX2][CX4]([CH3])([CH3])[CH3]",
-  "imidazole nh": "[nH]"
+    "imidazole nh": "[nH]"
   },
   "transforms": [
     {
@@ -285,6 +292,46 @@
       ]
     },
     {
+      "summary": "Bridge two thiols with the unsymmetrical mDBX-oCOOH linker, choosing one regioisomer by the order of the two named sites. The first named site bonds to the bromomethyl ortho to the carboxylic acid; the second takes the other bromomethyl.",
+      "site": null,
+      "siteSlots": [
+        "thiol",
+        "thiol"
+      ],
+      "smarts": "([SX2H1:1].[SX2H1:2]).([Br:3][CH2:4]c1ccc(C(=O)[OX2H1])c([CH2:5][Br:6])c1)>>([S;H0:1][CH2:4]c1ccc(C(=O)[OX2H1])c([CH2:5][S;H0:2])c1).[BrH:3].[BrH:6]",
+      "reagents": [
+        {
+          "role": "mDBX-oCOOH",
+          "default": null
+        }
+      ],
+      "select": {
+        "site": 0,
+        "reagentMap": 5
+      },
+      "id": "mdbx-staple-ortho"
+    },
+    {
+      "summary": "Bridge two thiols with the unsymmetrical mDBX-oCOOH linker, choosing one regioisomer by the order of the two named sites. The first named site bonds to the bromomethyl para to the carboxylic acid; the second takes the other bromomethyl.",
+      "site": null,
+      "siteSlots": [
+        "thiol",
+        "thiol"
+      ],
+      "smarts": "([SX2H1:1].[SX2H1:2]).([Br:3][CH2:4]c1ccc(C(=O)[OX2H1])c([CH2:5][Br:6])c1)>>([S;H0:1][CH2:4]c1ccc(C(=O)[OX2H1])c([CH2:5][S;H0:2])c1).[BrH:3].[BrH:6]",
+      "reagents": [
+        {
+          "role": "mDBX-oCOOH",
+          "default": null
+        }
+      ],
+      "select": {
+        "site": 0,
+        "reagentMap": 4
+      },
+      "id": "mdbx-staple-para"
+    },
+    {
       "id": "n-deprotect",
       "summary": "Remove the carbamate protecting group from the amine, whichever one is there: the toolkit picks fmoc-removal, boc-removal or cbz-removal by what the carried molecule actually carries, so a route never has to track which group it installed. It refuses when the molecule carries two different ones, and then you name the specific removal.",
       "site": null,
@@ -393,6 +440,19 @@
       "summary": "Remove a trityl group from a side-chain thiol (TFA with a scavenger), releasing triphenylmethanol.",
       "site": "s-trityl",
       "smarts": "[SX2:1][CX4:2]([c:4])([c:5])[c:6].[OX2H2:3]>>[SX2H1:1].[OX2H1:3][CX4:2]([c:4])([c:5])[c:6]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "se-trityl-removal",
+      "summary": "Remove a trityl group from a selenocysteine side chain with acid and water, releasing triphenylmethanol and the free selenol. The selenium analogue of s-trityl-removal.",
+      "site": "se-trityl",
+      "smarts": "[SeX2:1][CX4:2]([c:4])([c:5])[c:6].[OX2H2:3]>>[SeX2H1:1].[OX2H1:3][CX4:2]([c:4])([c:5])[c:6]",
       "reagents": [
         {
           "role": "water",
@@ -615,8 +675,110 @@
       "carries": 1
     },
     {
+      "id": "dde-removal",
+      "summary": "Remove a Dde or Ddiv enamine from a side-chain amine with hydrazine, freeing the amine and the hydrazone by-product. Ddiv is preferred where the Dde group would migrate or split during extended handling. This is an on-resin orthogonal deprotection, not part of the final TFA endgame.",
+      "site": "Dde/Ddiv enamine",
+      "smarts": "[NX3;H1:1][CX3;H0:2]([#6:3])=[CX3:4].[NX3;H2:5][NX3;H2:6]>>[NX3;H2:1].[NX3;H2:5][NX2:6]=[CX3:2]([#6:3])[CX3:4]",
+      "reagents": [
+        {
+          "role": "hydrazine",
+          "default": "NN"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "alloc-removal",
+      "summary": "Remove an allyloxycarbonyl (Alloc) carbamate from an amine with Pd(PPh3)4 and a nucleophile, freeing the amine. The equation is the formal hydrolysis, which also gives carbon dioxide and allyl alcohol; the practical Pd(0) route traps the allyl fragment with morpholine, dimedone or thiosalicylic acid.",
+      "site": "alloc carbamate",
+      "smarts": "[NX3;H1:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH:6]=[CH2:7].[OX2H2:8]>>[NX3;H2:1].[OX1:3]=[CX3:2]=[OX2:4].[OX2H1:8][CH2:5][CH:6]=[CH2:7]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "allyl-ester-removal",
+      "summary": "Remove an allyl ester from a side-chain carboxyl with Pd(PPh3)4 and a nucleophile, freeing the acid. The equation is the formal hydrolysis, which gives allyl alcohol; the practical Pd(0) route traps the allyl fragment with morpholine, dimedone or thiosalicylic acid.",
+      "site": "allyl ester",
+      "smarts": "[#6:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH:6]=[CH2:7].[OX2H2:8]>>[#6:1][CX3:2](=[OX1:3])[OX2H1:8].[OX2H1:4][CH2:5][CH:6]=[CH2:7]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "otmse-removal",
+      "summary": "Remove a 2-(trimethylsilyl)ethyl (OTmse) ester from a side-chain carboxyl with TBAF, freeing the acid. The equation is the formal hydrolysis, which gives ethylene and trimethylsilanol; the practical fluoride route also generates TMSF. tBu esters, Boc carbamates and Fmoc survive.",
+      "site": "2-(trimethylsilyl)ethyl ester",
+      "smarts": "[#6:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][CH2:6][Si:7]([CH3:8])([CH3:9])[CH3:10].[OX2H2:11]>>[#6:1][CX3:2](=[OX1:3])[OX2H1:4].[CH2:5]=[CH2:6].[OX2H1:11][Si:7]([CH3:8])([CH3:9])[CH3:10]",
+      "reagents": [
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "odmab-removal",
+      "summary": "Remove an ODmab p-aminobenzyl ester from a side-chain carboxyl with hydrazine, freeing the acid. Hydrazine removes the Ddiv enamine and the resulting p-aminobenzyl ester eliminates; the equation gives p-aminobenzyl alcohol and the Ddiv hydrazone. The same reagent also removes an N-Fmoc group.",
+      "site": "ODmab ester",
+      "smarts": "[#6:1][CX3:2](=[OX1:3])[OX2:4][CH2:5][c:6]1[cH:7][cH:8][c:9]([NH:10][CX3:11](=[CX3:12])[#6:13])[cH:14][cH:15]1.[NX3;H2:16][NX3;H2:17].[OX2H2:18]>>[#6:1][CX3:2](=[OX1:3])[OX2H1:18].[OX2H1:4][CH2:5][c:6]1[cH:7][cH:8][c:9]([NX3;H2:10])[cH:14][cH:15]1.[NX3;H2:16][NX2:17]=[CX3:11]([#6:13])[CX3:12]",
+      "reagents": [
+        {
+          "role": "hydrazine",
+          "default": "NN"
+        },
+        {
+          "role": "water",
+          "default": "O"
+        }
+      ],
+      "carries": 1
+    },
+    {
+      "id": "c-terminal-aldehyde-ozonolysis",
+      "summary": "Ozonolyse the alpha,beta-unsaturated gamma-amino acid linker and release the peptide as its C-terminal aldehyde with a reductive workup. The formal equation writes the three ozone oxygens as atomic oxygen plus dioxygen so it stays neutral; the practical procedure is O3 in DCM at -80 C, then dimethyl sulfide or thiourea.",
+      "site": "aldehyde linker alkene",
+      "smarts": "[#0:1][NX3:2][CX3:3](=[OX1:4])[CX3H1:5]=[CX3H1:6][CX4H1,H2:7][NX3:8][CX3:9](=[OX1:10])[#6:11].[O:12].[O:13]=[O:14].[S:15]([CH3:16])[CH3:17]>>[#0:1][NX3:2][CX3:3](=[OX1:4])[CX3H1:5]=[OX1:12].[CX3H1:6](=[OX1:13])[CX4:7][NX3:8][CX3:9](=[OX1:10])[#6:11].[S:15](=[OX1:14])([CH3:16])[CH3:17]",
+      "reagents": [
+        {
+          "role": "ozone oxygen",
+          "default": "[O]"
+        },
+        {
+          "role": "dioxygen",
+          "default": "O=O"
+        },
+        {
+          "role": "dimethyl sulfide",
+          "default": "CSC"
+        }
+      ],
+      "carries": 6
+    },
+    {
       "id": "head-to-tail-macrolactamisation",
       "summary": "Join the free N-terminal amine to the free C-terminal acid of one chain, closing the backbone to a macrolactam and releasing water.",
+      "site": null,
+      "siteSlots": [
+        "free amine",
+        "carboxylic acid"
+      ],
+      "smarts": "([NX3;H2,H1;!$(N[C,S]=O);!$(N=*):1].[CX3:2](=[OX1:3])[OX2H1:4])>>([NX3;H1,H0:1][CX3:2]=[OX1:3]).[OH2:4]",
+      "reagents": [],
+      "carries": 1
+    },
+    {
+      "id": "sidechain-macrolactamisation",
+      "summary": "Join a free side-chain amine to a free side-chain carboxylic acid on one carried peptide, closing a side-chain lactam and releasing water. The same bond as a head-to-tail closure, but the two sites are side chains and the backbone remains open.",
       "site": null,
       "siteSlots": [
         "free amine",

@@ -225,6 +225,34 @@ test('site forms: phrase, @last and @M<n> handles', () => {
   ]);
 });
 
+test('sites= carries an ordered list for a two-site closure', () => {
+  const r = parseRouteProgram([
+    'M1 = start("a")',
+    'M2 = apply(M1, named="x")',
+    'M3 = apply(M1, named="y")',
+    'M4 = apply(M2, named="mdbx-staple-ortho", sites=[@M2, @M3])',
+    'target = M4',
+  ].join('\n'));
+  assert.deepEqual(r.diagnostics, []);
+  assert.deepEqual(r.program.lines[3].sites, [
+    { kind: 'handle', ref: 'M2' },
+    { kind: 'handle', ref: 'M3' },
+  ]);
+  assert.equal('site' in r.program.lines[3], false);
+});
+
+test('bad-site: site= and sites= together', () => {
+  only(parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", site=@M1, sites=[@M1])\ntarget = M1'), 'bad-site', 2);
+});
+
+test('bad-site: sites= needs a list', () => {
+  only(parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", sites=@M1)\ntarget = M1'), 'bad-site', 2);
+});
+
+test('unknown-ref through a sites= handle', () => {
+  only(parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", sites=[@M1, @M7])\ntarget = M2'), 'unknown-ref', 2);
+});
+
 test('a quoted @last is a phrase, not a handle', () => {
   const r = parseRouteProgram('M1 = start("a")\nM2 = apply(M1, named="x", site="@last")\ntarget = M2');
   assert.deepEqual(r.diagnostics, []);
