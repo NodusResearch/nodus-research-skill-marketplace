@@ -51,6 +51,11 @@ EXPECTED_CLASS = {
     "pseudoproline-opening": "strong-acid",
     "resin-cleavage": "strong-acid",
     "resin-cleavage-amide": "strong-acid",
+    "dde-removal": "hydrazine",
+    "alloc-removal": "pd-coupling",
+    "allyl-ester-removal": "pd-coupling",
+    "otmse-removal": "fluoride",
+    "odmab-removal": "hydrazine",
     "n-formylation": "acylating",
 }
 
@@ -126,6 +131,40 @@ class ItMakesTheGatesFireOnAProgramStep(unittest.TestCase):
                    "NC(=O)OCC3C4=CC=CC=C4C5=CC=CC=C35)N)C")
         fired = self._check([chain_amine, arg], [product], "n-peptide-coupling")
         self.assertIn("arg-delta-lactam", fired)
+
+    def test_hydrazine_flags_a_dde_group_that_must_survive(self):
+        molecule = "CC(=C1C(=O)CC(C)(C)CC1=O)NC"
+        self.assertIn("dde-enamine", self._check([molecule], [molecule], "dde-removal"))
+
+    def test_hydrazine_flags_a_support_ester(self):
+        molecule = "*OC(=O)[C@@H](C)N"
+        self.assertIn("support ester", self._check([molecule], [molecule], "dde-removal"))
+
+    def test_pd_flags_alloc_and_allyl_groups_that_must_survive(self):
+        alloc = "C=CCOC(=O)NCC"
+        allyl = "C=CCOC(=O)C"
+        self.assertIn("alloc-carbamate", self._check([alloc], [alloc], "alloc-removal"))
+        self.assertIn("allyl-ester", self._check([allyl], [allyl], "allyl-ester-removal"))
+
+    def test_fluoride_flags_an_otmse_group_that_must_survive(self):
+        otmse = "C[Si](C)(C)CCOC(=O)C"
+        self.assertIn("otmse-ester", self._check([otmse], [otmse], "otmse-removal"))
+
+    def test_hydrazine_flags_allyl_groups_that_must_survive(self):
+        alloc = "C=CCOC(=O)NCC"
+        allyl = "C=CCOC(=O)C"
+        self.assertIn("alloc-carbamate", self._check([alloc], [alloc], "dde-removal"))
+        self.assertIn("allyl-ester", self._check([allyl], [allyl], "dde-removal"))
+
+    def test_fluoride_flags_an_fmoc_group_that_must_survive(self):
+        fmoc = "O=C(O)CNC(=O)OCC1c2ccccc2-c2ccccc21"
+        self.assertIn("fmoc", self._check([fmoc], [fmoc], "otmse-removal"))
+
+    def test_hydrazine_flags_odmab_and_fmoc_that_must_survive(self):
+        odmab = "CC(=O)OCC1=CC=C(NC(=C2C(=O)CC(C)(C)CC2=O)CC(C)C)C=C1"
+        fmoc = "O=C(O)CNC(=O)OCC1c2ccccc2-c2ccccc21"
+        self.assertIn("odmab-ester", self._check([odmab], [odmab], "odmab-removal"))
+        self.assertIn("fmoc", self._check([fmoc], [fmoc], "odmab-removal"))
 
 
 # Nothing goes after this block.

@@ -1,3 +1,11 @@
+# Chemistry Studio 2.11.0
+
+Adds explicit regioisomer control for unsymmetrical ring closures. A route-program `apply` line may now name its two closure sites as an ordered `sites=[...]` list, and a curated closure may declare a `select` map that keeps only the product where a named site is bonded to a specific reagent atom. The first consumer is the unsymmetrical mDBX-oCOOH staple: `mdbx-staple-ortho` and `mdbx-staple-para` each select one product instead of refusing the two possible regioisomers. The toolkit still refuses when the sites are not both named. No permission or data-migration changes.
+
+# Chemistry Studio 2.10.0
+
+Adds orthogonal side-chain building blocks and removals: Fmoc-Lys(Dde/Ddiv/Alloc)-OH, Fmoc-Glu/Asp(OAll)-OH, Fmoc-Glu/Asp(OTmse)-OH and Fmoc-Glu/Asp(ODmab)-OH, with hydrazine, Pd(0), TBAF and ODmab hydrazinolysis transforms, plus a side-chain lactam closure, a C-terminal aldehyde ozonolysis transform for ozone-compatible C-terminal residues, and an Se-trityl selenocysteine removal transform. Hydrazine is now a reagent class and is gated against surviving Dde/Ddiv, ODmab, N-Fmoc, carbonyls and support esters; Pd(0) and fluoride gates cover surviving Alloc, allyl and OTmse groups. The free-amine and ester patterns no longer treat a Dde enamine N-H or an allyl/OTmse/ODmab ester as an ordinary amine/ester. No permission or data-migration changes.
+
 # Chemistry Studio 2.9.0
 
 Adds peptide capping and arginine-to-ornithine compatibility gates, broader reagent vocabulary, mild-acid and additive checks, nominal mass signatures, aromatic nitrogen Boc removal, a pi-protected histidine building block and a transform-to-conditions helper. Aggregation advisory adds a separate residue-identity signal for sheet-prone windows. It skips windows with unknown residues and preserves the strongest tier when merging them. Explicitly omitted preactivation no longer raises the capping flag, and pi-protected histidine clears its epimerisation gate. No permissions or data migrations change. Transform conditions and mass signatures are package data for callers; this change adds no automatic application reporting path.

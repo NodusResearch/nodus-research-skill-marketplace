@@ -65,6 +65,12 @@ EXPECTED = {
     "2% DBU in DMF": "amine-base",
     "morpholine, DMF": "amine-base",
 
+    # --- orthogonal side-chain deprotection. Hydrazine had no class before the Dde/Ddiv and ODmab
+    # transforms needed one; it condenses with the enamine and is read now.
+    "hydrazine, DMF, 2 x 3 min": "hydrazine",
+    "hydrazine hydrate, EtOH": "hydrazine",
+    "2% hydrazine monohydrate, DMF": "hydrazine",
+
     # --- acid cleavage, concentrated. TMSBr and Reagent K are named in our OWN remedy text for the
     # free-indole hazard, and classified as nothing, so a route that took our advice reached no gate.
     "TFA/H2O 95:5, 2 h": "strong-acid",
@@ -77,6 +83,7 @@ EXPECTED = {
     "cleave with Reagent K, 3 h": "strong-acid",
     "Reagent B, 2 h": "strong-acid",
     "HF, anisole, 0 C": "fluoride",
+    "TBAF, THF, 1 h": "fluoride",
 
     # --- mild acid, the super-acid-labile regime.
     "AcOH/TFE/DCM 1:2:7, 1 h": "mild-acid",
@@ -148,7 +155,6 @@ DELIBERATELY_UNCLASSIFIED = {
     "KCN, EtOH/water": "no nucleophile class yet; the same gap as sodium cyanide above",
     "sodium azide, DMF": "no nucleophile class yet; would need its own hazard set first",
     "hydroxylamine hydrochloride, pyridine, EtOH": "condenses with carbonyls; no class covers that, and inventing one without its hazards would classify and still reach no gate",
-    "hydrazine hydrate, EtOH": "condenses with carbonyls and cleaves Dde; no class covers either yet",
 
     # Solvents must never classify, or every step classifies as something.
     "DMF, 45 min, rt": "a solvent must never classify, or every step in every route classifies as something",

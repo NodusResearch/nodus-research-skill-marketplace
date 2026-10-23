@@ -61,6 +61,7 @@ GROUPS = {
         "label": "trityl",
         "sites": {
             "Cys": ("s-trityl-removal", "s-trityl", True),
+            "seC": ("se-trityl-removal", "se-trityl", True),
             "His": ("imidazole-trityl-removal", "imidazole trityl", True),
             "default": ("n-trityl-removal", "n-trityl", True),
         },
@@ -112,6 +113,59 @@ GROUPS = {
         "incompatible": (),
         "notes": "Removed by thiol-disulfide exchange; the mixed disulfide is resistant to further "
                  "interchange because the tert-butyl carbon is tertiary.",
+    },
+    "Dde": {
+        "label": "Dde enamine",
+        "sites": {"default": ("dde-removal", "Dde/Ddiv enamine", False)},
+        "mass_shift": None,
+        "compatible": ("hydrazine",),
+        "incompatible": (),
+        "notes": "Hydrazine-labile Lys protection for on-resin orthogonal work; Ddiv is preferred "
+                 "where migration or premature loss is a concern.",
+    },
+    "Ddiv": {
+        "label": "Ddiv enamine",
+        "sites": {"default": ("dde-removal", "Dde/Ddiv enamine", False)},
+        "mass_shift": None,
+        "compatible": ("hydrazine",),
+        "incompatible": (),
+        "notes": "The more migration-resistant alternative to Dde; removed by the same hydrazine "
+                 "step.",
+    },
+    "Alloc": {
+        "label": "allyloxycarbonyl carbamate",
+        "sites": {"default": ("alloc-removal", "alloc carbamate", True)},
+        "mass_shift": None,
+        "compatible": ("Pd(PPh3)4", "morpholine", "dimedone", "thiosalicylic acid"),
+        "incompatible": (),
+        "notes": "Pd(0)-labile amine protection; the allyl fragment is trapped by a nucleophile.",
+    },
+    "OAll": {
+        "label": "allyl ester",
+        "sites": {"default": ("allyl-ester-removal", "allyl ester", True)},
+        "mass_shift": None,
+        "compatible": ("Pd(PPh3)4", "morpholine", "dimedone", "thiosalicylic acid"),
+        "incompatible": (),
+        "notes": "Pd(0)-labile carboxyl protection; frees the acid for on-resin cyclisation or "
+                 "branching while tBu/Boc groups survive.",
+    },
+    "OTmse": {
+        "label": "2-(trimethylsilyl)ethyl ester",
+        "sites": {"default": ("otmse-removal", "2-(trimethylsilyl)ethyl ester", True)},
+        "mass_shift": None,
+        "compatible": ("TBAF", "THF"),
+        "incompatible": (),
+        "notes": "Fluoride-labile carboxyl protection; TBAF frees the acid while tBu esters, Boc "
+                 "carbamates and Fmoc survive.",
+    },
+    "ODmab": {
+        "label": "ODmab p-aminobenzyl ester",
+        "sites": {"default": ("odmab-removal", "ODmab ester", True)},
+        "mass_shift": None,
+        "compatible": ("hydrazine",),
+        "incompatible": ("Fmoc",),
+        "notes": "Hydrazine-labile carboxyl protection; the same reagent removes N-Fmoc, so this "
+                 "is an on-resin orthogonal step, not a final-acid group.",
     },
     "Bum": {
         "label": "Bum (tert-butoxymethyl)",

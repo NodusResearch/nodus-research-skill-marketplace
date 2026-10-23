@@ -158,6 +158,8 @@ CURATED = {
     # that picks between them, and it is in FAMILIES below.
     "s-trityl-removal": ("N[C@@H](CSC(c1ccccc1)(c1ccccc1)c1ccccc1)C(=O)O", ["O"], "N[C@@H](CS)C(=O)O",
                          ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
+    "se-trityl-removal": ("C[Se]C(c1ccccc1)(c1ccccc1)c1ccccc1", ["O"], "C[SeH]",
+                          ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
     "n-trityl-removal": ("O=C(NC(c1ccccc1)(c1ccccc1)c1ccccc1)C[C@H](N)C(=O)O", ["O"],
                          "NC(=O)C[C@H](N)C(=O)O", ["OC(c1ccccc1)(c1ccccc1)c1ccccc1"]),
     "imidazole-trityl-removal": ("N[C@@H](Cc1cn(C(c2ccccc2)(c2ccccc2)c2ccccc2)cn1)C(=O)O", ["O"],
@@ -190,10 +192,25 @@ CURATED = {
     "acm-removal-hg": ("N[C@@H](CSCNC(=O)C)C(=O)O", ["O"], "N[C@@H](CS)C(=O)O", ["CC(=O)NCO"]),
     "stbu-removal": ("CC(C)(C)SSC[C@H](N)C(=O)O", ["CS"], "N[C@@H](CS)C(=O)O",
                      ["CSSC(C)(C)C"]),
+    # Orthogonal side-chain deprotections. Dde and Ddiv share one enamine rule; hydrazine displaces
+    # the amine and carries the enamine away as its hydrazone. Alloc and the allyl ester are the
+    # Pd(0)-labile pair; the equation is the formal hydrolysis, so the allyl fragment leaves as
+    # allyl alcohol rather than the nucleophile adduct the practical route traps.
+    "dde-removal": ("CC(=C1C(=O)CC(C)(C)CC1=O)NC", ["NN"], "CN",
+                    ["CC(=NN)C1C(=O)CC(C)(C)CC1=O"]),
+    "alloc-removal": ("C=CCOC(=O)NCC", ["O"], "CCN", ["C=CCO", "O=C=O"]),
+    "allyl-ester-removal": ("C=CCOC(=O)C", ["O"], "CC(=O)O", ["C=CCO"]),
+    "otmse-removal": ("C[Si](C)(C)CCOC(=O)C", ["O"], "CC(=O)O", ["C=C", "C[Si](C)(C)O"]),
+    "odmab-removal": ("CC(=O)OCC1=CC=C(NC(=C2C(=O)CC(C)(C)CC2=O)CC(C)C)C=C1", ["NN", "O"],
+                      "CC(=O)O", ["CC(C)CC(=NN)C1C(=O)CC(C)(C)CC1=O", "Nc1ccc(CO)cc1"]),
+    "c-terminal-aldehyde-ozonolysis": ("*NC(=O)C=CC(NC(=O)C)", ["[O]", "O=O", "CSC"],
+                                       "CC(=O)NCC=O", ["*NC(=O)C=O", "CS(C)=O"]),
 }
 
 # One substrate and the whole expected answer per curated closure: two sites on one molecule.
-CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge", "head-to-tail-macrolactamisation")
+CLOSURES = ("disulfide-closure", "bis-halomethyl-bridge", "mdbx-staple-ortho",
+            "mdbx-staple-para", "head-to-tail-macrolactamisation",
+            "sidechain-macrolactamisation")
 
 # A family verb names the intent and dispatches to the member that fits the molecule, so it has no
 # SMARTS, no single site, and no one product to claim -- the member it picks has all three. Listed
@@ -238,6 +255,12 @@ class CuratedSet(unittest.TestCase):
                 self.assertEqual(out["coProducts"], co_products)
                 self.assertEqual(out["site"]["phrase"], route_program._tables()["byId"][transform_id]["site"])
                 self.assertTrue(out["site"]["atoms"])
+
+    def test_ddiv_uses_the_same_enamine_rule_as_dde(self):
+        out = named("dde-removal", "CC(C)CC(=C1C(=O)CC(C)(C)CC1=O)NC", ["NN"])
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"], "CN")
+        self.assertEqual(out["coProducts"], ["CC(C)CC(=NN)C1C(=O)CC(C)(C)CC1=O"])
 
     def test_the_support_amide_release_consumes_the_water_it_needs(self):
         out = named("resin-cleavage-amide", "*NC(=O)[C@@H](C)N", ["O"])
@@ -576,6 +599,13 @@ class Closures(unittest.TestCase):
     ARM_2_3 = "SCCCC(CC[SH:901])CCCC[SH:902]"
     PAIR = [{"kind": "handle", "mark": 901}, {"kind": "handle", "mark": 902}]
 
+    def test_the_sidechain_lactam_joins_a_free_amine_and_acid(self):
+        out = named("sidechain-macrolactamisation", "NCCCCC(=O)O")
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["product"], "O=C1CCCCN1")
+        self.assertEqual(out["coProducts"], ["O"])
+        self.assertEqual(out["ring"], {"size": 6, "bridgeAtoms": 0})
+
     def test_the_disulfide_closure_shuts_a_ring_on_a_molecule_with_two_thiols(self):
         out = named("disulfide-closure", "SCCCCCCS")
         self.assertEqual(out["product"], "C1CCCSSCC1")
@@ -628,6 +658,47 @@ class Closures(unittest.TestCase):
                 self.assertEqual(out["product"], product)
                 self.assertEqual(out["ring"], {"size": size, "bridgeAtoms": 6})
                 self.assertEqual(out["coProducts"], ["Br", "Br"])
+
+    def test_the_unsymmetrical_bridge_selects_the_named_regioisomer(self):
+        # Two inequivalent thiols on one chain. The two products differ only in which sulfur is
+        # bonded to the bromomethyl ortho to the carboxylic acid.
+        handle = "[SH:901]CCCCC([SH:902])C"
+        reagent = "O=C(O)c1ccc(CBr)cc1CBr"
+        ortho = apply(moleculeHandle=handle,
+                      operation={"kind": "named", "id": "mdbx-staple-ortho"},
+                      reagents=[reagent], sites=self.PAIR)
+        para = apply(moleculeHandle=handle,
+                     operation={"kind": "named", "id": "mdbx-staple-para"},
+                     reagents=[reagent], sites=self.PAIR)
+        self.assertTrue(ortho.get("ok"), ortho)
+        self.assertTrue(para.get("ok"), para)
+        self.assertNotEqual(ortho["product"], para["product"])
+        self.assertEqual(ortho["selected"], {"site": 0, "reagentMap": 5})
+        self.assertEqual(para["selected"], {"site": 0, "reagentMap": 4})
+        self.assertEqual(ortho["product"], "CC1CCCCSCc2cc(ccc2C(=O)O)CS1")
+        self.assertEqual(para["product"], "CC1CCCCSCc2ccc(C(=O)O)c(c2)CS1")
+        self.assertEqual(ortho["coProducts"], ["Br", "Br"])
+
+    def test_the_site_order_controls_which_thiol_takes_the_ortho_position(self):
+        handle = "[SH:901]CCCCC([SH:902])C"
+        reagent = "O=C(O)c1ccc(CBr)cc1CBr"
+        forward = apply(moleculeHandle=handle,
+                        operation={"kind": "named", "id": "mdbx-staple-ortho"},
+                        reagents=[reagent], sites=self.PAIR)
+        reverse = apply(moleculeHandle=handle,
+                        operation={"kind": "named", "id": "mdbx-staple-ortho"},
+                        reagents=[reagent],
+                        sites=[{"kind": "handle", "mark": 902},
+                               {"kind": "handle", "mark": 901}])
+        self.assertTrue(forward.get("ok"), forward)
+        self.assertTrue(reverse.get("ok"), reverse)
+        self.assertEqual(reverse["product"], "CC1CCCCSCc2ccc(C(=O)O)c(c2)CS1")
+        self.assertNotEqual(forward["product"], reverse["product"])
+
+    def test_a_selecting_closure_needs_both_named_sites(self):
+        out = named("mdbx-staple-ortho", "SCCCCC(S)C", ["O=C(O)c1ccc(CBr)cc1CBr"])
+        self.assertEqual(out["error"], "unparsable")
+        self.assertIn("needs both closure sites named", out["message"])
 
     def test_a_closure_with_no_sites_named_is_ambiguous_when_several_pairs_could_shut(self):
         out = named("disulfide-closure", self.TRI)

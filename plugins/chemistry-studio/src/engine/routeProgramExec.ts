@@ -85,9 +85,10 @@ async function runApply(line: ApplyLine, ops: MoleculeOps, bound: Map<MolRef, Mo
   }
   // `assigns` is the ref this line binds: the adapter keys its site marks by it, and only the
   // interpreter knows it. Counting applies instead would be silently wrong for any program that
-  // does not number its refs in order. The site list is today zero or one entry, passed untouched.
+  // does not number its refs in order. The site list is zero, one or two entries, passed untouched.
   const request: ApplyRequest = { molecule: input, op: line.op, reagents: line.reagents, assigns: line.ref };
-  if (line.site) request.sites = [line.site];
+  if (line.sites) request.sites = line.sites;
+  else if (line.site) request.sites = [line.site];
   if (line.carry) request.carry = line.carry;
   const outcome = await ops.apply(request);
   if (isOpError(outcome)) return { trace: failed(line, outcome, [input.smiles]), input };

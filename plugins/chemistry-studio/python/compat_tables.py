@@ -87,6 +87,8 @@ REAGENT_CLASSES = [
     ("amine-base", "amine base (piperidine, DBU)",
      [r"\bpiperidine\b", r"\bmethylpiperidine\b", r"\bpiperazine\b", r"\bdipropylamine\b",
       _F + r"DBU" + _E, r"\bmorpholine\b"]),
+    ("hydrazine", "hydrazine (Dde/Ddiv removal)",
+     [r"\bhydrazine\b", _F + r"NH2NH2" + _E, r"\bH2NNH2\b"]),
     ("hydrogenation", "catalytic hydrogenation", [
         _F + r"H2" + _E + r"[^;]{0,40}(pd|pt|ni|rh|ru|raney|adams)", r"(pd|pt)\s*/\s*c\b[^;]{0,40}" + _F + r"H2" + _E,
         r"hydrogenat", r"\bpd/c\b", r"\bpd\(oh\)2", r"pearlman", r"raney", r"\bpto2\b", r"adams'? catalyst",
@@ -203,7 +205,8 @@ REAGENT_CLASSES = [
 
 # ------------------------------------------------------------------------------ functional groups
 GROUPS = {
-    "ester": ("ester", "[#6][CX3](=O)[OX2][#6;!$(C([CH3])([CH3])[CH3])]"),
+    "ester": ("ester", "[#6][CX3](=O)[OX2][#6;!$(C([CH3])([CH3])[CH3]);!$(C[CH]=[CH2]);!$(C[CH2][Si]);!$(C[c]1[cH][cH][c]([NH])[cH][cH]1)]"),
+    "support ester": ("support ester", "[#0][OX2][CX3]=[OX1]"),
     "tbu-ester": ("tert-butyl ester", "[#6][CX3](=O)[OX2]C([CH3])([CH3])[CH3]"),
     "lactone": ("lactone", "[#6;R][CX3;R](=O)[OX2;R][#6;R]"),
     "acid": ("carboxylic acid", "[CX3](=O)[OX2H1]"),
@@ -321,6 +324,15 @@ GROUPS = {
     "tyr": ("tyrosine phenol", "c1ccc([OX2H1])cc1"),
     # S-acetamidomethyl cysteine. Thiol scavengers can exchange with it; plain acid does not.
     "cys-acm": ("S-acetamidomethyl cysteine", "[SX2][CH2][NX3][CX3](=O)[CH3]"),
+    # Dde and Ddiv are the same enamine chromophore on a side-chain amine, so one pattern answers
+    # both. Hydrazine is the intended removal; the gate exists for a step that must leave it alone.
+    "dde-enamine": ("Dde/Ddiv enamine", "[NX3;H1][CX3;H0]([#6])=[CX3]"),
+    "alloc-carbamate": ("alloc carbamate", "[NX3][CX3](=O)[OX2][CH2][CH]=[CH2]"),
+    "allyl-ester": ("allyl ester", "[#6][CX3](=O)[OX2][CH2][CH]=[CH2]"),
+    "otmse-ester": ("2-(trimethylsilyl)ethyl ester",
+                    "[#6][CX3](=O)[OX2][CH2][CH2][Si]([CH3])([CH3])[CH3]"),
+    "odmab-ester": ("ODmab p-aminobenzyl ester",
+                    "[#6][CX3](=O)[OX2][CH2][c]1[cH][cH][c]([NH][CX3](=[CX3])[#6])[cH][cH]1"),
     # An N-terminal GLUTAMINE with its alpha-amine free. That amine is five atoms from its own
     # side-chain amide carbonyl, so it closes the five-membered lactam and expels ammonia: the
     # peptide becomes the pyroglutamyl one, with no N-terminus left to extend.
@@ -428,7 +440,7 @@ GROUPS = {
     "alcohol": ("alcohol", "[OX2H][CX4]"),
     "phenol": ("phenol", "[OX2H]c"),
     "diol": ("1,2- or 1,3-diol", "[OX2H][CX4][CX4,$([CX4][CX4])][OX2H]"),
-    "amine": ("amine (N–H)", "[NX3;H2,H1;!$(N[C,S,P]=[O,S,N]);!$(N-a);!$(N[#7,#8])]"),
+    "amine": ("amine (N–H)", "[NX3;H2,H1;!$(N[C,S,P]=[O,S,N]);!$(N[CX3]=[CX3]);!$(N-a);!$(N[#7,#8])]"),
     # The FREE ALPHA-AMINO group of a resin-bound chain — the one a coupling is aiming at, and the
     # one a uronium coupling reagent will cap if it meets the amine before the carboxylic acid.
     #
@@ -526,6 +538,23 @@ ATTACKS = {
         ("acid-chloride", "high", "is hydrolysed"), ("anhydride", "high", "is hydrolysed"),
         ("fmoc", "high", "is cleaved by base"), ("alkyl-halide", "medium", "may be substituted or eliminated"),
         ("aldehyde", "medium", "may condense (aldol, Cannizzaro)")],
+    "hydrazine": [
+        ("dde-enamine", "high", "is CLEAVED by hydrazine (that is the intended Dde/Ddiv removal; if "
+                                "it must survive, use a group that is stable to hydrazine)"),
+        ("aldehyde", "high", "condenses to the hydrazone"), ("ketone", "high", "condenses to the hydrazone"),
+        ("support ester", "medium", "may be cleaved if the linker is an HMBA-type ester; the "
+                                    "2-CTC/trityl acid linker is not distinguished by the anonymous support"),
+        ("odmab-ester", "high", "is CLEAVED by hydrazine (that is the intended ODmab removal; if "
+                                "it must survive, use a different carboxyl protection)"),
+        ("fmoc", "high", "is CLEAVED by hydrazine; ODmab removal cannot be done while an Fmoc "
+                         "group must survive"),
+        ("alloc-carbamate", "high", "may be reduced or cleaved by hydrazine; free an Alloc group "
+                                     "before a Dde/ODmab hydrazinolysis, or add allyl alcohol as a "
+                                     "scavenger"),
+        ("allyl-ester", "high", "may be reduced by hydrazine; free an allyl ester before a "
+                                "Dde/ODmab hydrazinolysis, or add allyl alcohol as a scavenger"),
+        ("ester", "medium", "may be cleaved by hydrazinolysis"),
+    ],
     "amine-base": [("fmoc", "high", "is cleaved by amine base"), ("acid-chloride", "high", "is aminolysed"),
         # Read as a SURVIVOR rather than as something the step creates: in the route as written the
         # protected guanidine comes through the base intact, and what the literature says is that
@@ -594,7 +623,12 @@ ATTACKS = {
                               "during acidolysis; omit the thiol or use a different Cys protection")],
     "aqueous-acid": [("acetal", "medium", "may be hydrolysed"), ("trityl", "medium", "may be cleaved"),
                      ("silyl-ether", "medium", "may be cleaved (TMS, TES)")],
-    "fluoride": [("silyl-ether", "high", "is cleaved by fluoride")],
+    "fluoride": [("silyl-ether", "high", "is cleaved by fluoride"),
+                 ("otmse-ester", "high", "is CLEAVED by fluoride (that is the intended OTmse "
+                                          "removal; if it must survive, use a different carboxyl "
+                                          "protection)"),
+                 ("fmoc", "high", "is CLEAVED by fluoride (TBAF), so OTmse removal cannot be done "
+                                  "while an Fmoc group must survive")],
     # A sulfonyl chloride acylates the same heteroatoms an acyl chloride does, which is why these
     # mirror ATTACKS["acylating"] — minus every activation risk, because no carboxyl is activated.
     # `free-alpha-carboxyl` is the important one: the alpha-carboxyl is the most acidic proton in a
@@ -662,7 +696,13 @@ ATTACKS = {
     "ylide": [("aldehyde", "high", "is olefinated"), ("ketone", "medium", "may be olefinated"),
               ("acid", "medium", "quenches the ylide (acidic O–H)"), ("alcohol", "medium", "may quench the ylide (acidic O–H)")],
     "pd-coupling": [("aryl-halide", "medium", "may couple as well (a second aryl halide competes)"),
-                    ("terminal-alkyne", "medium", "may couple (Sonogashira) or homocouple")],
+                    ("terminal-alkyne", "medium", "may couple (Sonogashira) or homocouple"),
+                    ("alloc-carbamate", "high", "is CLEAVED by Pd(0) (that is the intended Alloc "
+                                                "removal; if it must survive, use a different amine "
+                                                "protection)"),
+                    ("allyl-ester", "high", "is CLEAVED by Pd(0) (that is the intended allyl-ester "
+                                            "removal; if it must survive, use a different carboxyl "
+                                            "protection)")],
 }
 
 # ------------------------------------------------------------- what the step UNMASKS, which then reacts
@@ -1249,6 +1289,19 @@ PROTECT = {
     "thr-hydroxyl": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment "
                                  "short; check the O-to-N shift", [])},
     "tyr": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment short", [])},
+    "support ester": {"default": ("avoid hydrazine while the peptide is on the support; hydrazinolysis "
+                                   "cleaves the resin ester, so use a linker stable to the Dde removal or "
+                                   "remove the orthogonal group before loading", [])},
+    "dde-enamine": {"default": ("remove it deliberately with hydrazine; if it must survive, use a "
+                                "different orthogonal group rather than exposing Dde/Ddiv to hydrazine", [])},
+    "alloc-carbamate": {"default": ("remove it deliberately with Pd(0); if it must survive, use a "
+                                    "different amine protection that is stable to the Pd step", [])},
+    "allyl-ester": {"default": ("remove it deliberately with Pd(0); if it must survive, use a "
+                                "different carboxyl protection that is stable to the Pd step", [])},
+    "otmse-ester": {"default": ("remove it deliberately with TBAF; if it must survive, use a "
+                                "different carboxyl protection that is stable to fluoride", [])},
+    "odmab-ester": {"default": ("remove it deliberately with hydrazine; if it must survive, use a "
+                                "different carboxyl protection that is stable to hydrazine", [])},
     "cys-acm": {"default": ("omit the thiol scavenger or use a different Cys protection; Acm is "
                              "not the block for an EDT cocktail", [])},
     "free-indole": {
@@ -1419,6 +1472,10 @@ _FMOC_REMOVAL = "20% piperidine in DMF, 2 x 5 min"
 _COUPLING = "Fmoc-amino acid, HBTU, DIPEA, DMF, 45 min"
 _ACID_CLEAVAGE = "TFA/H2O 95:5, 2 h"
 _FORMYLATION = "formic acid, DIC/HOBt, DMF, 2 h"
+_HYDRAZINOLYSIS = "hydrazine, DMF, 2 x 3 min"
+_PD_ALLYL = "Pd(PPh3)4, morpholine, DMF, 2 h"
+_TBAF = "TBAF, THF, 1 h"
+_ODMAB = "2% hydrazine monohydrate, DMF, 2 x 3 min"
 TRANSFORM_CONDITIONS = {
     # assembly
     "fmoc-removal": _FMOC_REMOVAL,
@@ -1441,6 +1498,11 @@ TRANSFORM_CONDITIONS = {
     "pseudoproline-opening": _ACID_CLEAVAGE,
     "resin-cleavage": _ACID_CLEAVAGE,
     "resin-cleavage-amide": _ACID_CLEAVAGE,
+    "dde-removal": _HYDRAZINOLYSIS,
+    "alloc-removal": _PD_ALLYL,
+    "allyl-ester-removal": _PD_ALLYL,
+    "otmse-removal": _TBAF,
+    "odmab-removal": _ODMAB,
 }
 
 
