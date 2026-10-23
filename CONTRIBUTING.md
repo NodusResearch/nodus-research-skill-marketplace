@@ -141,6 +141,9 @@ runner images, and a retired label does not fail — the job sits in `queued` fo
 anyone lets it, while the other targets finish in under a minute. `macos-13` was retired and
 a release waited three quarters of an hour on it. `macos-15-intel` is the last x86_64 image,
 available until August 2027, and is the one the application's own release workflow uses.
+`macos-14` is retired on 2 November 2026; arm64 builds and the macOS package tests run on
+`macos-15`. The required check is named `package-tests (macos)`, not after the image, so the
+next move is a change to the runner in `validate.yml` and `RUNNERS` alone.
 
 ### Build and check it locally before opening a pull request
 

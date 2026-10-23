@@ -74,7 +74,7 @@ function fixture(outcome) {
         }
         if(/^commits\\/[0-9a-f]{40}\\/check-runs$/.test(route)){
           if(outcome==='approval')return response({check_runs:[]});
-          const names=${JSON.stringify(['validate', 'package-tests (ubuntu-latest)', 'package-tests (windows-latest)', 'package-tests (macos-14)'])};
+          const names=${JSON.stringify(['validate', 'package-tests (ubuntu-latest)', 'package-tests (windows-latest)', 'package-tests (macos)'])};
           const check_runs=names.map(name=>({name,status:'completed',conclusion:outcome==='failure'&&name==='validate'?'failure':'success',app:{id:15368},html_url:'https://github.com/MarketplaceFixture/repo/runs/1'}));
           // Another app's green check with a required name must not stand in for GitHub Actions.
           if(outcome==='failure')check_runs.unshift({name:'validate',status:'completed',conclusion:'success',app:{id:1}});

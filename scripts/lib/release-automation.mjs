@@ -3,12 +3,12 @@ import { compareSemver, validatePluginManifestV2 } from '../contract-v2.mjs';
 
 export const RUNNERS = Object.freeze({
   any: 'ubuntu-latest', 'linux-x64': 'ubuntu-latest',
-  'darwin-arm64': 'macos-14', 'darwin-x64': 'macos-15-intel',
+  'darwin-arm64': 'macos-15', 'darwin-x64': 'macos-15-intel',
   'win32-x64': 'windows-latest',
 });
 export const REQUIRED_CHECKS = Object.freeze([
   'validate', 'package-tests (ubuntu-latest)',
-  'package-tests (windows-latest)', 'package-tests (macos-14)',
+  'package-tests (windows-latest)', 'package-tests (macos)',
 ]);
 export const isCatalogPath = file => file === 'catalog-v2.json'
   || /^plugins\/[a-z0-9]+(?:-[a-z0-9]+)*\/catalog\.json$/.test(file);
