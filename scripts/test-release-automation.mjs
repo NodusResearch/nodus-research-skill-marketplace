@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { githubClient, downloadSmall, readPublishedRelease } from './lib/github-release-api.mjs';
-import { assertMainMerge, assertReleaseMatchesPackage, assertPublishedBuildMatches, assertCatalogDiff,
+import { REQUIRED_CHECKS, assertMainMerge, assertReleaseMatchesPackage, assertPublishedBuildMatches, assertCatalogDiff,
   assertCatalogIndexDiff, buildMatrix, isCatalogPath, recordedAssetBytes, selectPackages } from './lib/release-automation.mjs';
 import { mainProtection, assertMainProtection, assertMainSigningPolicy } from './lib/release-protection.mjs';
 
@@ -46,6 +46,12 @@ test('each declared platform gets a runner and a version-pinned artifact', () =>
   assert.deepEqual(rows.map(r => r.runner), ['ubuntu-latest', 'macos-15-intel', 'windows-latest']);
   assert.ok(rows.every(r => r.version === m.version && r.plugin === m.id));
   assert.throws(() => buildMatrix([{ ...m, compatibility: { targets: ['unknown'] } }]), /No runner/);
+});
+test('the required check names are exactly the validation workflow matrix', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/validate.yml'), 'utf8');
+  const labels = [...workflow.matchAll(/^\s+- \{ label: ([a-z0-9-]+), runner: [a-z0-9-]+ \}$/gm)].map(match => match[1]);
+  assert.ok(labels.length, 'validate.yml must declare its package-tests matrix by label');
+  assert.deepEqual([...REQUIRED_CHECKS].sort(), ['validate', ...labels.map(label => `package-tests (${label})`)].sort());
 });
 test('only a protected, merged main commit with successful push CI passes', () => assert.equal(assertMainMerge(gate()), true));
 test('direct pushes, unmerged PRs, foreign repos and unprotected main fail before signing', () => {
