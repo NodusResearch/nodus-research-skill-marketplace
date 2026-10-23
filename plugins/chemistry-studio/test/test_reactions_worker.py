@@ -456,6 +456,34 @@ class SideChainAmideDehydration(unittest.TestCase):
                 "asn-gln-amide"), 1)
 
 
+class CompatibilityStepCap(unittest.TestCase):
+    """The request handler cut the steps to 24 before `_compatibility` ever saw them.
+
+    A 20-residue solid-phase program is 39 statements - a coupling and a deprotection per residue -
+    so steps 25-39 were never examined, on a route the audit checked to 96, and nothing said so.
+    `_compatibility` itself has no cap; the cut is in `handle`, which is why the test goes through
+    it. Measured 2026-10-22: 39 steps in, 24 records out.
+    """
+
+    def _steps(self, count):
+        # One oxidation repeated: the LENGTH is what this test is about, not the chemistry.
+        return [{"reactants": ["CCO"], "products": ["CC=O"], "reagents": "PCC, DCM"}] * count
+
+    def test_thirty_nine_steps_in_give_thirty_nine_records_out(self):
+        out = W.handle({"compatibility": self._steps(39)})
+        rows = out["compatibility"]
+        self.assertEqual(len(rows), 39)
+        self.assertEqual([row["step"] for row in rows], list(range(1, 40)))
+
+    def test_the_cap_is_the_audit_ceiling_and_not_a_route_length(self):
+        # 96 is MAX_STEPS_FLOOR in src/engine/chemistryRouteAudit.ts and
+        # SCHEMA_CEILINGS.compatibilitySteps in src/engine/chemistryLimits.ts. Past it the handler
+        # still cuts, deliberately: the app reads the gap from the highest `step` it gets back.
+        rows = W.handle({"compatibility": self._steps(120)})["compatibility"]
+        self.assertEqual(len(rows), 96)
+        self.assertEqual(rows[-1]["step"], 96)
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

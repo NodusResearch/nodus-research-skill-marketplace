@@ -96,7 +96,20 @@ REAGENT_CLASSES = [
     ("lindlar", "Lindlar hydrogenation", [r"lindlar"]),
     ("dissolving-metal", "dissolving metal (Birch)", [r"\bbirch\b", r"\b(na|li|k)\s*/\s*nh3\b", r"liquid (ammonia|nh3)"]),
     ("strong-acid", "strong acid", [
-        _F + r"TFA" + _E, r"trifluoroacetic acid", _F + r"HCl" + _E, _F + r"HBr" + _E, _F + r"HI" + _E,
+        _F + r"TFA" + _E, r"trifluoroacetic acid", _F + r"HCl" + _E, _F + r"HBr" + _E,
+        # HI is case-SENSITIVE inside the formula token. With re.I the bare two-letter token
+        # matched the English word "hi" ("stirred hi and filtered"), which classified ordinary prose
+        # as a strong acid and silenced the Ser/Thr gate on any substrate. "57% HI" and "HI (aq)"
+        # still match; "hi" no longer does.
+        _F + r"(?-i:HI)" + _E,
+        # The spelled-out bromide, because `_MINERAL_ACID` and `_HBR_HCL_SATURATION` both already
+        # read it and only this list did not: `hydrogen bromide in acetic acid` classified
+        # `mild-acid` (through the AcOH) while `HBr in AcOH` classified `strong-acid`, so one
+        # cell answered by spelling — the same defect the TsOH/AcOH note at the bottom records.
+        # Only the BROMIDE. `hydrogen chloride` is deliberately absent: `_DILUTE_ACID` recognises
+        # the formula spelling alone, so a "1 M hydrogen chloride" work-up would become a
+        # strong-acid step and raise `boc`/`acetal`/`asp-pro` on it.
+        r"hydrobromic|hydrogen bromide",
         _F + r"H2SO4" + _E, r"sulfuric acid", r"sulphuric acid", _F + r"TfOH" + _E, r"triflic acid",
         r"\bp-?tsoh\b", _F + r"TsOH" + _E, r"\bcsa\b", r"camphorsulfonic",
         _F + r"BF3" + _E, _F + r"TMSOTf" + _E, _F + r"BBr3" + _E, _F + r"BCl3" + _E,
@@ -107,6 +120,17 @@ REAGENT_CLASSES = [
         # matched "reagent k", which is what made the gap easy to miss: the scavenger was read and
         # the acid was not, so the hazard could only ever be cleared, never raised.
         _F + r"TMSBr" + _E, r"trimethylsilyl bromide", _COCKTAIL_ANY]),
+    # A DONOR class of its own, and NOT an acidolysis class. Chan & White 6.6 names formic acid
+    # first among the "strong carboxylic acids" in which an unprotected Ser/Thr hydroxyl is
+    # acylated, and formic was in no class at all: `classify('95% formic acid, 2 h')` returned
+    # [], so the passage's leading example could not reach the Ser/Thr row.
+    #
+    # It must not join `strong-acid`. That class carries what a proteolytic acid does — `boc`,
+    # `tbu-ester`, `trityl`, `asp-pro` are cleaved — and none of those rows reads the acid's
+    # IDENTITY, so a formylation or a formic wash would inherit them. Measured: a Boc-Ser step
+    # under `95% formic acid` would report the carbamate `high` if formic were added there.
+    # Only the two Ser/Thr rows are carried; see the derived rows below the ATTACKS table.
+    ("formic-acid", "formic acid (acyl donor)", [r"\bformic\b", _F + r"HCOOH" + _E]),
     # Triethylsilane is a scavenger, but it also reduces a free indole. It is its own class so the
     # `free-indole` alkylation gate can stand aside and the reduction can be reported with the
     # Table 5 -71 signature instead of a cation-alkylation message.
@@ -315,10 +339,14 @@ GROUPS = {
     # cation. Kept separate so the remedy can say "replace the silane with EDT" rather than
     # "add a scavenger", which would be wrong.
     "trp-indole-reduction": ("tryptophan indole (silane reduction)", "c1ccc2[nH]ccc2c1"),
-    # Free side-chain hydroxyls of Ser/Thr, and the Tyr phenol. Strong acid can O-acylate the
-    # former (the O-acyl then migrates to the backbone N) and alkylate the latter with the tBu
-    # cation; a cation scavenger is the answer, which is why the gate is suppressed when one is
-    # explicitly named.
+    # Free side-chain hydroxyls of Ser/Thr, and the Tyr phenol — two different side reactions, not
+    # one. Strong acid O-ACYLATES the former: the acyl group is the acid's own (TFA, formic,
+    # HBr/AcOH) or, for sulfuric/phosphoric/hydrofluoric acid, one shifted off a peptide bond; the
+    # O-acyl then migrates to the backbone N. Nothing in a cleavage cocktail prevents that, so no
+    # scavenger suppresses the gate — the remedy is a short acid treatment and 5% hydrazine/DMF on
+    # the FREE peptide. Strong acid ALKYLATES the Tyr ring with the tBu cation; a cation scavenger
+    # does answer that one, which is why the `tyr` gate clears on a named scavenger and these two
+    # do not.
     "ser-hydroxyl": ("serine side-chain hydroxyl", "[NX3][CX4H1]([CH2][OX2H1])[CX3]=O"),
     "thr-hydroxyl": ("threonine side-chain hydroxyl", "[NX3][CX4H1]([CX4H1]([CH3])[OX2H1])[CX3]=O"),
     "tyr": ("tyrosine phenol", "c1ccc([OX2H1])cc1"),
@@ -611,12 +639,31 @@ ATTACKS = {
         ("asp-pro", "high", "is cleaved at the Asp-Pro bond by acid"),
         ("tbu-ester", "high", "is cleaved by acid"), ("silyl-ether", "medium", "may be cleaved (TMS, TES, TBS more than TBDPS, TIPS)"),
         ("trityl", "high", "is cleaved by acid"), ("epoxide", "medium", "may be opened"),
-        ("ser-hydroxyl", "medium", "may be O-acylated by the tBu cation, and the O-acyl can migrate "
-                                    "to the backbone nitrogen; a cation scavenger and a short acid "
-                                    "treatment are the answer"),
-        ("thr-hydroxyl", "medium", "may be O-acylated by the tBu cation, and the O-acyl can migrate "
-                                    "to the backbone nitrogen; a cation scavenger and a short acid "
-                                    "treatment are the answer"),
+        # The acyl group is NEVER the tBu cation — Chan & White Section 6.6 calls acid-induced
+        # acylation "the major side reaction" of an unprotected Ser/Thr and gives it two sources:
+        # the acid itself (strong carboxylic acids; acetic acid when saturated with HBr or HCl), or
+        # a shift off a peptide bond in sulfuric/phosphoric/hydrofluoric acid. The gate is
+        # source-tested on both readings (`has_acyl_donor_acid`, `has_shift_acid` plus the
+        # per-molecule bond), and the deprotection that FREES the hydroxyl carries the same
+        # statement in UNMASKED_RISKS, because there the group is in the product, not a survivor.
+        ("ser-hydroxyl", "medium", "may be O-acylated, and the acyl group has two possible sources "
+                                    "(Chan & White 6.6): the acid itself when it is a strong "
+                                    "carboxylic one — trifluoroacetic and formic acids do it, and "
+                                    "acetic acid does when saturated with HBr — or, in "
+                                    "sulfuric/phosphoric/hydrofluoric acid, one shifted off a "
+                                    "peptide bond to the adjacent hydroxyl. In both cases the O-acyl "
+                                    "can migrate to the backbone nitrogen. Keep the acid treatment "
+                                    "short, and strip the O-acyl with 5% hydrazine/DMF on the FREE "
+                                    "peptide after cleavage — a cation scavenger does not address this"),
+        ("thr-hydroxyl", "medium", "may be O-acylated, and the acyl group has two possible sources "
+                                    "(Chan & White 6.6): the acid itself when it is a strong "
+                                    "carboxylic one — trifluoroacetic and formic acids do it, and "
+                                    "acetic acid does when saturated with HBr — or, in "
+                                    "sulfuric/phosphoric/hydrofluoric acid, one shifted off a "
+                                    "peptide bond to the adjacent hydroxyl. In both cases the O-acyl "
+                                    "can migrate to the backbone nitrogen. Keep the acid treatment "
+                                    "short, and strip the O-acyl with 5% hydrazine/DMF on the FREE "
+                                    "peptide after cleavage — a cation scavenger does not address this"),
         ("tyr", "medium", "may be alkylated by the tBu cation during acidolysis; a cation scavenger "
                           "(TIS, phenol) is the answer"),
         ("cys-acm", "medium", "may lose the Acm group or exchange with a thiol scavenger (EDT/DTT) "
@@ -705,6 +752,14 @@ ATTACKS = {
                                             "protection)")],
 }
 
+# The two Ser/Thr rows `formic-acid` shares with `strong-acid`, DERIVED and not copied. The rows'
+# own text already names both acyl sources ("trifluoroacetic and formic acids do it ... or, in
+# sulfuric/phosphoric/hydrofluoric acid, one shifted off a peptide bond"), so a second copy would be
+# one more string to drift out of step with §6.6; the filter is by GROUP, so a row added to
+# `strong-acid` for any other purpose cannot leak into the donor class by accident.
+_SER_THR_OACYL = ("ser-hydroxyl", "thr-hydroxyl")
+ATTACKS["formic-acid"] = [row for row in ATTACKS["strong-acid"] if row[0] in _SER_THR_OACYL]
+
 # ------------------------------------------------------------- what the step UNMASKS, which then reacts
 # reagent class -> [(group, severity, why)], read against the groups PRESENT IN THE PRODUCTS.
 #
@@ -740,6 +795,55 @@ UNMASKED_RISKS = {
                                 "protecting groups are shedding — tert-butyl, trityl, Pbf sulfonyl. The indole is "
                                 "the most electron-rich ring in the peptide, so it takes them, and the alkylated "
                                 "tryptophan cannot be recovered"),
+        # Ser/Thr were reachable only through ATTACKS, which reads SURVIVORS, so a residue that
+        # this very step UNMASKS (Ser(tBu) -> Ser, in the same TFA) had no statement at the step
+        # that frees it. On a LINEAR route that is a duplicate rather than a rescue — the later
+        # resin-cleavage statement already fires, and these entries take it from one finding to
+        # two (the same cross-step duplication `boc-removal`/`resin-cleavage` already has; queued
+        # separately). What they do rescue is the shape whose LAST statement is the tBu removal:
+        # on a head-to-tail cyclic route the free hydroxyls never appear in any later step's
+        # reactants, so ATTACKS can never see them, and the route reported NOTHING. Measured,
+        # `Gly-Ser-Tyr-Thr-Ala` head-to-tail: 0 hydroxyl findings without these entries, 2 with.
+        # A one-statement global cleavage (protected peptide-resin -> free peptide) goes 0 -> 1
+        # the same way.
+        #
+        # Both carry the ACYL reading, not a cation one: the acid that frees the hydroxyl can then
+        # acylate it, with the acyl group coming either from the acid itself or — for the three
+        # mineral acids 6.6 names — by a shift off a peptide bond. Neither needs a cation, which is
+        # why they are source-tested on the acid here as well as on the survivor path.
+        #
+        # `tyr` does have an entry, and it is the SAME conservative shape: the statement fires
+        # only on the step that frees the phenol, and only when this step's own reactants carry a
+        # tert-butyl protection to lose. That is a SOURCE test — the `free-indole` reading,
+        # narrowed to the three groups the `+56` signature is about — and NOT a linker test. A
+        # named 2-chlorotrityl / Barlos support must keep firing, because a trityl release puts a
+        # cation in solution in tert-butyl's reactivity band (Chan & White: "xanthenyl,
+        # methylbenzhydryl > acetamidomethyl, trityl, tert-butyl"). The support is still a bare
+        # `*` with no identity, so there is nothing here to read a safe linker from; see the
+        # withdrawn-test note in `reactions_worker`'s survivor gate.
+        ("ser-hydroxyl", "medium", "is laid BARE by this step, and the acid that freed it can then acylate it. "
+                                   "Chan & White 6.6 gives two acyl sources: the acid itself when it is a strong "
+                                   "carboxylic one (trifluoroacetic and formic acids; acetic acid only when "
+                                   "saturated with HBr or HCl), or, in sulfuric/phosphoric/hydrofluoric acid, an "
+                                   "acyl group shifted off a peptide bond. Either way the O-acyl can migrate to the "
+                                   "backbone nitrogen, and that migration is the serious obstacle. Keep the acid "
+                                   "treatment short; once the peptide is off the resin, strip the O-acyl with 5% "
+                                   "hydrazine/DMF and check the crude for the O-to-N shift — hydrazine removes the "
+                                   "O-acyl, so an acyl group that survives it has already migrated"),
+        ("thr-hydroxyl", "medium", "is laid BARE by this step, and the acid that freed it can then acylate it. "
+                                   "Chan & White 6.6 gives two acyl sources: the acid itself when it is a strong "
+                                   "carboxylic one (trifluoroacetic and formic acids; acetic acid only when "
+                                   "saturated with HBr or HCl), or, in sulfuric/phosphoric/hydrofluoric acid, an "
+                                   "acyl group shifted off a peptide bond. Either way the O-acyl can migrate to the "
+                                   "backbone nitrogen, and that migration is the serious obstacle. Keep the acid "
+                                   "treatment short; once the peptide is off the resin, strip the O-acyl with 5% "
+                                   "hydrazine/DMF and check the crude for the O-to-N shift — hydrazine removes the "
+                                   "O-acyl, so an acyl group that survives it has already migrated"),
+        ("tyr", "medium", "is laid BARE by this step, in the acid that is still full of the cation "
+                          "this step is freeing: the molecule's own tert-butyl ether comes off as a "
+                          "tert-butyl cation, which alkylates the electron-rich ring (+56), and a "
+                          "t-butylated ring cannot be repaired. Put a cation scavenger (TIS, phenol) "
+                          "in the cocktail and keep the acid step short"),
         ("n-terminal-gln", "high", "is left free by this step and can cyclise to PYROGLUTAMATE: the alpha-amine "
                                    "closes onto its own side-chain amide and ammonia leaves, so the peptide ends up "
                                    "with no N-terminus, and nothing further can acylate it. Note WHERE in the step "
@@ -798,6 +902,13 @@ UNMASKED_RISKS = {
          "alkoxybenzyl or other alkyl ester"),
     ],
 }
+
+# Same two rows, same derivation, read against the PRODUCTS: the deprotection that FREES the
+# hydroxyl (Ser(tBu) -> Ser) carries the donor statement too, because the acid that removed the
+# tBu is the acid that then acylates the bare oxygen. Without this entry a formic step that frees
+# the side chain would be silent while the identical TFA step speaks.
+UNMASKED_RISKS["formic-acid"] = [row for row in UNMASKED_RISKS["strong-acid"]
+                                 if row[0] in _SER_THR_OACYL]
 
 # --------------------------------------------------------------------- what a species does to ITSELF
 # reagent class -> [(group, severity, why)], read against the groups PRESENT IN THE REACTANTS.
@@ -980,6 +1091,157 @@ def has_trityl_linker(text):
     return bool(_TRITYL_LINKER.search(text or ""))
 
 
+# ------------------------------------------------------------------- what a strong acid's SOURCE is
+# Ser/Thr and Tyr look like one hazard but are TWO side reactions with two different sources. The
+# one guard they shared before answered neither question: it cleared all three only when a cation
+# scavenger was named, so it also cleared the O-acylation of every TFA/TIS cleavage. Only the
+# SER/THR half is source-tested here.
+#
+# SER/THR — there are TWO possible acyl sources, and both are in Chan & White, *Chemistry of
+# Peptide Synthesis* Section 6.6:
+#
+#   1. THE ACID DONATES ITS OWN ACYL GROUP. "The major side reaction associated with peptides
+#      containing unprotected seryl and threonyl residues is acid-induced acylation of the hydroxyl
+#      groups. Hydroxyl groups of peptides undergo acylation when the latter are dissolved in
+#      strong carboxylic acids such as formic and trifluoroacetic acids." In the weaker acetic
+#      acid, "acylation occurs if the acid is saturated with hydrogen bromide or chloride" — which
+#      is why HBr/AcOH is a donor cell. "Acylation does not occur if p-toluenesulfonic acid in
+#      acetic acid is employed", the one negative case this table implements.
+#
+#   2. A STRONG MINERAL ACID SHIFTS AN ACYL GROUP OFF A PEPTIDE BOND. "O-Acylation of peptides also
+#      occurs in strong mineral acids such as sulfuric and phosphoric acids, but in this case the
+#      acyl group originates by a shift of the acyl component of a peptide bond to the adjacent
+#      hydroxyl group", and "This N-to-O acyl shift occurs when protected peptides are dissolved in
+#      hydrogen fluoride." The shift is intramolecular, so the caller tests the peptide bond on the
+#      SAME molecule as the hydroxyl.
+#
+# The consequence for the `NaNO2/HCl` hydrazide activation is narrower than the old comment said:
+# HCl is not a donor and is not one of the three acids §6.6 names for the shift, so that step is
+# silent for ABSENCE OF EVIDENCE. The NCL fragment itself is a tetrapeptide hydrazide and DOES
+# carry a peptide bond, so the silence has to come from the acid list and cannot come from the bond
+# test. TFA, formic and HBr/AcOH can donate, which is why this must never be a cation test: a
+# cation test here would silence the major side reaction of every TFA cleavage.
+#
+# TYR IS NOT TESTED HERE, and the gap is deliberate rather than an omission. Ring t-butylation
+# ("+56" in Chan & White's Table 5) genuinely is cation-dependent, so it wants a cation-source
+# test, and part of one is easy: a Boc/tBu-ester/tBu-ether/trityl group in the step's reactants is
+# a source, exactly as the `free-indole` gate already reads. The LINKER is the part that has no
+# sound predicate. The route writes the support as a bare `*`, so a Wang ester and a
+# 2-chlorotrityl ester are the same molecular graph, and the only text predicate available —
+# `has_trityl_linker` above — is NOT evidence of safety: Chan & White's cation-reactivity order is
+# "xanthenyl, methylbenzhydryl > acetamidomethyl, trityl, tert-butyl", so a 2-CTC release puts a
+# cation in solution that is as reactive as the tert-butyl one, and this file already counts
+# `trityl` among the cation sources. Make trityl fire instead and the fallback becomes "never
+# suppress", which is what the code does today anyway. The real problem is that the linker can be
+# invisible in BOTH the structure and the conditions; that needs its own reading, not a predicate
+# bolted on here.
+#
+# READ CONSERVATIVELY, like the gates around it: suppression needs positive evidence that the acid
+# is mineral (or sulfonic), and an acid this table does not recognise keeps firing. A message a
+# chemist can dismiss is cheap; silencing the acid that actually acylates is the failure that
+# matters. Time and percentage are not read, for the same reason as everywhere else in this file.
+#
+# `_MINERAL_ACID` is the list of acids that are NOT acyl donors by themselves. It is not, and must
+# not be read as, a list of acids that cannot O-acylate: sulfuric, phosphoric and hydrofluoric acid
+# are on it and DO acylate, by the peptide-bond shift above. HF is here so that the class unit that
+# makes it reachable inherits a donor test that is already False for it.
+#
+# `hydrogen bromide` is spelled out here because the `strong-acid` class now reads that spelling:
+# without it the spelled form would be an acid this table does not recognise, so the fail-open
+# fallback at the end of `has_acyl_donor_acid` would call bare "hydrogen bromide" a donor and give
+# a silyl ether's cleavage step an O-acylation flag, while the formula "HBr" correctly reads as a
+# non-donor. `hydrogen chloride` is NOT added: it is not in the strong-acid patterns either, so
+# there is no spelled-vs-formula pair to keep in step, and adding it alone would change what a
+# "1 M hydrogen chloride" work-up reads as.
+_MINERAL_ACID = re.compile(
+    _F + r"(?:HCl|HBr|(?-i:HI)|H2SO4|HNO3|HClO4|H3PO4|HF)" + _E +
+    r"|hydrochloric|hydrobromic|hydrogen bromide|hydroiodic|sulfuric|sulphuric|nitric acid|perchloric|phosphoric"
+    r"|hydrofluoric|methanesulfonic|\bMsOH\b|triflic|\bTfOH\b|camphorsulfonic|\bCSA\b"
+    r"|p-?toluenesulfonic|\bTsOH\b", re.I)
+# The acids Chan & White 6.6 names for the N-to-O shift, as a POSITIVE list. HCl, HBr, HI, HNO3,
+# HClO4, MsOH and TfOH are deliberately absent — absence of evidence, not evidence of safety. See
+# `has_shift_acid`.
+_ACYL_SHIFT_ACID = re.compile(
+    _F + r"(?:H2SO4|H3PO4|HF)" + _E +
+    r"|sulfuric|sulphuric|phosphoric|hydrofluoric", re.I)
+# The carboxylic acids that donate an acyl group on their own. TFA leads because it is the cleavage
+# acid; formic is the other one Chan & White name, plus the stronger halogenated acids. AcOH is
+# NOT here: §6.6 says "In the weaker acetic acid, acylation occurs if the acid is saturated with
+# hydrogen bromide or chloride", so acetic acid needs the explicit saturation branch below.
+_ACYL_DONOR_ACID = re.compile(
+    r"\bTFA\b|trifluoroacetic|\bformic\b|\bHCOOH\b"
+    r"|trichloroacetic|\bTCA\b|pentafluoropropionic|\bHFBA\b|heptafluorobutyric", re.I)
+_ACETIC_ACID = re.compile(r"\bAcOH\b|\bacetic acid\b", re.I)
+# The saturation case. Formula tokens use the same lookarounds as everywhere else; the spelled-out
+# forms are included because a route may write "hydrogen bromide in acetic acid", which §6.6 also
+# names ("encountered during removal of benzyl-based protectors by hydrogen bromide in acetic
+# acid"). This is checked BEFORE the sulfonic negative, so TsOH/AcOH/HBr fires: the passage's
+# negative case is TsOH/AcOH, not acetic acid saturated with HBr.
+_HBR_HCL_SATURATION = re.compile(
+    _F + r"(?:HBr|HCl)" + _E + r"|hydrobromic|hydrochloric|hydrogen (?:bromide|chloride)", re.I)
+# The sulfonic acids. 6.6's negative case is "Acylation does not occur if p-toluenesulfonic acid in
+# acetic acid is employed". Without this branch the abbreviated "TsOH/AcOH" fires because AcOH
+# matches the donor pattern, while the spelled-out form is silent only because it is missing from
+# the strong-acid class — the same conditions answering differently by spelling.
+_SULFONIC_ACID = re.compile(
+    r"p-?toluenesulfonic|\bTsOH\b|methanesulfonic|\bMsOH\b|triflic|\bTfOH\b"
+    r"|camphorsulfonic|\bCSA\b", re.I)
+# The carboxylic acids that donate on their own. AcOH is deliberately not here; it is a donor only
+# in the HBr/HCl-saturated case, which `_ACYL_DONOR_ACID` still reads.
+_STRONG_CARBOXYLIC = re.compile(
+    r"\bTFA\b|trifluoroacetic|\bformic\b|\bHCOOH\b|trichloroacetic|\bTCA\b"
+    r"|pentafluoropropionic|\bHFBA\b|heptafluorobutyric", re.I)
+
+
+def has_acyl_donor_acid(text):
+    """Whether the step's acid can O-acylate a Ser/Thr hydroxyl by DONATING its own acyl group.
+
+    Chan & White 6.6: the major side reaction is "acid-induced acylation" and the acyl comes from
+    "strong carboxylic acids such as formic and trifluoroacetic acids"; acetic acid does it only
+    when "saturated with hydrogen bromide or chloride", and it does not happen with
+    "p-toluenesulfonic acid in acetic acid". This predicate answers that one question.
+
+    A mineral acid is not automatically safe: sulfuric, phosphoric and hydrofluoric acid acylate by
+    shifting an acyl group off a PEPTIDE BOND, which is `has_shift_acid`'s question and the
+    caller's per-molecule test. This function deliberately says False for them — the shift arm, not
+    this one, supplies that evidence. False only when a mineral or sulfonic acid is named and no
+    donor is; an acid this table does not recognise keeps firing.
+    """
+    text = text or ""
+    # Acetic acid is a donor only in the HBr/HCl-saturated case. Checked first so the sulfonic
+    # negative cannot swallow it: TsOH/AcOH stays silent, TsOH/AcOH/HBr fires.
+    if _ACETIC_ACID.search(text) and _HBR_HCL_SATURATION.search(text):
+        return True
+    if _SULFONIC_ACID.search(text) and not _STRONG_CARBOXYLIC.search(text):
+        return False
+    # AcOH is a recognised acid, not an unknown one, and on its own it is not a donor. Without
+    # this, the fail-open fallback below would call it a donor simply because it is not mineral.
+    if _ACETIC_ACID.search(text) and not _ACYL_DONOR_ACID.search(text):
+        return False
+    return bool(_ACYL_DONOR_ACID.search(text)) or not _MINERAL_ACID.search(text)
+
+
+def has_shift_acid(text):
+    """Whether the step names an acid Chan & White 6.6 gives the N-to-O acyl shift for.
+
+    A positive list, not "any mineral acid": "O-Acylation of peptides also occurs in strong mineral
+    acids such as sulfuric and phosphoric acids, but in this case the acyl group originates by a
+    shift of the acyl component of a peptide bond to the adjacent hydroxyl group", and "This N-to-O
+    acyl shift occurs when protected peptides are dissolved in hydrogen fluoride."
+
+    HCl, HBr, HI, HNO3, HClO4, MsOH and TfOH are absent for ABSENCE OF EVIDENCE, not because they
+    are known not to do it: §6.6 names only the three above, and its one HCl sentence is about
+    suppressing acyl TRANSFER in TFA ("not if the latter contains 6 M hydrogen chloride"), not
+    about forming the O-acyl. The caller must still require a peptide bond on the SAME molecule —
+    the acid alone is not evidence.
+
+    H3PO4 and HF are listed even though neither reaches a `strong-acid` gate today (H3PO4 has no
+    reagent class at all and HF is `fluoride`). They are here so the class unit that makes them
+    reachable inherits a correct predicate rather than a second bug.
+    """
+    return bool(_ACYL_SHIFT_ACID.search(text or ""))
+
+
 # Guanidino capping needs BOTH halves, and that is what keeps it from being wallpaper. Every
 # coupling in every synthesis presents a free amine to a coupling reagent — that is what a coupling
 # IS — so the reagent alone cannot be the gate. Vol 3 Section 9.2.9 names the protocol detail: "The
@@ -1117,12 +1379,17 @@ MASS_SHIFTS = {
     "trp-indole-reduction": {"delta": -71, "kind": "shift",
                              "note": "the indole ring is reduced; -71 Da is the Table 5 signature, and the "
                                      "product is no longer tryptophan"},
-    "ser-hydroxyl": {"delta": 56, "kind": "shift",
-                      "note": "O-acylation by the tBu cation adds +56; the O-acyl can migrate to the "
-                              "backbone nitrogen"},
-    "thr-hydroxyl": {"delta": 56, "kind": "shift",
-                      "note": "O-acylation by the tBu cation adds +56; the O-acyl can migrate to the "
-                              "backbone nitrogen"},
+    # `ser-hydroxyl` and `thr-hydroxyl` are DELIBERATELY ABSENT. They have two acyl sources (the
+    # acid itself, or a shift off a peptide bond), so there is no single delta: the number depends
+    # on which donor fired, and one group key cannot hold a function. The derivable set, from the
+    # structures the sources name: trifluoroacetyl +96, formyl +28, acetyl +42 (HBr/HCl in AcOH),
+    # and 0 for the mineral-acid arm — that one is an N-to-O shift of an acyl group off a peptide
+    # bond onto the hydroxyl, so the product is the same atoms rearranged: an ISOBARIC
+    # depsipeptide, not a different adduct. NO SOURCE IN THE CORPUS QUOTES ANY OF THESE DELTAS;
+    # they are arithmetic from those named structures, which is why none is printed in the table.
+    # A number here would be false precision, and the old +56 ("O-acylation by the tBu cation")
+    # was wrong twice — no tBu cation is involved, and a rearrangement is same-mass. The hazard
+    # still carries `why` and `suggestion`; it just does not carry a mass.
     "tyr": {"delta": 56, "kind": "shift",
             "note": "t-butylation of the tyrosine ring adds +56"},
     "cys-acm": {"delta": -71, "kind": "shift",
@@ -1211,7 +1478,11 @@ PEPTIDE_HAZARDS = frozenset({
     "cys-resin-ester-epimerisation", "resin-dipeptide-dkp", "asn-gln-amide", "free-indole",
     "free-alpha-carboxyl", "sulfide", "met-sulfide", "asp-pro",
     "asn-deamidation-gly", "asn-deamidation-ser", "trp-indole-reduction",
-    "ser-hydroxyl", "thr-hydroxyl", "tyr", "cys-acm", "d-amino-acid",
+    # `ser-hydroxyl`/`thr-hydroxyl` are excluded because there is more than one possible acyl
+    # donor (the acid itself, or a shift off a peptide bond; see MASS_SHIFTS), so no single number
+    # answers them. They are still gated peptide hazards; this set is only the ones whose
+    # detectability question is answered by one number.
+    "tyr", "cys-acm", "d-amino-acid",
 })
 
 
@@ -1284,10 +1555,26 @@ PROTECT = {
                     [_TRT_AMIDE]),
     },
     "trp-indole-reduction": {"default": ("replace TES with TIS or EDT; TIS is the Trp-safe silane", [])},
-    "ser-hydroxyl": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment "
-                                 "short; check the O-to-N shift", [])},
-    "thr-hydroxyl": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment "
-                                 "short; check the O-to-N shift", [])},
+    # Grounded in Chan & White 6.6, and in the repo's own "support ester" entry above:
+    #  * keep the acid treatment short      <- acylation happens in the acid itself, so exposure is
+    #    the thing to shorten;
+    #  * 5% hydrazine/DMF, on the FREE peptide <- "The acyl groups are easy to dispose of with 5%
+    #    hydrazine in dimethylformamide". NOT on-resin: hydrazinolysis cleaves the resin ester, and
+    #    this gate fires on the cleavage step itself;
+    #  * the migration is the real obstacle  <- "they migrate to amino groups as soon as the latter
+    #    are deprotonated", and the migration is not undone by hydrazine.
+    "ser-hydroxyl": {"default": ("keep the acid treatment short and get the peptide out of the acid; "
+                                 "the O-acyl that does form is stripped with 5% hydrazine in DMF on the "
+                                 "FREE peptide after cleavage, never on the resin (hydrazinolysis "
+                                 "cleaves the resin ester). Then check for the O-to-N shift: an acyl "
+                                 "group that survives the hydrazine has already migrated to the "
+                                 "backbone nitrogen", [])},
+    "thr-hydroxyl": {"default": ("keep the acid treatment short and get the peptide out of the acid; "
+                                 "the O-acyl that does form is stripped with 5% hydrazine in DMF on the "
+                                 "FREE peptide after cleavage, never on the resin (hydrazinolysis "
+                                 "cleaves the resin ester). Then check for the O-to-N shift: an acyl "
+                                 "group that survives the hydrazine has already migrated to the "
+                                 "backbone nitrogen", [])},
     "tyr": {"default": ("add a cation scavenger (TIS, phenol) and keep the acid treatment short", [])},
     "support ester": {"default": ("avoid hydrazine while the peptide is on the support; hydrazinolysis "
                                    "cleaves the resin ester, so use a linker stable to the Dde removal or "
@@ -1458,10 +1745,29 @@ def classify(text):
 # finding zero hazards fired — not because the molecules were clean, but because nothing told the
 # checker what reagent each step used.
 #
-# This is that missing piece: the representative conditions an operation runs under, so a
-# program-mode step can be handed to `classify` (and thence to `_compatibility`) exactly as a
-# free-text step is. One entry per transform the peptide generator can emit — assembly, the
-# dipeptide/pseudoproline endgame, global deprotection, and resin cleavage.
+# This is that missing piece for the steps that need it: the representative conditions an
+# operation runs under, so a program-mode step that names a transform id and supplies no
+# conditions prose of its own can be handed to `classify` (and thence to `_compatibility`) exactly
+# as a free-text step is.
+#
+# It is NOT "one entry per transform the peptide generator can emit", which this comment used to
+# claim. Measured 2026-10-22: the generator emits 13 ids this map does not cover, and all 344 of its
+# steps carried their own `conditions` string, so that path never consults the map at all. Its real
+# population is the MODEL-WRITTEN program, whose steps have no conditions line. The entries are the
+# peptide operations where one cocktail is the whole family — Fmoc removal is piperidine, TFA
+# cleavage is TFA. An id whose summary names a reagent family with more than one regime (ester
+# formation under DCC/DMAP versus H2SO4) is deliberately absent, because one string would put one
+# regime's hazards on the other's step. Absence is a coverage gap, not a clean step: `_compatibility`
+# marks such a step's record `unmodelled` when its own text classifies to nothing.
+#
+# The two hydrogenolyses are admissible under that rule because each summary names ONE regime,
+# "hydrogenolysis (H2/Pd-C)", and transfer hydrogenation (cyclohexene/Pd, ammonium formate)
+# classifies to the same class, so a single string serves both. It does NOT cover TMSI, which
+# cleaves the same Cbz/benzyl groups without hydrogenating an alkene or alkyne or reducing a
+# nitro/azide: `classify` has no pattern for TMSI at all, so a TMSI-annotated step would be
+# labelled "catalytic hydrogenation". That is a mislabel of the REGIME, never of the group — the
+# Cbz, benzyl-ester and benzyl-ether rows are right for TMSI too — and it is accepted rather than
+# fixed, because a TMSI pattern would have to be its own unit.
 #
 # The strings are real cocktails on purpose, so `classify` reads them through its ordinary
 # patterns rather than through a second code path; `conditions_for_transform` is the only new
@@ -1476,6 +1782,7 @@ _HYDRAZINOLYSIS = "hydrazine, DMF, 2 x 3 min"
 _PD_ALLYL = "Pd(PPh3)4, morpholine, DMF, 2 h"
 _TBAF = "TBAF, THF, 1 h"
 _ODMAB = "2% hydrazine monohydrate, DMF, 2 x 3 min"
+_HYDROGENOLYSIS = "H2, Pd/C"
 TRANSFORM_CONDITIONS = {
     # assembly
     "fmoc-removal": _FMOC_REMOVAL,
@@ -1503,16 +1810,19 @@ TRANSFORM_CONDITIONS = {
     "allyl-ester-removal": _PD_ALLYL,
     "otmse-removal": _TBAF,
     "odmab-removal": _ODMAB,
+    # hydrogenolysis: the catalytic H2/Pd regime, not the Pd(0) allyl chemistry above
+    "cbz-removal": _HYDROGENOLYSIS,
+    "benzyl-ester-hydrogenolysis": _HYDROGENOLYSIS,
 }
 
 
 def conditions_for_transform(transform_id):
     """The conditions a program-mode step runs under, from its transform id, or None if unmapped.
 
-    The bridge between a generated route (which names operations by id) and the hazard checker
+    The bridge between a program-mode route (which names operations by id) and the hazard checker
     (which reads a conditions string). A caller checking a program-mode route passes this result as
     the step's `reagents`, so the same `classify` -> `_compatibility` path serves both route forms.
-    Returns None for a transform outside the peptide set, so an unmapped id is a visible gap rather
+    Returns None for a transform with no entry here, so an unmapped id is a visible gap rather
     than a wrong class.
     """
     return TRANSFORM_CONDITIONS.get(transform_id)

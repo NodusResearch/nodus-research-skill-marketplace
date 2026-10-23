@@ -1924,6 +1924,16 @@ def _protection_examples(textbook_dir, forms):
     return out
 
 
+# The most steps one compatibility call may carry: SCHEMA_CEILINGS.compatibilitySteps in
+# src/engine/chemistryLimits.ts, which is the AUDIT's ceiling (MAX_STEPS_FLOOR in
+# src/engine/chemistryRouteAudit.ts). It was 24 — a first-draft number, never the engine's limit —
+# so a 39-statement peptide program had only its first 24 steps checked, by a route audit that ran
+# to 96, and the report said nothing about the other 15. Keep this in step with the schema and
+# src/worker.ts; the ceiling lives in three places only because a schema, a JS bundle and an
+# isolated Python interpreter cannot share one constant.
+COMPATIBILITY_STEP_LIMIT = 96
+
+
 def _compatibility(steps, textbook_dir=None):
     """Per route step: groups in the substrate that survive into the product although a reagent
     named in the step's conditions attacks them, and protecting groups that vanish with no reagent
@@ -1940,6 +1950,29 @@ def _compatibility(steps, textbook_dir=None):
     alpha_centre = Chem.MolFromSmarts("[NX3][CX4;H1]([CX3]=[OX1])")
     cysteine_centre = Chem.MolFromSmarts("[NX3][CX4;H1]([CX3]=[OX1])[CH2][S]")
     free_acid = Chem.MolFromSmarts("[CX3](=O)[OX2H1]")
+    # A backbone peptide bond, for the mineral-acid N-to-O shift (Chan & White 6.6). The
+    # acyl carbon's other neighbour must be a CARBON, which excludes a primary amide (a C-terminal
+    # NH2), an Asn/Gln side-chain amide, and a Boc/urethane (its neighbour is O). N-methylated and
+    # cyclic backbones still match, which is the domain this project cares about.
+    peptide_bond = Chem.MolFromSmarts("[CX4][NX3][CX3](=[OX1])[CX4]")
+
+    def shift_ready(smiles_list, group):
+        """Whether the SAME molecule carries this hydroxyl AND a peptide bond.
+
+        The shift is intramolecular — "the acyl group originates by a shift of the acyl component
+        of a peptide bond to the adjacent hydroxyl group" — so an aggregate reading is wrong: a
+        coupling step that lists a peptide beside Fmoc-Ser-OH would fire on the building block
+        because the OTHER molecule has a bond. Read per molecule, on whichever side of the step
+        is the relevant one (reactants for a survivor, products for an unmasked group).
+        """
+        query = patterns.get(group)
+        if query is None:
+            return False
+        for smiles in smiles_list:
+            mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) and smiles.strip() else None
+            if mol is not None and mol.HasSubstructMatch(query) and mol.HasSubstructMatch(peptide_bond):
+                return True
+        return False
 
     def counts(smiles_list):
         found = Counter()
@@ -1969,6 +2002,75 @@ def _compatibility(steps, textbook_dir=None):
             break
     final_counts = counts(final_products)
 
+    # ONE TREATMENT WRITTEN AS SEVERAL STATEMENTS. The route model names exactly one operation per
+    # `apply`, so a reagent treatment that frees two groups is two statements: an Alloc/OAll lactam
+    # route removes the allyl ester, then the Alloc carbamate, both `Pd(PPh3)4, morpholine, DMF`.
+    # The first statement's product still carries the carbamate, so the ATTACKS loop below calls it
+    # a survivor and prints its own remedy — "remove it deliberately with Pd(0)" — which is the very
+    # next statement. One false high finding, measured on the zilucoplan-style request the system
+    # prompt recommends (`reviews/2026-10-23-alloc-codeprotect-treatment/`).
+    #
+    # The gate is not given a treatment field and must not invent one on a closed step schema. What
+    # it IS given is the application's own convention: a program-mode step's `reagents` is
+    # `actual conditions; <arrow>`, and on a generated program the arrow is the operation id
+    # (`moleculeInspection.ts` — actualConditions + `compatibilityReagentText`, whose `conditions`
+    # is the note or the operation id; the generator writes no `note` and names no species, so the
+    # arrow is the id alone). Two statements of one treatment therefore differ only in that tail.
+    #
+    # The tail is stripped ONLY when it really is a curated transform id. That is what keeps the
+    # names-first path out of this: it has no such tail, so it gets no base and can never join a
+    # run — not even two of its steps that happen to carry identical reagent text, which the
+    # application does NOT treat as one treatment either (it attaches `treatment` from the
+    # generator's conditions, and names-first passes none). A written program whose arrow carries
+    # names after the id strips nothing and is simply never grouped, which is the safe direction:
+    # no suppression.
+    def treatment_base(text):
+        head, separator, tail = text.rpartition("; ")
+        if separator and head.strip() and T.conditions_for_transform(tail) is not None:
+            return head.strip()
+        return None
+
+    bases = []
+    for candidate in steps:
+        candidate = candidate if isinstance(candidate, dict) else {}
+        bases.append(treatment_base(str(candidate.get("reagents") or "")))
+    # The LAST step of the maximal consecutive run each step belongs to, or None. A group the run
+    # removes later did not survive the treatment, so the "survives into the product" and "another
+    # X reacts while this one must survive" texts are both false of it. A group that is still in
+    # the run's last product is untouched.
+    run_last = [None] * len(bases)
+    for start in range(len(bases)):
+        if bases[start] is None or (start and bases[start - 1] == bases[start]):
+            continue
+        end = start
+        while end + 1 < len(bases) and bases[end + 1] == bases[start]:
+            end += 1
+        for position in range(start, end + 1):
+            run_last[position] = end
+    end_counts = {}
+
+    def removed_later_in_treatment(group, index):
+        """Whether the same treatment's LAST product no longer carries this group.
+
+        The predicate's first clause (the group is in THIS step's product) is already established by
+        the caller: it only asks about a hazard raised from `survives`.
+
+        Read against the last step only, not against any later one: a group removed and re-installed
+        inside one run did survive the treatment. And an inventory that came back EMPTY means the
+        product was not read, not that the group is gone — suppressing on that would turn a step the
+        gate could not parse into a silent pass, which is the one failure this project treats as
+        worse than a false finding.
+        """
+        end = run_last[index]
+        if end is None or end <= index:
+            return False
+        if end not in end_counts:
+            last = steps[end] if isinstance(steps[end], dict) else {}
+            end_counts[end] = counts([s for s in last.get("products", []) if isinstance(s, str)][:12])
+        if not end_counts[end]:
+            return False
+        return end_counts[end].get(group, 0) == 0
+
     carbonyl_reacting = {"aldehyde", "ester", "acid-chloride", "anhydride", "lactone", "ketone"}
     # `asn-gln-amide` is a property of the BUILDING-BLOCK CHOICE, not of each activation that later
     # carries the residue. `survives` deliberately reads carry-through, so once an unprotected Asn
@@ -1988,7 +2090,38 @@ def _compatibility(steps, textbook_dir=None):
         reactants = [s for s in step.get("reactants", []) if isinstance(s, str)][:12]
         products = [s for s in step.get("products", []) if isinstance(s, str)][:12]
         text = str(step.get("reagents") or "")[:2000]
+        # A PROGRAM-MODE step names its operation by transform id and carries no conditions prose,
+        # so `classify` reads nothing from it and every gate below stays silent. Verified
+        # 2026-10-17: the generator's own routes executed cleanly and fired zero hazards, not
+        # because the molecules were clean but because nothing told the checker what each step
+        # used. `conditions_for_transform` is that missing piece.
+        #
+        # The mapped conditions LEAD and the step's own text follows, rather than the other way
+        # round. In the local generator the caller's string is a real conditions line and wins; on
+        # this path it is the arrow text, which is the model's free-form NOTE when it wrote one.
+        # A note is prose, not a conditions line, so preferring it would let an annotated step
+        # silence the very gates an unannotated one trips.
+        transform = step.get("transform")
+        mapped = T.conditions_for_transform(transform) if isinstance(transform, str) and transform else None
+        if mapped:
+            text = (mapped + "; " + text)[:2000] if text else mapped
         classes = T.classify(text)
+        # A step naming a curated transform the map does not cover, whose own text classifies to
+        # nothing, has NOT been examined: every gate below reads `classes`, so with none of them it
+        # has nothing to say and the step renders exactly like a clean one. That is the failure this
+        # field exists to stop — measured 2026-10-22, 210 of 213 captured program steps on an
+        # unmapped id were in this state, and every one of them read as a pass. Say it on the step's
+        # own record, where both facts are known, rather than in a second reader of the map.
+        #
+        # `smarts` is excluded because it is not a curated id: it is the app's word for a line that
+        # supplied its own pattern (`operationName`, shared/moleculeInspection.ts), and no map entry
+        # could ever cover it. Marking it would claim a curated transformation named `smarts` is
+        # unmodelled, which is a different and false statement.
+        #
+        # A note that does classify (three of the 213) leaves no marker: that step WAS examined, for
+        # the reagent the note names, and calling it unexamined would understate the check.
+        unmodelled = (transform if isinstance(transform, str) and transform and transform != "smarts"
+                      and mapped is None and not classes else None)
         before, after = counts(reactants), counts(products)
         survives = {g for g in before if after.get(g, 0) > 0}
         reacted = {g for g in before if after.get(g, 0) < before[g]}
@@ -1996,6 +2129,13 @@ def _compatibility(steps, textbook_dir=None):
         for cls in classes:
             for group, severity, why in T.ATTACKS.get(cls, []):
                 if group not in survives or (group, cls) in seen:
+                    continue
+                # The same treatment removes it in a later statement: it did not survive the
+                # treatment, so both this loop's wordings are false of it. Scoped to the ATTACKS
+                # rows on purpose — a group that is present and STAYS present is untouched, and
+                # the unmasked/activation readings below describe what a step CREATES, which a
+                # later statement of the run does not undo.
+                if removed_later_in_treatment(group, index):
                     continue
                 if group in ("asn-gln-amide", "asp-pro") and group in reported_once:
                     continue
@@ -2029,9 +2169,67 @@ def _compatibility(steps, textbook_dir=None):
                 # to compete with, and flagging it would be wallpaper.
                 if group == "free-alpha-carboxyl" and not (reacted & {"alcohol", "phenol"}):
                     continue
-                # A named cation scavenger is the remedy for O-acylation and Tyr alkylation.
-                if group in ("ser-hydroxyl", "thr-hydroxyl", "tyr") and cls == "strong-acid" \
-                        and T.has_cation_scavenger(text):
+                # Ser/Thr O-acylation has TWO possible acyl sources (Chan & White 6.6), and the
+                # gate may fire only when one of them is present:
+                #
+                #   * the ACID DONATES THE ACYL. "Hydroxyl groups of peptides undergo acylation
+                #     when the latter are dissolved in strong carboxylic acids such as formic and
+                #     trifluoroacetic acids", and "In the weaker acetic acid, acylation occurs if
+                #     the acid is saturated with hydrogen bromide or chloride" — which is why
+                #     HBr/AcOH is a donor cell.
+                #   * a STRONG MINERAL ACID SHIFTS THE ACYL OFF A PEPTIDE BOND. "O-Acylation of
+                #     peptides also occurs in strong mineral acids such as sulfuric and phosphoric
+                #     acids, but in this case the acyl group originates by a shift of the acyl
+                #     component of a peptide bond to the adjacent hydroxyl group." The shift is
+                #     intramolecular, so `shift_ready` requires the bond on the SAME molecule.
+                #
+                # HCl, HBr, HI, HNO3, HClO4, MsOH and TfOH are NOT in the shift list. That is an
+                # ABSENCE OF EVIDENCE, not a positive rule: 6.6 names only sulfuric, phosphoric and
+                # hydrogen fluoride for the shift, and its one HCl sentence is about suppressing
+                # acyl TRANSFER in TFA ("not if the latter contains 6 M hydrogen chloride"), not
+                # about forming the O-acyl. So `NaNO2/HCl` stays silent — and the reason is the acid
+                # list, not the bond test: the NCL fragment is a tetrapeptide hydrazide and DOES
+                # carry a peptide bond.
+                #
+                # SER/THR ONLY, and deliberately: `tyr` is NOT source-tested on this SURVIVOR
+                # path. Its side reaction is a different one (ring t-butylation, which does need a
+                # cation), and here the cation source is the survivor's own acid-labile support —
+                # every linker this table knows is a cation precursor. The only linker evidence
+                # available is `has_trityl_linker`, and a trityl linker is not evidence of safety:
+                # Chan & White's cation-reactivity order puts trityl in the same band as tert-butyl
+                # ("xanthenyl, methylbenzhydryl > acetamidomethyl, trityl, tert-butyl"), and the
+                # free-indole gate below lists `trityl` among the cation SOURCES. A trityl-linker
+                # test was implemented, measured and withdrawn for that reason; the linker can be
+                # invisible in both the structure (a bare `*`) and the conditions. So the survivor
+                # keeps the conservative, unguarded reading. The PRODUCT side is different and IS
+                # source-tested: the UNMASKED loop below fires only when the step visibly frees a
+                # tert-butyl group of this molecule's own.
+                #
+                # The class tuple is where a new acid class must be registered: a class that is not
+                # listed here never reaches this test, so its rows would fire on a molecule that
+                # carries neither an acyl donor nor a peptide bond. `formic-acid` is donor-only, so
+                # the acid-source test is a no-op for it today (every string it matches also passes
+                # `has_acyl_donor_acid`); listing it keeps the two classes bound to one rule.
+                if group in ("ser-hydroxyl", "thr-hydroxyl") \
+                        and cls in ("strong-acid", "formic-acid") \
+                        and not (T.has_acyl_donor_acid(text) or (T.has_shift_acid(text)
+                                                                 and shift_ready(reactants, group))):
+                    continue
+                # A step that names formic acid AND an activator is a FORMYLATION, not an acid
+                # treatment: the acid is the acyl source the step intends to consume, and
+                # `ATTACKS["acylating"]` already reports the hydroxyl ("may be acylated") with the
+                # remedy for that reaction. A second Ser/Thr row would repeat the finding and attach
+                # the acidolysis advice ("keep the acid treatment short") to a DIC/HOBt step in DMF.
+                # Scoped to the new class on purpose: `strong-acid` keeps its reading untouched,
+                # including `TFA/HOBt`, where the acid is the medium and not the coupling partner.
+                if group in ("ser-hydroxyl", "thr-hydroxyl") and cls == "formic-acid" \
+                        and "acylating" in classes:
+                    continue
+                # A named cation scavenger is the remedy for Tyr RING ALKYLATION and for nothing
+                # in the Ser/Thr row: their side reaction is O-acylation by the acid, which no
+                # cation trap touches. TIS/phenol are real remedies for the Tyr case (tBu cation),
+                # so `tyr` keeps the clause; the two hydroxyls must not.
+                if group == "tyr" and cls == "strong-acid" and T.has_cation_scavenger(text):
                     continue
                 # Acm only exchanges when a thiol (or thioanisole) is present; plain TFA is not the
                 # trigger, so the gate would otherwise fire on every Cys(Acm) route.
@@ -2099,10 +2297,39 @@ def _compatibility(steps, textbook_dir=None):
                 # the silane-reduction class report it with the -71 message instead of two messages.
                 if group == "free-indole" and cls == "strong-acid" and "silane-reduction" in classes:
                     continue
-                # A named cation scavenger is the remedy for O-acylation and Tyr alkylation. The
-                # indole gate already has its own scavenger path; these two need the same answer.
-                if group in ("ser-hydroxyl", "thr-hydroxyl", "tyr") and cls == "strong-acid" \
-                        and T.has_cation_scavenger(text):
+                # The same two-source test as the survivor path above, read against the PRODUCTS
+                # because this is the step that frees the side chain (Ser(tBu) -> Ser in the very
+                # TFA that then acylates it). A reading that only looked at survivors missed the
+                # risk entirely on a head-to-tail cyclic route, whose last statement IS the tBu
+                # removal.
+                if group in ("ser-hydroxyl", "thr-hydroxyl") \
+                        and cls in ("strong-acid", "formic-acid") \
+                        and not (T.has_acyl_donor_acid(text) or (T.has_shift_acid(text)
+                                                                 and shift_ready(products, group))):
+                    continue
+                # Same duplication test as the survivor path: the deprotection that frees the
+                # hydroxyl under a formylation's own acid reports the `acylating` alcohol finding,
+                # and this row would repeat it with the acidolysis remedy. Formic only.
+                if group in ("ser-hydroxyl", "thr-hydroxyl") and cls == "formic-acid" \
+                        and "acylating" in classes:
+                    continue
+                # No cation scavenger clears ser/thr. The acid — not a cation — is their acyl
+                # source (see the survivor path), so a scavenged cocktail changes nothing about
+                # the step that lays the hydroxyl bare. `tyr` is the opposite case and is guarded
+                # first below: a scavenger IS its remedy, and the row fires only when the step is
+                # visibly freeing a tert-butyl group of its own.
+                #
+                # Ring t-butylation needs a cation, and this is the one place the source is
+                # visible: the phenol is being laid bare in the same acid that is releasing this
+                # molecule's own tert-butyl cation. The test is the `free-indole` source test
+                # narrowed to the tBu groups the `+56` signature is about, NOT a linker test. A
+                # named 2-chlorotrityl / Barlos support must keep firing (a trityl cation is in
+                # tert-butyl's reactivity band, and the support itself is a bare `*`), which is
+                # why `has_trityl_linker` is not consulted here. The ATTACKS-side guard above is
+                # untouched: a free phenol SURVIVING the acid is still reported there.
+                if group == "tyr" and cls == "strong-acid" \
+                        and (T.has_cation_scavenger(text)
+                             or not (before.keys() & {"boc", "tbu-ester", "tbu-ether"})):
                     continue
                 # Acm only exchanges when a thiol (or thioanisole) is present. Plain TFA is not the
                 # trigger, so the gate would otherwise fire on every Cys(Acm) route.
@@ -2168,15 +2395,34 @@ def _compatibility(steps, textbook_dir=None):
         # was rejected against a target that accidentally specified D-Ala, the model substituted a D
         # block to match it, and the route then verified.
         #
-        # Only reactants carrying a FREE CARBOXYLIC ACID are read: that is the incoming building
-        # block, not the growing resin-bound chain (whose acid is an ester to the support), so the
-        # flag lands on the step that introduces the residue and not on every later coupling.
+        # Only the step that INTRODUCES the residue is read, and it couples ONE building block.
+        # A free acid alone does not identify a block. A head-to-tail route releases its linear
+        # precursor into solution to close the ring, and a later side-chain deprotection can free
+        # an Asp/Glu acid, so the whole peptide then carries a free carboxyl: reading it would
+        # re-flag the same D residue at every one of those steps, each time worded as if that step
+        # had coupled the block. The number of alpha centres is what separates them — a monomer has
+        # one, a peptide has one per stereogenic residue; a resin-bound chain's own carboxyl is the
+        # ester to the support, and a freed side-chain acid is still on a peptide, so the count
+        # excludes that too.
+        #
+        # A peptide-bond test is NOT equivalent and is the less safe predicate: `[CX4][NX3]C(=O)`
+        # also matches a Trt-protected Asn/Gln side-chain amide and a Cys(Acm) acetamide, so it
+        # would skip those genuine monomers. The alpha-centre count only skips a molecule that
+        # really holds more than one stereogenic residue. The converse case is the cost: a
+        # dipeptide block with two stereogenic centres is skipped, so a D centre in it would not
+        # be flagged. The shipped table contains no such block (the three dipeptides are Asp-Gly,
+        # Ala-Ser and Gly-Pro, all L; test_d_amino_acid pins that). A dipeptide whose partner is
+        # Gly still counts one, because Gly's alpha carbon has no H: correct at a coupling
+        # (D-Ala-Gly is a block carrying one D centre) and a duplicate only when that same molecule
+        # is itself the head-to-tail precursor.
         d_block = False
         for smiles in reactants:
             if d_block:
                 break
             mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) and smiles.strip() else None
             if mol is None or not mol.HasSubstructMatch(free_acid):
+                continue
+            if len(mol.GetSubstructMatches(alpha_centre)) != 1:
                 continue
             Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
             cysteines = {match[1] for match in mol.GetSubstructMatches(cysteine_centre)}
@@ -2248,7 +2494,12 @@ def _compatibility(steps, textbook_dir=None):
         for hazard in hazards:
             hazard["protectedForms"] = [form[0] for form in hazard.pop("_forms")]
         hazards.sort(key=lambda h: (h["severity"] != "high", h["group"]))
-        results.append({"step": index + 1, "reagentClasses": [{"id": c, "label": T.label_of(c)} for c in classes], "hazards": hazards})
+        record = {"step": index + 1, "reagentClasses": [{"id": c, "label": T.label_of(c)} for c in classes], "hazards": hazards}
+        # Present only when there is a gap to report, so a mapped or classified step's record keeps
+        # exactly the shape it had and no consumer has to distinguish "none" from "not applicable".
+        if unmodelled:
+            record["unmodelled"] = unmodelled
+        results.append(record)
     return results
 
 
@@ -2352,7 +2603,38 @@ def _opsin_local(opsin_dir, names):
     return out
 
 
+_LOCAL_EXTENSION = False  # not-yet-looked-up; becomes the module or None after the first lookup
+
+
+def _local_extension():
+    """The optional local worker extension (`worker_local`), or None when the package ships without
+    one. Looked up once. A local build keeps the module beside this file; -I keeps this directory
+    off sys.path, so it is added the way the other local imports here do. Released builds carry no
+    such module and this stays None, so the dispatch below it is a no-op."""
+    global _LOCAL_EXTENSION
+    if _LOCAL_EXTENSION is not False:
+        return _LOCAL_EXTENSION
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        import worker_local
+        _LOCAL_EXTENSION = worker_local
+    except ImportError:
+        _LOCAL_EXTENSION = None
+    return _LOCAL_EXTENSION
+
+
 def handle(request):
+    # An optional local-only extension handles request keys this published worker does not ship
+    # (e.g. a local route generator). It is absent from released builds, so this is a no-op then.
+    # Given this module, it can reuse the tables and helpers here; it returns a response to claim
+    # the request, or None to decline — then the core handlers below run as usual.
+    extension = _local_extension()
+    if extension is not None:
+        handled = extension.handle(request, sys.modules[__name__])
+        if handled is not None:
+            return handled
     if "routeProgram" in request:
         # -I keeps this file's directory off sys.path, so the module beside it is put there, as
         # _compat_tables does for its own table.
@@ -2387,7 +2669,7 @@ def handle(request):
             [t for t in request.get("decompose", []) if isinstance(t, str) and t.strip()],
             library_dir if isinstance(library_dir, str) and library_dir else None)}
     if "compatibility" in request:
-        steps = [x for x in request.get("compatibility", []) if isinstance(x, dict)][:24]
+        steps = [x for x in request.get("compatibility", []) if isinstance(x, dict)][:COMPATIBILITY_STEP_LIMIT]
         textbook = request.get("textbookDir")
         return {"compatibility": _compatibility(steps, textbook if isinstance(textbook, str) and textbook else None)}
     if "aggregation" in request:

@@ -1,3 +1,21 @@
+# Chemistry Studio 2.11.1
+
+This release is the peptide side-reaction set. Ser/Thr O-acylation is an acyl-donor test with two
+sources — the acid itself (TFA, formic; acetic acid only when saturated with HBr or HCl) or, in
+sulfuric/phosphoric/hydrofluoric acid, an acyl group shifted off a peptide bond — and no cation
+scavenger clears it. Formic acid is its own donor class, the spelled "hydrogen bromide in acetic
+acid" classifies as the strong acid it is, and Ser/Thr carry no single mass signature: the
+mineral-acid arm is an isobaric N-to-O shift, not a different adduct. The two hydrogenolysis ids
+(`cbz-removal`, `benzyl-ester-hydrogenolysis`) now have their conditions, so their steps are
+examined rather than unmodelled. Tyr ring t-butylation is raised at the step that frees the phenol,
+source-tested on the molecule's own tert-butyl group and a missing cation scavenger — a named
+2-CTC/2-chlorotrityl/Barlos support still fires, because trityl is in tert-butyl's reactivity band.
+The D-alpha-amino-acid gate reads only the one-alpha-centre block that introduces the residue, so a
+head-to-tail linear precursor is not re-flagged at the closure and deprotection. One Alloc/OAll
+Pd(0) treatment written as two statements is read as one treatment, so the carbamate is not called
+a survivor when the next statement of the same pot removes it. No permission or data-migration
+changes.
+
 # Chemistry Studio 2.11.0
 
 Adds explicit regioisomer control for unsymmetrical ring closures. A route-program `apply` line may now name its two closure sites as an ordered `sites=[...]` list, and a curated closure may declare a `select` map that keeps only the product where a named site is bonded to a specific reagent atom. The first consumer is the unsymmetrical mDBX-oCOOH staple: `mdbx-staple-ortho` and `mdbx-staple-para` each select one product instead of refusing the two possible regioisomers. The toolkit still refuses when the sites are not both named. No permission or data-migration changes.
